@@ -19,6 +19,9 @@ public sealed class ServerOptions
     /// <summary>Refuses daemon WebSockets, as some proxies do, to try the long-poll fallback.</summary>
     public bool RefuseDaemonWebSockets { get; set; }
 
+    /// <summary>How often a running daemon rollout is moved along.</summary>
+    public int RolloutTickSeconds { get; set; } = 15;
+
     public OidcOptions? Oidc { get; set; }
 
     /// <summary>Set to run this server as one node of a cluster; null is single-node mode.</summary>

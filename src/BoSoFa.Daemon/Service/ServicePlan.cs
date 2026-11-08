@@ -42,6 +42,10 @@ public static class ServicePlans
             : new([], [], [["schtasks.exe", "/End", "/TN", WindowsName], ["schtasks.exe", "/Delete", "/TN", WindowsName, "/F"]])
     };
 
+    /// <summary>A system install runs as root, but the service must own its identity, outbox and logs.</summary>
+    static string[][] Chown(ServiceTarget target) =>
+        target is { System: true, ServiceUser: { } user } ? [["chown", "-R", user, target.DataDirectory]] : [];
+
     static string SystemdPath(ServiceTarget target) => target.System
         ? "/etc/systemd/system/" + SystemdUnit
         : $"{target.Home}/.config/systemd/user/{SystemdUnit}";
@@ -59,7 +63,7 @@ public static class ServicePlans
         if (target.System && target.ServiceUser != null) unit.Append($"User={target.ServiceUser}\n");
         unit.Append("Restart=always\nRestartSec=5\nKillMode=mixed\nTimeoutStopSec=30\n\n[Install]\n");
         unit.Append($"WantedBy={(target.System ? "multi-user.target" : "default.target")}\n");
-        List<string[]> commands = [[.. Systemctl(target), "daemon-reload"], [.. Systemctl(target), "enable", "--now", SystemdUnit]];
+        List<string[]> commands = [..Chown(target), [.. Systemctl(target), "daemon-reload"], [.. Systemctl(target), "enable", "--now", SystemdUnit]];
         // Without lingering a user service stops at the last logout.
         if (!target.System) commands.Insert(0, ["loginctl", "enable-linger"]);
         return new([new(SystemdPath(target), unit.ToString())], [], commands.ToArray());
@@ -91,7 +95,7 @@ public static class ServicePlans
         plist.Append("  <key>EnvironmentVariables</key>\n  <dict>\n    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>\n  </dict>\n");
         if (target.System && target.ServiceUser != null) plist.Append($"  <key>UserName</key><string>{Xml(target.ServiceUser)}</string>\n");
         plist.Append($"  <key>StandardOutPath</key><string>{log}</string>\n  <key>StandardErrorPath</key><string>{log}</string>\n</dict>\n</plist>\n");
-        return new([new(PlistPath(target), plist.ToString())], [], [["launchctl", "bootstrap", LaunchdDomain(target), PlistPath(target)]]);
+        return new([new(PlistPath(target), plist.ToString())], [], [..Chown(target), ["launchctl", "bootstrap", LaunchdDomain(target), PlistPath(target)]]);
     }
 
     static ServicePlan InstallWindows(ServiceTarget target)

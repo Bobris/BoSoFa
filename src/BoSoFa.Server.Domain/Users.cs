@@ -85,7 +85,8 @@ public static class Domain
         typeof(ISessionItemTable), typeof(IRuntimeRequestTable), typeof(IMachineCommandTable),
         typeof(IMachinePresenceTable), typeof(IHarnessAccountTable),
         typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable), typeof(IMcpServerTable),
-        typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable), typeof(IAuditEntryTable)
+        typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable), typeof(IAuditEntryTable),
+        typeof(IDaemonReleaseTable), typeof(IMachineUpdatePolicyTable), typeof(IDaemonRolloutTable), typeof(IDaemonRolloutMachineTable)
     ];
 
     public static EventDispatcher CreateDispatcher(IDomainSignals signals) => new EventDispatcher()
@@ -112,5 +113,10 @@ public static class Domain
         .Register(new ProfileSavedHandler())
         .Register(new ApiTokenCreatedHandler())
         .Register(new ApiTokenRevokedHandler())
-        .Register(new ActionAuditedHandler());
+        .Register(new ActionAuditedHandler())
+        .Register(new DaemonReleasePublishedHandler())
+        .Register(new MachineUpdatePolicySetHandler())
+        .Register(new DaemonRolloutStartedHandler())
+        .Register(new DaemonRolloutHaltRequestedHandler())
+        .Register(new DaemonRolloutTickedHandler(signals));
 }

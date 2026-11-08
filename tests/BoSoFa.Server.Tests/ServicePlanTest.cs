@@ -21,6 +21,7 @@ public class ServicePlanTest
         var system = ServicePlans.Install(Target(ServiceOs.Linux, true, "alice"));
         Assert.Equal("/etc/systemd/system/bosofad.service", system.Files[0].Path);
         Assert.Contains("User=alice\n", system.Files[0].Content);
+        Assert.Equal(["chown", "-R", "alice", "/data dir"], system.Commands[0]);
         Assert.DoesNotContain(system.Commands, command => command.Contains("--user") || command[0] == "loginctl");
         Assert.Contains("%%", ServicePlans.Install(Target(ServiceOs.Linux, false) with { DataDirectory = "/a%b" }).Files[0].Content);
     }
@@ -36,7 +37,8 @@ public class ServicePlanTest
 
         var daemon = ServicePlans.Install(Target(ServiceOs.MacOs, true, "alice"));
         Assert.Contains("<key>UserName</key><string>alice</string>", daemon.Files[0].Content);
-        Assert.Equal("system", daemon.Commands.Single()[2]);
+        Assert.Equal(["chown", "-R", "alice", "/data dir"], daemon.Commands[0]); // it is installed by root, and runs as alice
+        Assert.Equal("system", daemon.Commands[1][2]);
     }
 
     [Fact]

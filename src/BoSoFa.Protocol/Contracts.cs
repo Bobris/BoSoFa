@@ -19,7 +19,7 @@ public sealed record UserDto(ulong Id, string Name, string Email, UserRole Role)
 public static class ProtocolVersion
 {
     /// <summary>Bumped on every incompatible change of the daemon or client wire protocol.</summary>
-    public const int Current = 4;
+    public const int Current = 5;
 }
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web, UseStringEnumConverter = true)]
@@ -86,6 +86,12 @@ public static class ProtocolVersion
 [JsonSerializable(typeof(CreateApiTokenRequest))]
 [JsonSerializable(typeof(CreatedApiToken))]
 [JsonSerializable(typeof(AuditEntryDto[]))]
+[JsonSerializable(typeof(DaemonManifest))]
+[JsonSerializable(typeof(PublishDaemonRelease))]
+[JsonSerializable(typeof(DaemonReleaseDto[]))]
+[JsonSerializable(typeof(StartDaemonRollout))]
+[JsonSerializable(typeof(DaemonRolloutDto[]))]
+[JsonSerializable(typeof(SetMachineUpdatePolicy))]
 [JsonSerializable(typeof(HelloMessage))]
 [JsonSerializable(typeof(DaemonMessage[]))]
 [JsonSerializable(typeof(PollOpened))]

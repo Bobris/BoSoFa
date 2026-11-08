@@ -20,6 +20,9 @@ public sealed class Launcher(VersionStore versions, Func<string, ILauncherChild>
 {
     public const int SwitchVersionExitCode = 75;
     public const string LaunchedVariable = "BOSOFA_LAUNCHED";
+
+    /// <summary>The version the launcher knows this child by, which is what it reports and confirms.</summary>
+    public const string VersionVariable = "BOSOFA_VERSION";
     static readonly TimeSpan MaximumBackoff = TimeSpan.FromSeconds(30);
 
     readonly TimeSpan _trialLimit = trialLimit ?? TimeSpan.FromMinutes(2);
@@ -120,6 +123,7 @@ public sealed class ProcessChild : ILauncherChild
         var info = new ProcessStartInfo(executable) { UseShellExecute = false, RedirectStandardInput = true };
         foreach (var argument in new[] { "run", "--data-dir", dataDirectory }.Concat(extraArguments)) info.ArgumentList.Add(argument);
         info.Environment[Launcher.LaunchedVariable] = "1";
+        info.Environment[Launcher.VersionVariable] = Path.GetFileName(Path.GetDirectoryName(executable));
         _process = Process.Start(info)!;
     }
 

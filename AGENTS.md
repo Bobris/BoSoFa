@@ -26,6 +26,8 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 - Cluster for development: `dotnet run --project tools/BoSoFa.DevCluster` starts Azurite (`npm install --global
   azurite`), three nodes as separate processes and a front door on http://localhost:5080 (data in `data/cluster`).
   Type `kill 1` / `start 1` to try failover. The SPA dev server and daemons point at port 5080 as usual.
+- Service and updates: `bosofad install --dry-run` prints the service definition; `bosofad doctor` checks a machine. Releases are signed with
+  `bosofad release-keygen` / `release-publish`; a build needs `-p:BoSoFaReleasePublicKey=<key>` to accept them.
 - API changed: `BOSOFA_UPDATE_CONTRACT=1 dotnet test tests/BoSoFa.Server.Tests --filter ContractTest`, then
   `pnpm --dir web gen:api`. CI fails when either `openapi.json` or `schema.d.ts` is stale.
 

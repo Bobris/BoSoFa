@@ -29,6 +29,9 @@ export default function Home() {
               Catalog
             </a>
             <Show when={user().role === "Admin"}>
+              <a href={paths.releases()} class="text-sm text-muted hover:text-ink">
+                Releases
+              </a>
               <a href={paths.audit()} class="text-sm text-muted hover:text-ink">
                 Audit
               </a>

@@ -564,7 +564,7 @@ Done when: install on Windows, macOS and Linux, roll out a new daemon version re
 2. **Audit.** *Done:* commands write their entry in their own transaction; file transfers, terminals and account leases are recorded as they happen. Admins read it at `/audit`.
 3. **Long-poll fallback.** *Done:* after three refused WebSocket upgrades the daemon long-polls and tries a WebSocket again every 15 minutes (`--transport` forces either). A channel lives on one node; other nodes forward to it on the peer port.
 4. **Service install.** *Done:* `bosofad install` writes a systemd unit, a launchd plist, or a Windows Service or logon task, all running the stable launcher, and `doctor` checks what the daemon needs. CI installs a real system service on all three OSes. The launcher already keeps versions side by side and takes back a new version that does not reach the server.
-5. **Launcher and self-update.** Versions side by side, trial and rollback, signed manifests, channels and waves.
+5. **Launcher and self-update.** *Done, run for real with published macOS binaries:* a signed release reached a running daemon and was confirmed after it reconnected, and a deliberately broken release was taken back by the launcher and halted its rollout. Manifests are signed offline (`bosofad release-keygen`, `release-publish`) and a build embeds the public key through `-p:BoSoFaReleasePublicKey=…`. A build without a key refuses every update. Machines wait for their sessions to go idle, for at most 30 minutes. Channels and pins are in the API; only rollouts have a page so far.
 
 ## 10. Risks
 

@@ -10,6 +10,10 @@
     <StripSymbols>true</StripSymbols>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+  <ItemGroup Condition="'$(BoSoFaReleasePublicKey)' != ''">
+    <!-- The key that signs releases; a build without one refuses every update. -->
+    <AssemblyMetadata Include="BoSoFaReleasePublicKey" Value="$(BoSoFaReleasePublicKey)" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
     <PackageReference Include="System.ServiceProcess.ServiceController" />
