@@ -51,6 +51,10 @@ public static class ServerApp
         builder.Services.AddSingleton<LiveHub>();
         builder.Services.AddSingleton<LiveRelay>();
         builder.Services.AddSingleton<MachineRpcClient>();
+        builder.Services.AddSingleton<DaemonPump>();
+        builder.Services.AddSingleton<LongPollChannels>();
+        builder.Services.AddSingleton<PollEndpoints>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<PollEndpoints>());
         builder.Services.AddSingleton<IDomainSignals, DomainSignals>();
 
         // BTDB: one replicated database plus the EventLog (see NodeStorage).
@@ -112,6 +116,9 @@ public static class ServerApp
                 (HttpContext http, ulong machineId, LiveRelay relay) => relay.ServeAsync(http, machineId)).RequireHost(peerHost);
             app.MapPost(MachineRpcClient.PathPrefix + "{machineId}/rpc",
                 (HttpContext http, ulong machineId, MachineRpcClient rpc) => rpc.ServeAsync(http, machineId)).RequireHost(peerHost);
+            app.MapMethods(PollEndpoints.PeerPrefix + "{machineId}/{connection}/{action}", ["GET", "POST"],
+                (HttpContext http, ulong machineId, string connection, string action, PollEndpoints endpoints) =>
+                    endpoints.ServePeerAsync(http, machineId, connection, action)).RequireHost(peerHost);
         }
         app.MapSpa(Path.GetFullPath(options.WebRoot, builder.Environment.ContentRootPath));
         return app;

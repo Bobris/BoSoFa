@@ -26,9 +26,9 @@ sealed class TestServer : IAsyncDisposable
     public BoSoFa.Server.Btdb.BtdbNode Node => _app.Services.GetRequiredService<BoSoFa.Server.Btdb.BtdbNode>();
     bool _running;
 
-    public static async Task<TestServer> StartAsync(string? dataDirectory = null)
+    public static async Task<TestServer> StartAsync(string? dataDirectory = null, string[]? extraArgs = null)
     {
-        var server = new TestServer(dataDirectory ?? Path.Combine(Path.GetTempPath(), "bosofa-test-" + Guid.NewGuid().ToString("N")));
+        var server = new TestServer(dataDirectory ?? Path.Combine(Path.GetTempPath(), "bosofa-test-" + Guid.NewGuid().ToString("N")), extraArgs);
         await server.StartAppAsync();
         return server;
     }

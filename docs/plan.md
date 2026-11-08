@@ -556,6 +556,16 @@ Done when: a profile pushes a new skill and an MCP server to a machine and a ses
 4. **Files.** *Done, in the browser too:* list, text preview, download and upload under the allowed roots (`bosofad run --roots` plus the sessions' working directories). These are calls answered at once through the node holding the daemon, not durable commands: an offline machine fails the call instead of writing a file hours later. Glob uploads and a registered workspace list wait for projects.
 5. **Terminals.** *Done, tried in the browser on the published daemon (macOS; Windows ConPTY is covered by the CI test):* the shell lives on the machine with 256 KB of history. xterm.js attaches, several people can watch, and a byte offset on the output shows every byte once across reconnects. Output always streams to the server, even with nobody watching.
 
+### M5 steps
+
+Done when: install on Windows, macOS and Linux, roll out a new daemon version remotely, and roll back a broken one automatically.
+
+1. **API tokens.** *Done:* `bsf_` bearer tokens with the owner's rights, read-only or full control, managed only from a signed-in browser. Only the hash is stored.
+2. **Audit.** *Done:* commands write their entry in their own transaction; file transfers, terminals and account leases are recorded as they happen. Admins read it at `/audit`.
+3. **Long-poll fallback.** *Done:* after three refused WebSocket upgrades the daemon long-polls and tries a WebSocket again every 15 minutes (`--transport` forces either). A channel lives on one node; other nodes forward to it on the peer port.
+4. **Service install.** systemd, launchd and a Windows Service, plus `doctor`.
+5. **Launcher and self-update.** Versions side by side, trial and rollback, signed manifests, channels and waves.
+
 ## 10. Risks
 
 | Risk | Mitigation |

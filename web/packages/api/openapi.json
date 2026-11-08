@@ -360,6 +360,62 @@
         }
       }
     },
+    "/api/daemon/v1/poll": {
+      "post": {
+        "tags": [
+          "testhost"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/daemon/v1/poll/{connection}/send": {
+      "post": {
+        "tags": [
+          "testhost"
+        ],
+        "parameters": [
+          {
+            "name": "connection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/daemon/v1/poll/{connection}/receive": {
+      "get": {
+        "tags": [
+          "testhost"
+        ],
+        "parameters": [
+          {
+            "name": "connection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/enrollments/{userCode}": {
       "get": {
         "tags": [

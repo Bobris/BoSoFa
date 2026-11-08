@@ -31,6 +31,7 @@ namespace BoSoFa.Daemon
               enroll --server <url> [--name <name>]   Join a BoSoFa server; a signed-in person approves the shown code.
               run [--claude <path>] [--codex <path>]  Stay connected to the server and run its sessions (foreground).
                   [--roots <dir[:dir…]>]              Folders people may browse, besides the sessions' working directories.
+                  [--transport auto|websocket|longpoll]  How to reach the server (default auto: long-poll if WebSockets are refused).
                   [--replay-fixture <file>]           Also offer the replay harness, playing this recorded transcript.
               status [--server <url>]                 Check that the server answers and speaks this protocol version.
               version                                 Print the daemon version.
@@ -79,7 +80,12 @@ namespace BoSoFa.Daemon
                         return await RunLinkAsync(store, new(options.GetValueOrDefault("claude"),
                             options.GetValueOrDefault("replay-fixture"), CodexExecutable: options.GetValueOrDefault("codex"),
                             Roots: options.GetValueOrDefault("roots")?.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)),
-                            output, error, cancellation);
+                            options.GetValueOrDefault("transport") switch
+                            {
+                                "websocket" => DaemonTransport.WebSocket,
+                                "longpoll" => DaemonTransport.LongPoll,
+                                _ => DaemonTransport.Auto
+                            }, output, error, cancellation);
                     default:
                         error.WriteLine(Usage);
                         return 2;
@@ -140,7 +146,7 @@ namespace BoSoFa.Daemon
             }
         }
 
-        static async Task<int> RunLinkAsync(DaemonStore store, Sessions.HarnessOptions harnesses, TextWriter output,
+        static async Task<int> RunLinkAsync(DaemonStore store, Sessions.HarnessOptions harnesses, DaemonTransport transport, TextWriter output,
             TextWriter error, CancellationToken cancellation)
         {
             if (store.LoadState() is not { } state)
@@ -155,7 +161,7 @@ namespace BoSoFa.Daemon
                 harnesses with { Accounts = leaser, Profiles = leaser, Uploader = leaser }, output);
             try
             {
-                await new DaemonLink(state, key, output, outbox, host).RunAsync(cancellation);
+                await new DaemonLink(state, key, output, outbox, host, transport).RunAsync(cancellation);
                 return 0;
             }
             catch (UnauthorizedAccessException exception)

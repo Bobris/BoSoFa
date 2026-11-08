@@ -7,17 +7,33 @@ using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon;
 
-/// <summary>Keeps one WebSocket to the server: token, hello, keepalive, and reconnecting with backoff while the server
+/// <summary>How the daemon reaches the server. Auto uses a WebSocket and falls back to long-polling when it is refused.</summary>
+public enum DaemonTransport
+{
+    Auto,
+    WebSocket,
+    LongPoll
+}
+
+/// <summary>Keeps one connection to the server (a WebSocket, or long-polling where those are refused): token, hello, keepalive, and reconnecting with backoff while the server
 /// is away. Over it go the server's commands (applied by the <see cref="SessionHost"/>, then acknowledged), the
 /// outbox (sent in order, forgotten once acknowledged, sent again after a reconnect) and live deltas.</summary>
-public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Outbox? outbox = null, SessionHost? host = null)
+public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Outbox? outbox = null, SessionHost? host = null,
+    DaemonTransport transport = DaemonTransport.Auto)
 {
     public static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(15);
     static readonly TimeSpan MaximumBackoff = TimeSpan.FromSeconds(30);
     const int BatchCount = 64;
     const int BatchBytes = 256 * 1024;
 
+    /// <summary>WebSocket upgrades that failed in a row while plain HTTP worked; this many switch to long-polling.</summary>
+    const int UpgradeFailuresBeforeFallback = 3;
+
+    /// <summary>A daemon on long-polling tries a WebSocket again after this long: the network may have changed.</summary>
+    static readonly TimeSpan LongPollPeriod = TimeSpan.FromMinutes(15);
+
     bool _welcomed;
+    int _upgradeFailures;
 
     /// <summary>Set after each welcome; for tests and status output.</summary>
     public event Action<WelcomeMessage>? Connected;
@@ -55,21 +71,51 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
     async Task ConnectOnceAsync(CancellationToken cancellation)
     {
         using var client = new ServerClient(state.Server);
+        var hello = new HelloMessage(Cli.Version, ProtocolVersion.Current, DaemonStore.OsName(), DaemonStore.ArchName(), Environment.MachineName);
         var token = await client.GetTokenAsync(state.MachineId, key, cancellation);
+        IDaemonChannel channel;
         using var socket = new ClientWebSocket();
-        socket.Options.SetRequestHeader("Authorization", "Bearer " + token.AccessToken);
-        socket.Options.SetRequestHeader("User-Agent", $"bosofad/{Cli.Version}");
-        await socket.ConnectAsync(DaemonSocket.ConnectUri(state.Server), cancellation);
-        await DaemonSocket.SendAsync(socket, new HelloMessage(Cli.Version, ProtocolVersion.Current, DaemonStore.OsName(),
-            DaemonStore.ArchName(), Environment.MachineName), cancellation);
-        if (await DaemonSocket.ReceiveAsync(socket, cancellation) is not WelcomeMessage welcome)
-            throw new WebSocketException(WebSocketError.Faulted,
-                socket.CloseStatusDescription ?? "The server did not welcome this daemon.");
-        _welcomed = true;
-        log.WriteLine($"Connected to {state.Server} as machine {welcome.MachineId} (server {welcome.ServerVersion}).");
-        await using var connection = new Connection(socket, outbox, host, log, cancellation);
-        Connected?.Invoke(welcome);
-        while (await DaemonSocket.ReceiveAsync(socket, cancellation) is { } message)
+        LongPollClient? poll = null;
+        if (transport == DaemonTransport.LongPoll || (transport == DaemonTransport.Auto && _upgradeFailures >= UpgradeFailuresBeforeFallback))
+        {
+            var current = token;
+            channel = poll = await LongPollClient.OpenAsync(state.Server, hello, async stop =>
+            {
+                if (current.ExpiresAt - DateTime.UtcNow < TimeSpan.FromMinutes(2)) current = await client.GetTokenAsync(state.MachineId, key, stop);
+                return current.AccessToken;
+            }, transport == DaemonTransport.LongPoll ? TimeSpan.FromDays(3650) : LongPollPeriod, cancellation);
+            _upgradeFailures = 0; // the next connection tries a WebSocket again
+        }
+        else
+        {
+            socket.Options.SetRequestHeader("Authorization", "Bearer " + token.AccessToken);
+            socket.Options.SetRequestHeader("User-Agent", $"bosofad/{Cli.Version}");
+            try { await socket.ConnectAsync(DaemonSocket.ConnectUri(state.Server), cancellation); }
+            catch (WebSocketException)
+            {
+                _upgradeFailures++; // the token request just went through, so this is the upgrade being refused
+                throw;
+            }
+            _upgradeFailures = 0;
+            channel = new WebSocketChannel(socket);
+            await channel.SendAsync(hello, cancellation);
+        }
+        using (poll)
+        {
+            if (await channel.ReceiveAsync(cancellation) is not WelcomeMessage welcome)
+                throw new WebSocketException(WebSocketError.Faulted, channel.CloseReason ?? "The server did not welcome this daemon.");
+            _welcomed = true;
+            log.WriteLine($"Connected to {state.Server} as machine {welcome.MachineId} (server {welcome.ServerVersion})" +
+                          (poll != null ? ", long-polling." : "."));
+            await using var connection = new Connection(channel, outbox, host, log, cancellation);
+            Connected?.Invoke(welcome);
+            await ReceiveLoopAsync(channel, connection, cancellation);
+        }
+    }
+
+    async Task ReceiveLoopAsync(IDaemonChannel channel, Connection connection, CancellationToken cancellation)
+    {
+        while (await channel.ReceiveAsync(cancellation) is { } message)
             switch (message)
             {
                 case CommandMessage command:
@@ -87,7 +133,7 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
     /// <summary>The workers of one connection. All sends go through one lock: WebSocket sends must not overlap.</summary>
     sealed class Connection : IAsyncDisposable
     {
-        readonly WebSocket _socket;
+        readonly IDaemonChannel _channel;
         readonly Outbox? _outbox;
         readonly SessionHost? _host;
         readonly TextWriter _log;
@@ -100,9 +146,9 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
 
         public Channel<CommandMessage> Commands { get; } = Channel.CreateUnbounded<CommandMessage>();
 
-        public Connection(WebSocket socket, Outbox? outbox, SessionHost? host, TextWriter log, CancellationToken cancellation)
+        public Connection(IDaemonChannel channel, Outbox? outbox, SessionHost? host, TextWriter log, CancellationToken cancellation)
         {
-            _socket = socket;
+            _channel = channel;
             _outbox = outbox;
             _host = host;
             _log = log;
@@ -159,7 +205,7 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
         async Task SendAsync(DaemonMessage message, CancellationToken cancellation)
         {
             await _send.WaitAsync(cancellation);
-            try { await DaemonSocket.SendAsync(_socket, message, cancellation); }
+            try { await _channel.SendAsync(message, cancellation); }
             finally { _send.Release(); }
         }
 

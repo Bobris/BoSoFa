@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Net.WebSockets;
 using BoSoFa.Protocol;
 
 namespace BoSoFa.Server.Machines;
@@ -8,8 +7,8 @@ namespace BoSoFa.Server.Machines;
 /// owning pod (docs/plan.md §4.2).</summary>
 public sealed class DaemonConnections
 {
-    public sealed class Connection(ulong machineId, string daemonVersion, string hostName, DateTime connectedAt,
-        WebSocket socket)
+    public sealed class Connection(ulong machineId, string connectionId, string daemonVersion, string hostName, DateTime connectedAt,
+        IDaemonChannel channel)
     {
         readonly SemaphoreSlim _send = new(1);
         readonly SemaphoreSlim _commands = new(0);
@@ -20,20 +19,20 @@ public sealed class DaemonConnections
         public ulong MachineId { get; } = machineId;
 
         /// <summary>Unique per connection; recorded in <see cref="Domain.MachinePresence"/>.</summary>
-        public string ConnectionId { get; } = Guid.NewGuid().ToString("N");
+        public string ConnectionId { get; } = connectionId;
 
         /// <summary>Its <c>MachineConnected</c> is stored; before that, presence cannot name it yet.</summary>
         public bool Registered { get; set; }
         public string DaemonVersion { get; } = daemonVersion;
         public string HostName { get; } = hostName;
         public DateTime ConnectedAt { get; } = connectedAt;
-        public WebSocket Socket { get; } = socket;
+        public IDaemonChannel Channel { get; } = channel;
 
         /// <summary>WebSocket sends must not overlap; every sender of this connection goes through here.</summary>
         public async Task SendAsync(DaemonMessage message, CancellationToken cancellation)
         {
             await _send.WaitAsync(cancellation);
-            try { await DaemonSocket.SendAsync(Socket, message, cancellation); }
+            try { await Channel.SendAsync(message, cancellation); }
             finally { _send.Release(); }
         }
 
@@ -87,8 +86,8 @@ public sealed class DaemonConnections
     /// <summary>Registers a connection, replacing (and closing) an older one of the same machine.</summary>
     public void Add(Connection connection)
     {
-        if (_connections.TryGetValue(connection.MachineId, out var previous) && previous.Socket != connection.Socket)
-            previous.Socket.Abort();
+        if (_connections.TryGetValue(connection.MachineId, out var previous) && previous.Channel != connection.Channel)
+            previous.Channel.Abort();
         _connections[connection.MachineId] = connection;
     }
 
@@ -104,6 +103,6 @@ public sealed class DaemonConnections
         // (the old connection's disconnect can commit after the new one connected here).
         if (Get(machineId) is { } connection && connection.ConnectionId != connectionId &&
             (connectionId != null || connection.Registered))
-            connection.Socket.Abort();
+            connection.Channel.Abort();
     }
 }

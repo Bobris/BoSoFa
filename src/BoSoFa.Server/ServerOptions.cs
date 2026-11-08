@@ -16,6 +16,9 @@ public sealed class ServerOptions
     /// <summary>Lets anyone sign in by name and email without a password. Only for development.</summary>
     public bool DevLogin { get; set; }
 
+    /// <summary>Refuses daemon WebSockets, as some proxies do, to try the long-poll fallback.</summary>
+    public bool RefuseDaemonWebSockets { get; set; }
+
     public OidcOptions? Oidc { get; set; }
 
     /// <summary>Set to run this server as one node of a cluster; null is single-node mode.</summary>
