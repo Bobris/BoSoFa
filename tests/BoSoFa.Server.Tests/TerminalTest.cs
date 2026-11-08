@@ -79,8 +79,13 @@ public class TerminalTest
         var first = await WatchAsync(cookies);
         await Eventually(() => Task.FromResult(first.Live.Any(message => message is LiveTerminalSnapshot)));
         await Send(first.Socket, new LiveTerminalResize(terminal.Id, 100, 30));
-        await Send(first.Socket, new LiveTerminalInput(terminal.Id, Base64(Multiply)));
-        await Eventually(() => Task.FromResult(Output(first.Live, terminal.Id).Contains("2468")));
+        // A login shell that is still starting may discard what was typed, so type again until it answers.
+        await Eventually(async () =>
+        {
+            await Send(first.Socket, new LiveTerminalInput(terminal.Id, Base64(Multiply)));
+            await Task.Delay(1000);
+            return Output(first.Live, terminal.Id).Contains("2468");
+        });
 
         // Somebody who attaches later gets the history; a shell's output needs no one watching.
         first.Socket.Abort();
