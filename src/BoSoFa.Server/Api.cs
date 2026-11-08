@@ -11,7 +11,7 @@ namespace BoSoFa.Server;
 
 public static class Api
 {
-    static readonly string Version =
+    public static readonly string Version =
         typeof(Api).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
 
     public static void MapApiEndpoints(this WebApplication app)

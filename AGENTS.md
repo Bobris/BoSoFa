@@ -18,7 +18,9 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 - Server for development: `dotnet run --project src/BoSoFa.Server` (http://localhost:5080, dev login on, data in `data/server`).
 - SPA with hot reload: `pnpm --dir web dev` (http://localhost:5173, proxies the server). `pnpm --dir web build` writes
   `web/apps/web/dist`, which the development server also serves directly.
-- Daemon: `dotnet publish src/BoSoFa.Daemon -r osx-arm64 -c Release -o artifacts/daemon/osx-arm64`.
+- Daemon: `dotnet publish src/BoSoFa.Daemon -r osx-arm64 -c Release -o artifacts/daemon/osx-arm64`, then
+  `bosofad enroll --server http://localhost:5080` (approve the code at /enroll) and `bosofad run`. Use `--data-dir` for a
+  throwaway identity; the default is the per-user data directory.
 - API changed: `BOSOFA_UPDATE_CONTRACT=1 dotnet test tests/BoSoFa.Server.Tests --filter ContractTest`, then
   `pnpm --dir web gen:api`. CI fails when either `openapi.json` or `schema.d.ts` is stale.
 

@@ -9,8 +9,10 @@ namespace BoSoFa.Server.Btdb;
 
 /// <summary>
 /// The server's replicated database "main": restored (or created empty) from canonical storage, then driven by one
-/// <see cref="EventPublisher"/> over the EventLog topics "data" and "metadata". A node with published history starts
-/// its application right after restore; the genesis leader starts it after preparing the schema.
+/// <see cref="EventPublisher"/> over the EventLog topics "data" and "metadata". The application starts only after the
+/// leader prepared (and published) the schema of this build in <see cref="PrepareSchemaAsync"/>, so a build that adds
+/// relations never persists them in an application commit. Followers (cluster mode, M2) will need the schema version
+/// in the application generation instead, see BTDB Doc/ReplicationHosting.md "Upgrades".
 /// </summary>
 public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, IHostApplicationLifetime lifetime)
     : IReplicationNodeHost, IAsyncDisposable
@@ -70,7 +72,6 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
             var position = _db.ReplicationRestoredPosition;
             using (var read = _db.StartReadOnlyTransaction())
                 lock (_progressLock) _progress = new(read.GetCommitUlong(), position.FileId, position.Offset);
-            StartApplication(); // the restored history contains the schema
         }
         return [new(Database, _db, _capture, Canonical, Genesis, restored ? _db.ReplicationRestoredPosition : default,
             id => $"{id}.trl")];

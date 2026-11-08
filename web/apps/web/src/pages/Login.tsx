@@ -1,10 +1,13 @@
 import { api } from "@bosofa/api";
-import { useNavigate } from "@solidjs/router";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createMemo, createSignal, Show } from "solid-js";
 import { paths } from "../router";
 
 export default function Login() {
   const navigate = useNavigate();
+  const [search] = useSearchParams<{ returnUrl: string }>();
+  // Only local paths, never another origin.
+  const returnUrl = () => (search.returnUrl?.startsWith("/") && !search.returnUrl.startsWith("//") ? search.returnUrl : "/");
   const providers = createMemo(async () => (await api.GET("/auth/providers")).data ?? { oidc: null, devLogin: false });
   const [error, setError] = createSignal<string>();
 
@@ -14,7 +17,7 @@ export default function Login() {
     const { response } = await api.POST("/auth/dev-login", {
       body: { email: String(form.get("email") ?? ""), name: String(form.get("name") ?? "") },
     });
-    if (response.ok) navigate(paths(), { replace: true });
+    if (response.ok) navigate(returnUrl(), { replace: true });
     else setError(`Sign-in failed (${response.status}).`);
   }
 
@@ -25,7 +28,7 @@ export default function Login() {
         {(name) => (
           <a
             class="block w-full text-center rounded-md bg-accent text-white py-2 font-medium"
-            href={`/auth/login?returnUrl=${encodeURIComponent("/")}`}
+            href={`/auth/login?returnUrl=${encodeURIComponent(returnUrl())}`}
           >
             Continue with {name()}
           </a>

@@ -31,7 +31,8 @@ public static class Auth
                 // An API caller gets a status code, never a redirect to a login page.
                 cookie.Events.OnRedirectToLogin = context => Deny(context, StatusCodes.Status401Unauthorized);
                 cookie.Events.OnRedirectToAccessDenied = context => Deny(context, StatusCodes.Status403Forbidden);
-            });
+            })
+            .AddScheme<AuthenticationSchemeOptions, Machines.DaemonAuthenticationHandler>(Machines.DaemonTokens.Scheme, null);
         if (options.Oidc is { Authority.Length: > 0 } oidc)
             authentication.AddOpenIdConnect(OidcScheme, oidc.DisplayName, o =>
             {
@@ -55,7 +56,8 @@ public static class Auth
                     context.Principal = await SignInAsync(node, issuer, subject, name, email, context.HttpContext.RequestAborted);
                 };
             });
-        services.AddAuthorization();
+        services.AddAuthorization(authorization => authorization.AddPolicy(Machines.DaemonTokens.Scheme, policy => policy
+            .AddAuthenticationSchemes(Machines.DaemonTokens.Scheme).RequireAuthenticatedUser()));
         return services;
     }
 

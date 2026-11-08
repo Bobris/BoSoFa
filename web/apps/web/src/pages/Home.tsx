@@ -3,6 +3,7 @@ import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, For, Show } from "solid-js";
 import { paths } from "../router";
 import { fetchMe, logout } from "../session";
+import Machines from "./Machines";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ export default function Home() {
               Sign out
             </button>
           </div>
+          <Machines />
           <section class="rounded-lg border border-line bg-panel">
             <h2 class="px-4 py-3 border-b border-line text-sm font-medium">People</h2>
             <ul class="divide-y divide-line">

@@ -1,5 +1,6 @@
 using BoSoFa.Protocol;
 using BoSoFa.Server.Btdb;
+using BoSoFa.Server.Machines;
 using BTDB.Replication;
 using BTDB.Replication.EventLog;
 using BTDB.Replication.Http;
@@ -32,7 +33,10 @@ public static class ServerApp
         builder.Services.AddHealthChecks();
         builder.Services.AddDataProtection().SetApplicationName("bosofa")
             .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(data, "keys")));
+        builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddBoSoFaAuthentication(options);
+        builder.Services.AddSingleton<DaemonTokens>();
+        builder.Services.AddSingleton<DaemonConnections>();
 
         // BTDB: one replicated database plus the EventLog, both on local directories in single-node mode.
         builder.Services.AddSingleton<IReplicationScheduler>(new SystemReplicationScheduler());
@@ -57,12 +61,14 @@ public static class ServerApp
         var app = builder.Build();
         app.Services.GetRequiredService<BtdbNode>().Attach(app.Services);
 
+        app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapOpenApi();
         app.MapHealthChecks("/health/ready");
         app.MapAuthEndpoints(options);
         app.MapApiEndpoints();
+        app.MapMachineEndpoints();
         app.MapSpa(Path.GetFullPath(options.WebRoot, builder.Environment.ContentRootPath));
         return app;
     }
