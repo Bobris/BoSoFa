@@ -2,8 +2,6 @@
 
 The server runs as a StatefulSet from the Helm chart in `deploy/helm/bosofa`. Azure Blob storage holds all durable state; each pod's `/data` is a cache rebuilt on restart.
 
-This needs a BTDB release that accepts plain HTTP peer endpoints, which 36.5.1 does not. On 36.5.1 a pod refuses to start with an `http://` peer URL outside loopback.
-
 Each pod serves plain HTTP on one port, 8080, for clients and for the other nodes. A reverse proxy in front terminates TLS. Traffic between pods is unencrypted, including the shared peer key, so the chart's NetworkPolicy admits only the proxy and the other nodes.
 
 ## What the cluster needs
@@ -77,9 +75,9 @@ Never set `devLogin` on a cluster anyone else can reach: it lets anyone sign in 
 
 Any change to persisted relations must raise `Domain.ApplicationGeneration` in the same build. The first node of the new generation takes over and publishes its schema, and older builds can never lead again, so **rolling back across a generation needs a restore from backup**.
 
-### Known limit: writes stall when the leader's pod goes away
+### Writes pause when the leader's pod goes away
 
-Reads continue, but writes stall for about 2.5 minutes after the leading pod disappears, including during every rolling upgrade. BTDB's peer HTTP clients have no connect timeout, and connection attempts to a deleted pod's IP are dropped silently. On staging a surviving pod held a `SYN_SENT` socket to the dead IP for 135 s, and writes recovered the moment it gave up. This needs a `ConnectTimeout` on the handlers in `HttpEventLogPeerTransport` and `HttpReplicationPeerTransport`.
+Reads continue. Writes pause for about 35 seconds on staging, when the leading pod is deleted and once during a rolling restart. They then succeed without a client retry. Peers give up on a dead address after 3 s, but the cluster's 30 s DNS cache keeps returning it for a while.
 
 ## Backups
 

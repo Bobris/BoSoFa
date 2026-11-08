@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <BtdbVersion>36.5.1</BtdbVersion>
+    <BtdbVersion>36.5.2</BtdbVersion>
     <AspNetCoreVersion>10.0.14</AspNetCoreVersion>
   </PropertyGroup>
   <ItemGroup>
