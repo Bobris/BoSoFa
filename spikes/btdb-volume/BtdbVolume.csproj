@@ -11,10 +11,10 @@
     <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="BTDB" Version="36.2.0" />
-    <PackageReference Include="BTDB.Replication" Version="36.2.0" />
-    <PackageReference Include="BTDB.Replication.EventSourcing" Version="36.2.0" />
-    <PackageReference Include="BTDB.Replication.Http" Version="36.2.0" />
-    <PackageReference Include="BTDB.SourceGenerator" Version="36.2.0" OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <PackageReference Include="BTDB" Version="36.3.0" />
+    <PackageReference Include="BTDB.Replication" Version="36.3.0" />
+    <PackageReference Include="BTDB.Replication.EventSourcing" Version="36.3.0" />
+    <PackageReference Include="BTDB.Replication.Http" Version="36.3.0" />
+    <PackageReference Include="BTDB.SourceGenerator" Version="36.3.0" OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
   </ItemGroup>
 </Project>

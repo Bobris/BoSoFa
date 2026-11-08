@@ -110,10 +110,10 @@ static class Bench
         builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
         builder.Services.AddSingleton<IReplicationScheduler>(new SystemReplicationScheduler());
         builder.Services.AddSingleton<IReplicationLeaderStorage>(
-            new FileSystemLeaderStorage(Path.Combine(shared, "leader"), TimeSpan.FromSeconds(15), InitialLeaderJson));
-        builder.Services.AddSingleton<IEventLogStorage>(Storage(new FileSystemEventLogStorage(Path.Combine(shared, "eventlog"))));
+            new FileSystemLeaderStorage(Path.Combine(shared, "leader"), TimeSpan.FromSeconds(15), InitialLeaderJson, flushToDisk: Fsync.Enabled));
+        builder.Services.AddSingleton<IEventLogStorage>(Storage(new FileSystemEventLogStorage(Path.Combine(shared, "eventlog"), flushToDisk: Fsync.Enabled)));
         var nodeOptions = new BtdbNodeOptions("bosofa", "single-node", "single-node", 1, Path.Combine(data, "cache"),
-            new FileSystemReplicationStorage(Path.Combine(shared, "db", SpikeNode.Database)))
+            new FileSystemReplicationStorage(Path.Combine(shared, "db", SpikeNode.Database), flushToDisk: Fsync.Enabled))
         {
             CheckpointInterval = tuning.CheckpointInterval, DeletionDelay = tuning.ReplicationDeletionDelay,
             MaximumBatchSize = tuning.MaximumBatchSize
@@ -499,7 +499,7 @@ static class Bench
         if (Directory.Exists(directory)) Directory.Delete(directory, true);
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = true });
         builder.Logging.AddSimpleConsole(o => o.SingleLine = true);
-        builder.Services.AddSingleton<IEventLogStorage>(Storage(new FileSystemEventLogStorage(directory)));
+        builder.Services.AddSingleton<IEventLogStorage>(Storage(new FileSystemEventLogStorage(directory, flushToDisk: Fsync.Enabled)));
         builder.Services.AddBTDBEventLogSingleNode(new EventLogOptions());
         using var host = builder.Build();
         await host.StartAsync();
@@ -549,7 +549,7 @@ static class Bench
         report["retention"] = new { topicName, maxBytes, recordBytes, records, concurrency, mergeIntervalS = 2, deletionDelayS = 5 };
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = true });
         builder.Logging.AddSimpleConsole(o => o.SingleLine = true);
-        builder.Services.AddSingleton<IEventLogStorage>(Storage(new FileSystemEventLogStorage(directory)));
+        builder.Services.AddSingleton<IEventLogStorage>(Storage(new FileSystemEventLogStorage(directory, flushToDisk: Fsync.Enabled)));
         builder.Services.AddBTDBEventLogSingleNode(options);
         using var host = builder.Build();
         await host.StartAsync();
@@ -594,4 +594,10 @@ static class Bench
         Log($"Retention: peak {Mb(peak)}, final {Mb(final)} for MaxBytes {Mb(maxBytes)}; bounds {finalBounds.First}..{finalBounds.Next}");
         await host.StopAsync();
     }
+}
+
+/// <summary>SPIKE_NO_FSYNC=1 runs with BTDB's development mode without disk flushes (BTDB 36.3.0).</summary>
+static class Fsync
+{
+    public static readonly bool Enabled = Environment.GetEnvironmentVariable("SPIKE_NO_FSYNC") != "1";
 }

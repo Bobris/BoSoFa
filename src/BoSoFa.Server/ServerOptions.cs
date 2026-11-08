@@ -9,6 +9,10 @@ public sealed class ServerOptions
     /// <summary>Directory with the built SPA (index.html and assets); relative to the content root.</summary>
     public string WebRoot { get; set; } = "wwwroot";
 
+    /// <summary>Flush every storage write to disk (fsync). False is much faster and survives a crash of the process,
+    /// but not of the machine; only for development and tests.</summary>
+    public bool FlushToDisk { get; set; } = true;
+
     /// <summary>Lets anyone sign in by name and email without a password. Only for development.</summary>
     public bool DevLogin { get; set; }
 

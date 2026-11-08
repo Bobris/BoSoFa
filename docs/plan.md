@@ -353,7 +353,7 @@ interface IHarnessAdapter {
 M0 is done: the server shows "Hello <user>" from the BTDB-backed `/api/v1/me`, and the daemon publishes with Native AOT. The experiment notes are in `docs/spikes/`. The plan changes they lead to:
 
 - **① BTDB volume** ([01](spikes/01-btdb-event-volume.md)):
-  - Single-node on file storage manages only about 83 events/s, because `FileSystemEventLogStorage` completes synchronously and so defeats commit batching. Fix this in BTDB (offloading restores 2.4k/s with 32 publishers and 11.8k/s with 256).
+  - Single-node on file storage managed only about 83 events/s, because synchronous storage defeated commit batching. **Fixed in BTDB 36.2.1** (2.6k/s with 32 publishers, 10.8k/s with 256). BTDB 36.3.0 adds `flushToDisk: false`, which the development server uses (2.4k/s for one awaiting publisher, 27k/s with 32).
   - Batch up to about 64 items or 128 KiB per `SessionItemsAppended`.
   - The inline-payload limit in §4.2 drops from 64 KiB to **16 KiB**. Larger payloads go to blobs.
   - Disk use is about 3× the payload. A warm restart is ready in under 1 s.

@@ -26,7 +26,7 @@ sealed class TestServer : IAsyncDisposable
     async Task StartAppAsync()
     {
         _app = ServerApp.Build(["--urls", "http://127.0.0.1:0", "--environment", "Development",
-            "--BoSoFa:DataDirectory", DataDirectory, "--BoSoFa:DevLogin", "true",
+            "--BoSoFa:DataDirectory", DataDirectory, "--BoSoFa:DevLogin", "true", "--BoSoFa:FlushToDisk", "false",
             "--BoSoFa:WebRoot", Path.Combine(DataDirectory, "no-web-root")]);
         await _app.StartAsync();
         var address = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();

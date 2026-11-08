@@ -199,3 +199,24 @@ Topic `test-retention`, `Retention = new EventLogRetention(MaxBytes: 16 MiB)`, `
   - `EventPublisherOptions.MaximumBatchSize` 32 was not the bottleneck and was not varied.
 - **Not covered here:** Azure Blob latency and cluster mode (M2), a sustained run longer than 10 minutes, and
   `MaximumBatchSize` or `SplitCap` variations.
+
+## Update 2026-11-08: BTDB 36.2.1 and 36.3.0
+
+Both findings above were fixed in BTDB:
+
+- **36.2.1** starts the EventLog commit loop off the submitting thread, so `FileSystemEventLogStorage` batches without
+  the spike's `OffloadingEventLogStorage` wrapper.
+- **36.3.0** adds `flushToDisk: false` to the file-system storages and `OnDiskReplicationFileStorage` for development.
+  Writes still survive a crash of the process.
+
+`write --scale 0.05`, 200 B items (logs in `artifacts/spikes/btdb-volume-results/logs-36.2.1/`):
+
+| | 36.2.0 | 36.2.1 (fsync) | 36.3.0, `flushToDisk: false` |
+|---|---|---|---|
+| One awaiting publisher | 83 ev/s | 83 ev/s, p50 11.2 ms | 2,411 ev/s, p50 0.38 ms |
+| 32 publishers | 83 ev/s | 2,622 ev/s | 27,231 ev/s |
+| 256 publishers | 83 ev/s | 10,842 ev/s | 94,485 ev/s |
+| 16 KiB, 32 publishers | 401 ev/s | 977 ev/s | 5,912 ev/s |
+
+BoSoFa's server sets `BoSoFa:FlushToDisk` to false in `appsettings.Development.json` and in the tests; production keeps
+the default `true`.

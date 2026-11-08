@@ -18,7 +18,7 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
     public const string Database = "main";
     static readonly TrlSuccessor Genesis = new("1.trl", 1);
 
-    readonly OnDiskReplicationFileStorage _cache = new(options.CacheDirectory);
+    readonly OnDiskReplicationFileStorage _cache = new(options.CacheDirectory, options.FlushToDisk);
     readonly TransactionLogCapture _capture = new();
     readonly SemaphoreSlim _schema = new(1);
     readonly object _progressLock = new();
@@ -186,5 +186,6 @@ public sealed record BtdbNodeOptions(string ClusterId, string NodeId, string End
     string CacheDirectory, IBindableReplicationStorage Canonical)
 {
     public TimeSpan CheckpointInterval { get; init; } = TimeSpan.FromMinutes(5);
+    public bool FlushToDisk { get; init; } = true;
     public TimeSpan DeletionDelay { get; init; } = TimeSpan.FromDays(1);
 }

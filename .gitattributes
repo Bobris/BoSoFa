@@ -1,0 +1,4 @@
+# Repository files use LF everywhere (generated contracts are compared byte for byte).
+* text=auto eol=lf
+*.png binary
+*.ico binary

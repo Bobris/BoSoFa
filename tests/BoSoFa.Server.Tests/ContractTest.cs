@@ -31,7 +31,7 @@ public class ContractTest
             return;
         }
         Assert.True(File.Exists(path), $"Missing {path}; run the tests with BOSOFA_UPDATE_CONTRACT=1.");
-        Assert.True(actual == await File.ReadAllTextAsync(path),
+        Assert.True(actual == (await File.ReadAllTextAsync(path)).ReplaceLineEndings("\n"),
             "The API changed: run the tests with BOSOFA_UPDATE_CONTRACT=1 and then `pnpm gen:api` in web/.");
     }
 }

@@ -37,10 +37,15 @@ public static class ServerApp
         // BTDB: one replicated database plus the EventLog, both on local directories in single-node mode.
         builder.Services.AddSingleton<IReplicationScheduler>(new SystemReplicationScheduler());
         builder.Services.AddSingleton<IReplicationLeaderStorage>(
-            new FileSystemLeaderStorage(Path.Combine(shared, "leader"), TimeSpan.FromSeconds(15), InitialLeaderJson));
-        builder.Services.AddSingleton<IEventLogStorage>(new FileSystemEventLogStorage(Path.Combine(shared, "eventlog")));
+            new FileSystemLeaderStorage(Path.Combine(shared, "leader"), TimeSpan.FromSeconds(15), InitialLeaderJson,
+                flushToDisk: options.FlushToDisk));
+        builder.Services.AddSingleton<IEventLogStorage>(
+            new FileSystemEventLogStorage(Path.Combine(shared, "eventlog"), flushToDisk: options.FlushToDisk));
         var nodeOptions = new BtdbNodeOptions("bosofa", "single-node", "single-node", 1, Path.Combine(data, "cache"),
-            new FileSystemReplicationStorage(Path.Combine(shared, "db", BtdbNode.Database)));
+            new FileSystemReplicationStorage(Path.Combine(shared, "db", BtdbNode.Database), flushToDisk: options.FlushToDisk))
+        {
+            FlushToDisk = options.FlushToDisk
+        };
         builder.Services.AddSingleton(nodeOptions);
         builder.Services.AddSingleton<BtdbNode>();
         builder.Services.AddSingleton<IReplicationNodeHost>(sp => sp.GetRequiredService<BtdbNode>());
