@@ -4,6 +4,59 @@
  */
 
 export interface paths {
+    "/api/v1/machines/{id}/codex-usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CodexUsageResult"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/daemon/v1/accounts/{id}/lease": {
         parameters: {
             query?: never;
@@ -2877,6 +2930,17 @@ export interface components {
             sha256: string;
             /** Format: int64 */
             size: number | string;
+        };
+        CodexUsageResult: {
+            signedIn: boolean;
+            plan: null | string;
+            windows: components["schemas"]["CodexWindow"][];
+            credits: null | string;
+        };
+        CodexWindow: {
+            /** Format: int32 */
+            minutes: number | string;
+            usage: components["schemas"]["UsageWindow"];
         };
         CreateApiTokenRequest: {
             name: string;

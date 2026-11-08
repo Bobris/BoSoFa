@@ -12,6 +12,7 @@ public static class FileEndpoints
 {
     public static void MapFileEndpoints(this WebApplication app)
     {
+        app.MapGet("/api/v1/machines/{id}/codex-usage", CodexUsageAsync).RequireAuthorization();
         var files = app.MapGroup("/api/v1/machines/{id}/files").RequireAuthorization();
         files.MapGet("/roots", RootsAsync);
         files.MapGet("", ListAsync);
@@ -33,6 +34,9 @@ public static class FileEndpoints
 
     static Task<Results<Ok<RpcDone>, NotFound, ForbidHttpResult, BadRequest<string>>> CloseTerminalAsync(ulong id, string terminalId,
         BtdbNode node, MachineRpcClient rpc, HttpContext http) => CallAsync<RpcDone>(id, new TerminalCloseRequest(terminalId), node, rpc, http);
+
+    static Task<Results<Ok<CodexUsageResult>, NotFound, ForbidHttpResult, BadRequest<string>>> CodexUsageAsync(ulong id, BtdbNode node,
+        MachineRpcClient rpc, HttpContext http) => CallAsync<CodexUsageResult>(id, new CodexUsageRequest(), node, rpc, http);
 
     static Task<Results<Ok<FileRootsResult>, NotFound, ForbidHttpResult, BadRequest<string>>> RootsAsync(ulong id, BtdbNode node,
         MachineRpcClient rpc, HttpContext http) => CallAsync<FileRootsResult>(id, new FileRootsRequest(), node, rpc, http);

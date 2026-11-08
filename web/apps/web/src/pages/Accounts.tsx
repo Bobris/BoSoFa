@@ -1,6 +1,7 @@
-import { api, getPlatform, type AccountKind, type AccountUsage, type HarnessAccount, type UsageWindow } from "@bosofa/api";
+import { api, getPlatform, type AccountKind, type AccountUsage, type HarnessAccount } from "@bosofa/api";
 import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, refresh, Show } from "solid-js";
+import Limit from "../components/Limit";
 import { paths } from "../router";
 import { fetchMe } from "../session";
 
@@ -16,27 +17,6 @@ const kinds: { value: AccountKind; label: string; help: string }[] = [
 
 function expiresSoon(account: HarnessAccount): boolean {
   return account.expiresAt != null && Date.parse(account.expiresAt) - Date.now() < 30 * 86_400_000;
-}
-
-function Limit(props: { name: string; window: UsageWindow }) {
-  const percent = () => Math.min(100, Math.round(Number(props.window.utilization) * 100));
-  const resets = () =>
-    props.window.resetsAt == null
-      ? ""
-      : `, resets ${new Date(props.window.resetsAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`;
-  return (
-    <div class="flex-1">
-      <div class="flex justify-between gap-2">
-        <span>{props.name}</span>
-        <span class="text-muted">
-          {percent()}%{resets()}
-        </span>
-      </div>
-      <div class="mt-1 h-1 rounded bg-line">
-        <div class={["h-1 rounded", percent() >= 90 ? "bg-red-600" : "bg-accent"]} style={{ width: `${percent()}%` }} />
-      </div>
-    </div>
-  );
 }
 
 /** Limits as of the account's latest turn: nothing reports them between turns, so the age is part of the answer. */

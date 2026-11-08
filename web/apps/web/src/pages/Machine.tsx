@@ -1,7 +1,8 @@
 import { api, getPlatform, uploadBlob, type FileEntry } from "@bosofa/api";
 import { useNavigate, useParams } from "@solidjs/router";
+import Limit from "../components/Limit";
 import Terminals from "../components/Terminals";
-import { createEffect, createMemo, createSignal, For, refresh, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Loading, refresh, Show } from "solid-js";
 import { paths } from "../router";
 import { fetchMe } from "../session";
 
@@ -17,6 +18,45 @@ function formatSize(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function windowName(minutes: number) {
+  if (minutes === 10080) return "Week";
+  return minutes % 60 === 0 ? `${minutes / 60} hours` : `${minutes} minutes`;
+}
+
+/** This machine's own Codex sign-in, read live; nothing shows without one or while the machine is away. */
+function CodexLimits(props: { machineId: number }) {
+  const usage = createMemo(async () => {
+    const { data } = await api.GET("/api/v1/machines/{id}/codex-usage", { params: { path: { id: props.machineId } } });
+    return data?.signedIn ? data : undefined;
+  });
+  return (
+    <Show when={usage()}>
+      {(codex) => (
+        <section class="rounded-lg border border-line bg-panel p-4 text-sm">
+          <div class="flex items-center justify-between gap-3">
+            <h2 class="font-medium">
+              Codex <Show when={codex().plan}>{(plan) => <span class="font-normal text-muted">{plan()}</span>}</Show>
+            </h2>
+            <span class="flex items-center gap-3 text-xs">
+              <Show when={codex().credits}>
+                {(credits) => <span class="text-muted">{Number(credits()).toFixed(2)} credits</span>}
+              </Show>
+              <button class="text-muted hover:underline" onClick={() => refresh(usage)}>
+                Refresh
+              </button>
+            </span>
+          </div>
+          <div class="mt-2 flex gap-4 text-xs">
+            <For each={codex().windows}>
+              {(window) => <Limit name={windowName(Number(window.minutes))} window={window.usage} />}
+            </For>
+          </div>
+        </section>
+      )}
+    </Show>
+  );
 }
 
 /** Browses the folders a machine shares, with a text preview, download and upload. */
@@ -187,6 +227,9 @@ export default function MachinePage() {
   return (
     <div class="space-y-4">
       <h1 class="text-lg font-medium">{machine()?.name ?? "Machine"}</h1>
+      <Loading fallback={null}>
+        <CodexLimits machineId={machineId()} />
+      </Loading>
       <Files machineId={machineId()} onTerminalHere={(directory) => open(directory)} />
       <Terminals machineId={machineId()} ref={(controls) => (open = controls.open)} />
     </div>

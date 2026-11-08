@@ -19,7 +19,7 @@ public sealed record UserDto(ulong Id, string Name, string Email, UserRole Role)
 public static class ProtocolVersion
 {
     /// <summary>Bumped on every incompatible change of the daemon or client wire protocol.</summary>
-    public const int Current = 7;
+    public const int Current = 8;
 }
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web, UseStringEnumConverter = true)]
@@ -74,6 +74,7 @@ public static class ProtocolVersion
 [JsonSerializable(typeof(FileFetchRequest))]
 [JsonSerializable(typeof(FileStoreRequest))]
 [JsonSerializable(typeof(FileRootsResult))]
+[JsonSerializable(typeof(CodexUsageResult))]
 [JsonSerializable(typeof(FileListResult))]
 [JsonSerializable(typeof(FileTextResult))]
 [JsonSerializable(typeof(FileFetchResult))]

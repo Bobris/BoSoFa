@@ -5,6 +5,53 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/v1/machines/{id}/codex-usage": {
+      "get": {
+        "tags": [
+          "FileEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexUsageResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/daemon/v1/accounts/{id}/lease": {
       "post": {
         "tags": [
@@ -2543,6 +2590,58 @@
           }
         }
       },
+      "CodexUsageResult": {
+        "required": [
+          "signedIn",
+          "plan",
+          "windows",
+          "credits"
+        ],
+        "type": "object",
+        "properties": {
+          "signedIn": {
+            "type": "boolean"
+          },
+          "plan": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodexWindow"
+            }
+          },
+          "credits": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CodexWindow": {
+        "required": [
+          "minutes",
+          "usage"
+        ],
+        "type": "object",
+        "properties": {
+          "minutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageWindow"
+          }
+        }
+      },
       "CreateApiTokenRequest": {
         "required": [
           "name",
@@ -5055,6 +5154,9 @@
   },
   "tags": [
     {
+      "name": "FileEndpoints"
+    },
+    {
       "name": "AccountEndpoints"
     },
     {
@@ -5068,9 +5170,6 @@
     },
     {
       "name": "MachineEndpoints"
-    },
-    {
-      "name": "FileEndpoints"
     },
     {
       "name": "ReleaseEndpoints"

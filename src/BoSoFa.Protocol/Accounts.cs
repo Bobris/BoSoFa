@@ -33,6 +33,15 @@ public sealed record HarnessAccountDto(
 /// <summary>One limit window of a subscription. <c>Utilization</c> runs from 0 to 1.</summary>
 public sealed record UsageWindow(double Utilization, DateTime? ResetsAt, string? Status);
 
+/// <summary>Asks a machine for its Codex sign-in's plan and limits, which Codex can tell without running a turn.</summary>
+public sealed record CodexUsageRequest : MachineRpc;
+
+/// <summary>One limit window of a Codex plan and its length.</summary>
+public sealed record CodexWindow(int Minutes, UsageWindow Usage);
+
+/// <summary>A machine's own Codex sign-in; empty when it has none. <c>Credits</c> is the balance, as Codex words it.</summary>
+public sealed record CodexUsageResult(bool SignedIn, string? Plan, CodexWindow[] Windows, string? Credits) : MachineRpcResult;
+
 /// <summary>The limits an account's latest turn reported, as of <c>UpdatedAt</c>. A subscription token cannot tell its plan.</summary>
 public sealed record AccountUsageDto(UsageWindow? FiveHour, UsageWindow? SevenDay, DateTime UpdatedAt);
 

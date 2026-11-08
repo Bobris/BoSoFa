@@ -16,6 +16,7 @@ namespace BoSoFa.Protocol;
 [JsonDerivedType(typeof(TerminalInputRequest), "terminalInput")]
 [JsonDerivedType(typeof(TerminalResizeRequest), "terminalResize")]
 [JsonDerivedType(typeof(TerminalCloseRequest), "terminalClose")]
+[JsonDerivedType(typeof(CodexUsageRequest), "codexUsage")]
 public abstract record MachineRpc;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "k")]
@@ -29,6 +30,7 @@ public abstract record MachineRpc;
 [JsonDerivedType(typeof(TerminalOpenResult), "terminalOpen")]
 [JsonDerivedType(typeof(TerminalListResult), "terminalList")]
 [JsonDerivedType(typeof(TerminalAttachResult), "terminalAttach")]
+[JsonDerivedType(typeof(CodexUsageResult), "codexUsage")]
 public abstract record MachineRpcResult;
 
 /// <summary>Why a call did not work, for people to read.</summary>

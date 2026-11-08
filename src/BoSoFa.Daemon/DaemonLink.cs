@@ -175,9 +175,11 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
             {
                 try
                 {
-                    var result = terminal ?? (_host != null
-                        ? await _host.Files.HandleAsync(call.Request, _stop.Token)
-                        : new RpcFailure("This daemon cannot do that."));
+                    var result = terminal ?? (_host == null
+                        ? new RpcFailure("This daemon cannot do that.")
+                        : call.Request is CodexUsageRequest
+                            ? await _host.CodexUsageAsync()
+                            : await _host.Files.HandleAsync(call.Request, _stop.Token));
                     await SendAsync(new RpcResponseMessage(call.Id, result), _stop.Token);
                 }
                 catch (Exception exception) when (exception is WebSocketException or OperationCanceledException or

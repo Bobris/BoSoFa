@@ -134,9 +134,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     /// are kept in a file there, so a background service does not depend on the keychain.</summary>
     async Task<CodexLaunch> LaunchCodexAsync(SessionState state)
     {
-        var executable = HarnessEnvironment.FindExecutable(_options.CodexExecutable ?? Installer.Find(HarnessNames.Codex),
-                             OperatingSystem.IsWindows() ? ["codex.exe"] : ["codex"], "/opt/homebrew/bin", "/usr/local/bin") ??
-                         throw new FileNotFoundException("The codex executable was not found on this machine.");
+        var executable = FindCodex() ?? throw new FileNotFoundException("The codex executable was not found on this machine.");
         string? apiKey = null;
         if (state.AccountId is { } accountId)
         {
@@ -152,6 +150,29 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         if (profile?.PluginDirectory is { } plugin) SessionProfiles.CopyDirectory(Path.Combine(plugin, "skills"), Path.Combine(home, "skills"));
         return new(JsonRpcProcess.Start(executable, ["app-server"], state.WorkingDirectory,
             environment, includeVersion: false), apiKey, McpConfig.ForCodex(ServersOf(state, profile)));
+    }
+
+    string? FindCodex() => HarnessEnvironment.FindExecutable(_options.CodexExecutable ?? Installer.Find(HarnessNames.Codex),
+        OperatingSystem.IsWindows() ? ["codex.exe"] : ["codex"], "/opt/homebrew/bin", "/usr/local/bin");
+
+    /// <summary>The plan and limits of this machine's own Codex sign-in.</summary>
+    public async Task<MachineRpcResult> CodexUsageAsync()
+    {
+        var home = Path.Combine(_dataDirectory, "profiles", "machine", "codex");
+        if (!File.Exists(Path.Combine(home, "auth.json"))) return CodexUsage.NotSignedIn;
+        if (FindCodex() is not { } executable) return new RpcFailure("Codex is not installed on this machine.");
+        var environment = HarnessEnvironment.Clean();
+        environment["CODEX_HOME"] = home;
+        try
+        {
+            await using var rpc = JsonRpcProcess.Start(executable, ["app-server"], home, environment, includeVersion: false);
+            return await CodexUsage.ReadAsync(rpc);
+        }
+        catch (Exception exception) when (exception is IOException or TimeoutException or InvalidOperationException or JsonRpcException or
+                                              System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            return new RpcFailure("Codex could not report its limits: " + exception.Message);
+        }
     }
 
     const string CodexConfig = """
