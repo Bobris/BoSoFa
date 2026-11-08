@@ -143,7 +143,9 @@ public class ClusterTest(Azurite azurite, ITestOutputHelper output) : IClassFixt
     public async Task LiveDeltasReachAClientOnAnotherNode()
     {
         var root = Path.Combine(Path.GetTempPath(), "bosofa-cluster-" + Guid.NewGuid().ToString("N"));
-        BoSoFa.Daemon.Harnesses.Claude.ReplayTransport.SignalTimeoutOverride = TimeSpan.Zero; // no pause after the tool
+        BoSoFa.Daemon.Harnesses.Claude.ReplayTransport.SignalTimeoutOverride = TimeSpan.FromMinutes(1);
+        BoSoFa.Daemon.Harnesses.Claude.ReplayTransport.Reset("subscribed");
+        BoSoFa.Daemon.Harnesses.Claude.ReplayTransport.Release("after-tool"); // no pause after the tool
         try
         {
             await using var first = await TestServer.StartClusterNodeAsync(root, "node-1");
@@ -177,6 +179,8 @@ public class ClusterTest(Azurite azurite, ITestOutputHelper output) : IClassFixt
                     new LiveSubscribe(session.Id, 0), ProtocolJsonContext.Default.LiveClientMessage),
                 System.Net.WebSockets.WebSocketMessageType.Text, true, default);
             var listening = SessionTest.ListenAsync(socket, live);
+            await Eventually(() => Task.FromResult(live.Count), count => count > 0); // subscribed: deltas are not replayed
+            BoSoFa.Daemon.Harnesses.Claude.ReplayTransport.Release("subscribed");
 
             var waiting = await Eventually(() => Task.FromResult(live.ToArray()),
                 messages => messages.OfType<LiveSessionUpdate>().Any(update => update.Requests.Length == 1));

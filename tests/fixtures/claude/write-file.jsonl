@@ -1,6 +1,7 @@
 {"replay":"await_user"}
 {"type":"system","subtype":"init","cwd":"/work","tools":["Read","Write"],"model":"claude-haiku-5-5","permissionMode":"default","uuid":"9f1d0001","session_id":"0b6c2f4e-6a51-4d6e-9a5e-2f1f4f0d6c11"}
 {"type":"system","subtype":"session_state_changed","state":"running","session_id":"0b6c2f4e-6a51-4d6e-9a5e-2f1f4f0d6c11","uuid":"9f1d0002"}
+{"replay":"await_signal","name":"subscribed","ms":300}
 {"type":"stream_event","event":{"type":"message_start","message":{"model":"claude-haiku-5-5","id":"msg_01Replay","role":"assistant","content":[]}},"session_id":"0b6c2f4e-6a51-4d6e-9a5e-2f1f4f0d6c11","parent_tool_use_id":null,"uuid":"9f1d0003"}
 {"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"0b6c2f4e-6a51-4d6e-9a5e-2f1f4f0d6c11","parent_tool_use_id":null,"uuid":"9f1d0004","api_message_id":"msg_01Replay"}
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"I'll create "}},"session_id":"0b6c2f4e-6a51-4d6e-9a5e-2f1f4f0d6c11","parent_tool_use_id":null,"uuid":"9f1d0005"}

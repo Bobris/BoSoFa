@@ -59,6 +59,7 @@ public class SessionTest(ITestOutputHelper output)
     {
         ReplayTransport.SignalTimeoutOverride = TimeSpan.FromMinutes(1);
         ReplayTransport.Reset("after-tool");
+        ReplayTransport.Reset("subscribed");
         await using var server = await TestServer.StartAsync();
         var cookies = new CookieContainer();
         using var boris = server.Client(cookies);
@@ -89,6 +90,8 @@ public class SessionTest(ITestOutputHelper output)
         await socket.SendAsync(JsonSerializer.SerializeToUtf8Bytes<LiveClientMessage>(new LiveSubscribe(session.Id, 0),
             ProtocolJsonContext.Default.LiveClientMessage), WebSocketMessageType.Text, true, default);
         var listening = ListenAsync(socket, live);
+        await Eventually(() => Task.FromResult(live.Count), count => count > 0); // subscribed: deltas are not replayed
+        ReplayTransport.Release("subscribed");
 
         var requests = await Eventually(() => boris.GetFromJsonAsync<RuntimeRequestDto[]>($"/api/v1/sessions/{session.Id}/requests")!,
             r => r!.Length > 0);

@@ -52,6 +52,7 @@ public class FailoverTest(Tests.Azurite azurite, ITestOutputHelper output) : ICl
         var container = "failover-" + Guid.NewGuid().ToString("N")[..12];
         ReplayTransport.SignalTimeoutOverride = Timeout;
         ReplayTransport.Reset("after-tool");
+        ReplayTransport.Release("subscribed"); // this test does not watch deltas
         var nodes = new List<NodeProcess>();
         try
         {

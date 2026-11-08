@@ -36,7 +36,7 @@ public sealed class HarnessInstaller(string dataDirectory, HttpMessageHandler? h
         if (!File.Exists(ManifestPath(harness))) return null;
         var manifest = JsonSerializer.Deserialize(File.ReadAllText(ManifestPath(harness)), HarnessJsonContext.Default.HarnessManifest);
         if (manifest == null) return null;
-        var path = Path.Combine(_root, harness, manifest.Version, manifest.EntryPoint);
+        var path = Path.GetFullPath(Path.Combine(_root, harness, manifest.Version, manifest.EntryPoint));
         return File.Exists(path) ? path : null;
     }
 
