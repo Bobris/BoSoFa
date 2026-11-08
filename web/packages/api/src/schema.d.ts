@@ -1683,6 +1683,115 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiTokenDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateApiTokenRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CreatedApiToken"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mcp-servers": {
         parameters: {
             query?: never;
@@ -2087,6 +2196,18 @@ export interface components {
             allow: boolean;
             message: null | string;
         };
+        ApiTokenDto: {
+            /** Format: uint64 */
+            id: number | string;
+            name: string;
+            scope: components["schemas"]["ApiTokenScope"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: null | string;
+        };
+        /** @enum {unknown} */
+        ApiTokenScope: "Read" | "Control";
         /** @enum {unknown} */
         ArtifactKind: "Binary" | "TarGz" | "Zip";
         AuthProviders: {
@@ -2097,6 +2218,16 @@ export interface components {
             sha256: string;
             /** Format: int64 */
             size: number | string;
+        };
+        CreateApiTokenRequest: {
+            name: string;
+            scope: components["schemas"]["ApiTokenScope"];
+            /** Format: int32 */
+            expiresInDays?: null | number | string;
+        };
+        CreatedApiToken: {
+            token: string;
+            details: components["schemas"]["ApiTokenDto"];
         };
         CreateHarnessAccountRequest: {
             kind: components["schemas"]["AccountKind"];

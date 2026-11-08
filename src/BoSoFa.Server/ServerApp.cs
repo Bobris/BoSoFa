@@ -4,6 +4,7 @@ using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Live;
 using BoSoFa.Server.Machines;
+using BoSoFa.Server.Tokens;
 using BoSoFa.Server.Sessions;
 using BTDB.Replication;
 using BTDB.Replication.EventLog;
@@ -97,6 +98,7 @@ public static class ServerApp
         app.MapFileEndpoints();
         app.MapSessionEndpoints();
         app.MapAccountEndpoints();
+        app.MapApiTokenEndpoints();
         app.MapCatalogEndpoints();
         app.MapBlobEndpoints();
         if (cluster != null)

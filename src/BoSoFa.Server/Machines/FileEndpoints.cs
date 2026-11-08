@@ -1,6 +1,7 @@
 using BoSoFa.Protocol;
 using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
+using BoSoFa.Server.Tokens;
 using BTDB.Replication.EventSourcing;
 using Microsoft.AspNetCore.Http.HttpResults;
 
@@ -55,6 +56,7 @@ public static class FileEndpoints
     static async Task<Results<Ok<T>, NotFound, ForbidHttpResult, BadRequest<string>>> CallAsync<T>(ulong id, MachineRpc request, BtdbNode node,
         MachineRpcClient rpc, HttpContext http) where T : MachineRpcResult
     {
+        if (http.User.IsReadOnly()) return TypedResults.Forbid();
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using (publisher.StartQuery())
         {

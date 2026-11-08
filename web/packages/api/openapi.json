@@ -1457,6 +1457,95 @@
         }
       }
     },
+    "/api/v1/tokens": {
+      "get": {
+        "tags": [
+          "ApiTokens"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiTokenDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ApiTokens"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tokens/{id}": {
+      "delete": {
+        "tags": [
+          "ApiTokens"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/v1/mcp-servers": {
       "get": {
         "tags": [
@@ -1814,6 +1903,49 @@
           }
         }
       },
+      "ApiTokenDto": {
+        "required": [
+          "id",
+          "name",
+          "scope",
+          "createdAt",
+          "expiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ApiTokenScope"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiTokenScope": {
+        "enum": [
+          "Read",
+          "Control"
+        ]
+      },
       "ArtifactKind": {
         "enum": [
           "Binary",
@@ -1856,6 +1988,45 @@
               "string"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "CreateApiTokenRequest": {
+        "required": [
+          "name",
+          "scope"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ApiTokenScope"
+          },
+          "expiresInDays": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CreatedApiToken": {
+        "required": [
+          "token",
+          "details"
+        ],
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ApiTokenDto"
           }
         }
       },
@@ -4038,6 +4209,9 @@
     },
     {
       "name": "SessionEndpoints"
+    },
+    {
+      "name": "ApiTokens"
     },
     {
       "name": "BlobEndpoints"

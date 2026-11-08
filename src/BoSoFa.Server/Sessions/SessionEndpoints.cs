@@ -5,6 +5,7 @@ using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Live;
 using BoSoFa.Server.Machines;
+using BoSoFa.Server.Tokens;
 using BTDB.ODBLayer;
 using BTDB.Replication.EventSourcing;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -193,7 +194,7 @@ public static class SessionEndpoints
                         using (publisher.StartQuery())
                             allowed = Ambient.Relation<IMachineTable>().FindByIdOrDefault(watch.MachineId) is { } machineToWatch &&
                                       MachineAccess.CanControl(subscriber.UserId, machineToWatch);
-                        if (!allowed)
+                        if (!allowed || http.User.IsReadOnly())
                         {
                             subscriber.Enqueue(new LiveTerminalExited(watch.TerminalId, null, "You cannot reach this machine."));
                             break;

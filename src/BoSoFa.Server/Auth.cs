@@ -16,10 +16,14 @@ public static class Auth
 {
     public const string UserIdClaim = "bosofa:uid";
     const string OidcScheme = OpenIdConnectDefaults.AuthenticationScheme;
+    const string PersonOrScript = "PersonOrScript";
 
     public static IServiceCollection AddBoSoFaAuthentication(this IServiceCollection services, ServerOptions options)
     {
-        var authentication = services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+        var authentication = services.AddAuthentication(PersonOrScript)
+            .AddPolicyScheme(PersonOrScript, null, policy => policy.ForwardDefaultSelector = context =>
+                Tokens.ApiTokens.IsPresented(context.Request) ? Tokens.ApiTokens.Scheme : CookieAuthenticationDefaults.AuthenticationScheme)
+            .AddScheme<AuthenticationSchemeOptions, Tokens.ApiTokenAuthenticationHandler>(Tokens.ApiTokens.Scheme, null)
             .AddCookie(cookie =>
             {
                 cookie.Cookie.Name = "bosofa";

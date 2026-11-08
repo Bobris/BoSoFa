@@ -85,7 +85,7 @@ public static class Domain
         typeof(ISessionItemTable), typeof(IRuntimeRequestTable), typeof(IMachineCommandTable),
         typeof(IMachinePresenceTable), typeof(IHarnessAccountTable),
         typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable), typeof(IMcpServerTable),
-        typeof(ISkillBundleTable), typeof(IProfileTable)
+        typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable)
     ];
 
     public static EventDispatcher CreateDispatcher(IDomainSignals signals) => new EventDispatcher()
@@ -109,5 +109,7 @@ public static class Domain
         .Register(new MachineInventoryReportedHandler())
         .Register(new McpServerPublishedHandler())
         .Register(new SkillBundlePublishedHandler())
-        .Register(new ProfileSavedHandler());
+        .Register(new ProfileSavedHandler())
+        .Register(new ApiTokenCreatedHandler())
+        .Register(new ApiTokenRevokedHandler());
 }

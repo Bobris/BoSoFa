@@ -19,6 +19,7 @@ export type SkillBundle = components["schemas"]["SkillBundleDto"];
 export type Profile = components["schemas"]["ProfileDto"];
 export type FileEntry = components["schemas"]["FileEntry"];
 export type Terminal = components["schemas"]["TerminalDto"];
+export type ApiToken = components["schemas"]["ApiTokenDto"];
 export type LiveClientMessage = components["schemas"]["LiveClientMessage"];
 export type LiveServerMessage = components["schemas"]["LiveServerMessage"];
 

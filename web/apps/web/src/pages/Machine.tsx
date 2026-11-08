@@ -1,7 +1,9 @@
 import { api, type FileEntry } from "@bosofa/api";
-import { useParams } from "@solidjs/router";
+import { useNavigate, useParams } from "@solidjs/router";
 import Terminals from "../components/Terminals";
-import { createMemo, createSignal, For, refresh, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, refresh, Show } from "solid-js";
+import { paths } from "../router";
+import { fetchMe } from "../session";
 
 type Listing = { path: string | null; parent: string | null; entries: FileEntry[]; truncated: boolean; error?: string };
 
@@ -177,6 +179,14 @@ export default function MachinePage() {
   const params = useParams<{ id: string }>();
   const machineId = () => Number(params.id);
   let open: (directory?: string) => void = () => {};
+  const navigate = useNavigate();
+  const me = createMemo(() => fetchMe());
+  createEffect(
+    () => me(),
+    (user) => {
+      if (user === null) navigate(`${paths.login}?returnUrl=${encodeURIComponent(location.pathname)}`, { replace: true });
+    },
+  );
   const machine = createMemo(async () => {
     const id = machineId();
     return ((await api.GET("/api/v1/machines")).data ?? []).find((candidate) => candidate.id === id);

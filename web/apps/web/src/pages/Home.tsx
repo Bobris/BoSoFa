@@ -28,6 +28,9 @@ export default function Home() {
             <a href={paths.catalog()} class="text-sm text-muted hover:text-ink">
               Catalog
             </a>
+            <a href={paths.tokens()} class="text-sm text-muted hover:text-ink">
+              API tokens
+            </a>
             <a href={paths.accounts()} class="text-sm text-muted hover:text-ink">
               Accounts
             </a>
