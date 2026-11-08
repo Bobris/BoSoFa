@@ -51,6 +51,7 @@ public static class ProtocolVersion
 [JsonSerializable(typeof(CreateHarnessAccountRequest))]
 [JsonSerializable(typeof(AccountLeaseRequest))]
 [JsonSerializable(typeof(AccountLeaseResponse))]
+[JsonSerializable(typeof(BlobRef))]
 [JsonSerializable(typeof(HarnessArtifact[]))]
 [JsonSerializable(typeof(HarnessReleaseDto[]))]
 [JsonSerializable(typeof(HarnessReleaseDto))]

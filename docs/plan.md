@@ -543,6 +543,19 @@ Steps 1–6 are implemented, but the milestone's "done when" is not fully met ye
 - **Gemini CLI:** wired to the ACP adapter but never run. It is npm-only, so it needs the catalog's `npm` kind or a manual install.
 - **Open:** one Windows CI run hung once in the .NET tests and did not recur. CI now names a hung test after 3 minutes.
 
+### M4 steps
+
+Done when: a profile pushes a new skill and an MCP server to a machine and a session uses them.
+
+1. **Blob store.** *Done (single-request uploads; resumable chunks later):* content-addressed by SHA-256 on the file system or Azure Blob, with upload and download for people and daemons.
+2. **Catalog and profiles.**
+   - MCP server definitions, skill bundles (a zip in the blob store) and profiles.
+   - A session picks a profile. The daemon fetches the resolved profile just in time, so secrets of MCP servers never enter the event log.
+   - The daemon writes each harness's native config: `--mcp-config` and a per-session plugin folder for Claude Code, `config` and `$CODEX_HOME/skills` for Codex, `session/new.mcpServers` for ACP.
+3. **BoSoFa MCP endpoint.** One loopback endpoint per session with a per-session bearer: `bosofa_notify_user`, `bosofa_ask_user`, `bosofa_upload_file`.
+4. **Files.** Upload and download commands, and a file browser under allowed roots.
+5. **Terminals.** PTY sessions on the machine, attached and observed from the browser.
+
 ## 10. Risks
 
 | Risk | Mitigation |

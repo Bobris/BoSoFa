@@ -55,6 +55,7 @@ public static class ServerApp
         builder.Services.AddSingleton<IReplicationScheduler>(new SystemReplicationScheduler());
         builder.Services.AddSingleton(storage.Leader);
         builder.Services.AddSingleton(storage.EventLog);
+        builder.Services.AddSingleton(storage.Blobs);
         // The node owns (and disposes) its canonical storage.
         var nodeId = cluster?.NodeId ?? "single-node";
         var endpoint = cluster?.PeerUrl ?? "single-node";
@@ -94,6 +95,7 @@ public static class ServerApp
         app.MapMachineEndpoints();
         app.MapSessionEndpoints();
         app.MapAccountEndpoints();
+        app.MapBlobEndpoints();
         if (cluster != null)
         {
             // Peers reach each other on a separate port that the ingress never exposes.

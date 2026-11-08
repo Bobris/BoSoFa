@@ -2,6 +2,9 @@ using System.Text.Json.Serialization;
 
 namespace BoSoFa.Protocol;
 
+/// <summary>Content stored in the blob store.</summary>
+public sealed record BlobRef(string Sha256, long Size);
+
 [JsonConverter(typeof(JsonStringEnumConverter<ArtifactKind>))]
 public enum ArtifactKind
 {
