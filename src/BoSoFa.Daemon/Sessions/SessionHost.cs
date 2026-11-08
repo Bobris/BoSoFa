@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using BoSoFa.Daemon.Harnesses;
+using BoSoFa.Daemon.Harnesses.Acp;
 using BoSoFa.Daemon.Harnesses.Claude;
 using BoSoFa.Daemon.Harnesses.Codex;
 using BoSoFa.Protocol;
@@ -85,9 +86,24 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     }
 
     /// <summary>The harness implementation of a session; Claude Code and its replay share the Claude adapter.</summary>
-    IHarnessSession Create(SessionState state) => state.Harness == HarnessNames.Codex
-        ? new CodexSession(state, this, () => LaunchCodexAsync(state), _log)
-        : new ClaudeSession(state, this, Launch(state), _log);
+    IHarnessSession Create(SessionState state) => state.Harness switch
+    {
+        HarnessNames.Codex => new CodexSession(state, this, () => LaunchCodexAsync(state), _log),
+        HarnessNames.OpenCode => new AcpSession(state, this, () => LaunchAcp(state, "opencode", ["acp"]), _log),
+        HarnessNames.Gemini => new AcpSession(state, this, () => LaunchAcp(state, "gemini", ["--experimental-acp"]), _log),
+        _ => new ClaudeSession(state, this, Launch(state), _log)
+    };
+
+    /// <summary>An ACP agent uses the machine's own sign-in of that tool (accounts for these come with the catalog).</summary>
+    static Task<JsonRpcProcess> LaunchAcp(SessionState state, string name, string[] arguments)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var executable = HarnessEnvironment.FindExecutable(null, OperatingSystem.IsWindows() ? [name + ".exe"] : [name],
+                             Path.Combine(home, $".{name}", "bin"), "/opt/homebrew/bin", "/usr/local/bin") ??
+                         throw new IOException($"The {name} executable was not found on this machine.");
+        return Task.FromResult(JsonRpcProcess.Start(executable, arguments, state.WorkingDirectory, HarnessEnvironment.Clean(),
+            includeVersion: true));
+    }
 
     /// <summary>A profile folder per account (or one for the machine's own sign-in), never the user's ~/.codex. Tokens
     /// are kept in a file there, so a background service does not depend on the keychain.</summary>

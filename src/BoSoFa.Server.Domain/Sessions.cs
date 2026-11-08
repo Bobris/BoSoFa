@@ -255,7 +255,7 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
 {
     public SessionCommandResult? Validate(SessionCreated ev) =>
         string.IsNullOrWhiteSpace(ev.Prompt) || ev.Prompt.Length > Sessions.MaximumPromptLength ||
-        string.IsNullOrWhiteSpace(ev.WorkingDirectory) || ev.Harness is not (Harnesses.Claude or Harnesses.Codex or Harnesses.Replay) ||
+        string.IsNullOrWhiteSpace(ev.WorkingDirectory) || !Harnesses.All.Contains(ev.Harness) ||
         !Harnesses.PermissionModes.Contains(ev.PermissionMode)
             ? new() { Outcome = CommandOutcome.Invalid }
             : null;

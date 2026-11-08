@@ -122,8 +122,16 @@ public static class Harnesses
     /// <summary>OpenAI Codex through <c>codex app-server</c> (M3 step 3).</summary>
     public const string Codex = "codex";
 
+    /// <summary>OpenCode, through ACP.</summary>
+    public const string OpenCode = "opencode";
+
+    /// <summary>Gemini CLI, through ACP.</summary>
+    public const string Gemini = "gemini";
+
     /// <summary>Plays a recorded Claude Code transcript; only on daemons started with <c>--replay-fixture</c>.</summary>
     public const string Replay = "replay";
+
+    public static readonly string[] All = [Claude, Codex, OpenCode, Gemini, Replay];
 
     public static readonly string[] PermissionModes = ["default", "acceptEdits", "plan", "bypassPermissions"];
 }

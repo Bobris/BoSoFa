@@ -519,7 +519,7 @@ Done when: the same project runs on Claude, Codex and Gemini, with diffs per run
    - `CodexSessionTest` plays the protocol against a fake server. The AOT daemon with Codex 0.167 was checked up to the device code.
    - `codex app-server` over stdio JSON-RPC (`thread/*`, `turn/start|steer|interrupt`, approvals), with types generated from `codex app-server generate-json-schema`.
    - Per-profile `CODEX_HOME` with `cli_auth_credentials_store = "file"`, and device-code sign-in started from the UI.
-4. **ACP adapter.** ACP JSON-RPC over stdio, verified with OpenCode; Gemini CLI uses the same adapter.
+4. **ACP adapter.** *Done:* `AcpSession` speaks ACP JSON-RPC over stdio. A real OpenCode turn ran through the AOT daemon, and `session/load` restored the conversation after a daemon restart. Gemini CLI is wired to the same adapter (`gemini --experimental-acp`) but untested until the catalog installs it. ACP has no steering, so Steer cancels the turn and its message runs first.
 5. **Git: worktrees, checkpoints, diffs.**
    - A session runs in place or in a `bosofa/<slug>` worktree.
    - A hidden-ref checkpoint is taken before and after each run, and the run's diff is stored and shown per run.
