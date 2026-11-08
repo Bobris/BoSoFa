@@ -155,6 +155,9 @@ function Item(props: { item: SessionItem }) {
               </a>{" "}
               and enter <code class="font-mono font-semibold">{login().userCode}</code>
             </p>
+            <p class="mt-2 text-xs text-muted">
+              If the page says device code sign-in is off, turn it on in ChatGPT's security settings and start the session again.
+            </p>
           </div>
         )}
       </Match>

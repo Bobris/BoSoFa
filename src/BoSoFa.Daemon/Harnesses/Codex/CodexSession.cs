@@ -188,7 +188,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         var url = ClaudeJson.Str(login, "verificationUrl") ?? "";
         var code = ClaudeJson.Str(login, "userCode") ?? "";
         sink.Report(state.SessionId, new ItemReport(SessionItemKind.Notice, DateTime.UtcNow,
-            $"Sign in to Codex on this machine: open {url} and enter the code {code}. The session continues afterwards.",
+            $"Sign in to Codex on this machine: open {url} and enter the code {code}. The session continues afterwards. If the page says device code sign-in is off, turn it on in ChatGPT's security settings and start the session again.",
             Data: new JsonObject { ["verificationUrl"] = url, ["userCode"] = code }.ToJsonString()));
         sink.Report(state.SessionId, new StatusReport(SessionStatus.WaitingForApproval));
         (bool Success, string? Error) result;
