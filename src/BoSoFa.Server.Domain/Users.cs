@@ -80,14 +80,14 @@ public static class Domain
 {
     /// <summary>Raise this with every change to persisted relations: a node of a higher generation takes over from older
     /// nodes and publishes its schema, and older builds can never lead again (BTDB <c>Doc/ReplicationHosting.md</c>).</summary>
-    public const ulong ApplicationGeneration = 1;
+    public const ulong ApplicationGeneration = 2;
 
     /// <summary>Every relation of the server database; InitializeRelations registers them under leader authority.</summary>
     public static readonly Type[] Relations =
     [
         typeof(IUserTable), typeof(IEnrollmentTable), typeof(IMachineTable), typeof(ISessionTable),
         typeof(ISessionItemTable), typeof(IRuntimeRequestTable), typeof(IMachineCommandTable),
-        typeof(IMachinePresenceTable), typeof(IHarnessAccountTable),
+        typeof(IMachinePresenceTable), typeof(IHarnessAccountTable), typeof(IHarnessAccountUsageTable),
         typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable), typeof(IMcpServerTable),
         typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable), typeof(IAuditEntryTable),
         typeof(IDaemonReleaseTable), typeof(IMachineUpdatePolicyTable), typeof(IDaemonRolloutTable), typeof(IDaemonRolloutMachineTable), typeof(IDesktopSessionTable)

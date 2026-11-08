@@ -28,7 +28,7 @@ public static class AccountEndpoints
     internal static HarnessAccountDto ToDto(HarnessAccount account) => new(account.Id, account.Kind,
         AccountSecrets.HarnessOf(account.Kind), account.Label, account.OwnerId,
         Ambient.Relation<IUserTable>().FindByIdOrDefault(account.OwnerId)?.Name ?? "", account.CreatedAt,
-        account.ExpiresAt, account.SecretHint);
+        account.ExpiresAt, account.SecretHint, AccountUsages.Of(account.Id));
 
     static IDataProtector Protector(IDataProtectionProvider protection, string secretId) =>
         protection.CreateProtector(Purpose, secretId);

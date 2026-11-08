@@ -1,4 +1,4 @@
-import { api, getPlatform, type AccountKind, type HarnessAccount } from "@bosofa/api";
+import { api, getPlatform, type AccountKind, type AccountUsage, type HarnessAccount, type UsageWindow } from "@bosofa/api";
 import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, refresh, Show } from "solid-js";
 import { paths } from "../router";
@@ -16,6 +16,40 @@ const kinds: { value: AccountKind; label: string; help: string }[] = [
 
 function expiresSoon(account: HarnessAccount): boolean {
   return account.expiresAt != null && Date.parse(account.expiresAt) - Date.now() < 30 * 86_400_000;
+}
+
+function Limit(props: { name: string; window: UsageWindow }) {
+  const percent = () => Math.min(100, Math.round(Number(props.window.utilization) * 100));
+  const resets = () =>
+    props.window.resetsAt == null
+      ? ""
+      : `, resets ${new Date(props.window.resetsAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`;
+  return (
+    <div class="flex-1">
+      <div class="flex justify-between gap-2">
+        <span>{props.name}</span>
+        <span class="text-muted">
+          {percent()}%{resets()}
+        </span>
+      </div>
+      <div class="mt-1 h-1 rounded bg-line">
+        <div class={["h-1 rounded", percent() >= 90 ? "bg-red-600" : "bg-accent"]} style={{ width: `${percent()}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** Limits as of the account's latest turn: nothing reports them between turns, so the age is part of the answer. */
+function Limits(props: { usage: AccountUsage }) {
+  return (
+    <div class="mt-2 text-xs">
+      <div class="flex gap-4">
+        <Show when={props.usage.fiveHour}>{(window) => <Limit name="5 hours" window={window()} />}</Show>
+        <Show when={props.usage.sevenDay}>{(window) => <Limit name="Week" window={window()} />}</Show>
+      </div>
+      <p class="mt-1 text-muted">As of {new Date(props.usage.updatedAt).toLocaleString()}</p>
+    </div>
+  );
 }
 
 /** My harness accounts: secrets go to the server once and never come back; daemons lease them per session. */
@@ -78,25 +112,28 @@ export default function Accounts() {
             <ul class="divide-y divide-line">
               <For each={accounts()} keyed={(account) => account.id}>
                 {(account) => (
-                  <li class="flex items-center justify-between gap-3 px-4 py-2 text-sm">
-                    <span>
-                      {account().label}{" "}
-                      <span class="text-muted">
-                        {kinds.find((k) => k.value === account().kind)?.label} · {account().secretHint}
+                  <li class="px-4 py-2 text-sm">
+                    <div class="flex items-center justify-between gap-3">
+                      <span>
+                        {account().label}{" "}
+                        <span class="text-muted">
+                          {kinds.find((k) => k.value === account().kind)?.label} · {account().secretHint}
+                        </span>
                       </span>
-                    </span>
-                    <span class="flex items-center gap-3 text-xs">
-                      <Show when={account().expiresAt}>
-                        {(expires) => (
-                          <span class={expiresSoon(account()) ? "text-red-600" : "text-muted"}>
-                            expires {new Date(expires()).toLocaleDateString()}
-                          </span>
-                        )}
-                      </Show>
-                      <button class="text-muted hover:text-red-600" onClick={() => remove(account())}>
-                        Remove
-                      </button>
-                    </span>
+                      <span class="flex items-center gap-3 text-xs">
+                        <Show when={account().expiresAt}>
+                          {(expires) => (
+                            <span class={expiresSoon(account()) ? "text-red-600" : "text-muted"}>
+                              expires {new Date(expires()).toLocaleDateString()}
+                            </span>
+                          )}
+                        </Show>
+                        <button class="text-muted hover:text-red-600" onClick={() => remove(account())}>
+                          Remove
+                        </button>
+                      </span>
+                    </div>
+                    <Show when={account().usage}>{(usage) => <Limits usage={usage()} />}</Show>
                   </li>
                 )}
               </For>

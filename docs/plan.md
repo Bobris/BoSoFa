@@ -295,6 +295,8 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - A deleted or rejected account stops new sessions, and running ones can be stopped from the account page. BoSoFa cannot revoke a token at the provider.
 - **Audit:** each lease is audited (who, which session, which machine), and the account page shows recent use.
 
+**Limits of an account.** Claude Code reports the 5-hour and weekly windows with each turn (`rate_limit_event`, not a documented contract). The daemon forwards them for sessions on an account, and the Accounts page shows the latest with its age. Nothing reports them between turns. A `setup-token` account cannot tell its plan: `claude auth status` gives no `subscriptionType` for it (checked with 2.1.317).
+
 ### 5.5 MCP and skills
 
 - **The BoSoFa MCP endpoint:**

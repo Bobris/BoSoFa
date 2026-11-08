@@ -2833,6 +2833,12 @@ export interface components {
             kind: components["schemas"]["AccountKind"];
             secret: string;
         };
+        AccountUsageDto: {
+            fiveHour: null | components["schemas"]["UsageWindow"];
+            sevenDay: null | components["schemas"]["UsageWindow"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
         AnswerRuntimeRequest: {
             allow: boolean;
             message: null | string;
@@ -3062,6 +3068,7 @@ export interface components {
             /** Format: date-time */
             expiresAt: null | string;
             secretHint: string;
+            usage?: null | components["schemas"]["AccountUsageDto"];
         };
         HarnessArtifact: {
             platform: string;
@@ -3442,6 +3449,13 @@ export interface components {
         };
         TerminalOpenResult: {
             terminal: components["schemas"]["TerminalDto"];
+        };
+        UsageWindow: {
+            /** Format: double */
+            utilization: number | string;
+            /** Format: date-time */
+            resetsAt: null | string;
+            status: null | string;
         };
         UserDto: {
             /** Format: uint64 */

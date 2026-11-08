@@ -27,7 +27,14 @@ public sealed record HarnessAccountDto(
     string OwnerName,
     DateTime CreatedAt,
     DateTime? ExpiresAt,
-    string SecretHint);
+    string SecretHint,
+    AccountUsageDto? Usage = null);
+
+/// <summary>One limit window of a subscription. <c>Utilization</c> runs from 0 to 1.</summary>
+public sealed record UsageWindow(double Utilization, DateTime? ResetsAt, string? Status);
+
+/// <summary>The limits an account's latest turn reported, as of <c>UpdatedAt</c>. A subscription token cannot tell its plan.</summary>
+public sealed record AccountUsageDto(UsageWindow? FiveHour, UsageWindow? SevenDay, DateTime UpdatedAt);
 
 public sealed record CreateHarnessAccountRequest(AccountKind Kind, string Label, string Secret);
 

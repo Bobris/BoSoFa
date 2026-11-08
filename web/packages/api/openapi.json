@@ -2357,6 +2357,40 @@
           }
         }
       },
+      "AccountUsageDto": {
+        "required": [
+          "fiveHour",
+          "sevenDay",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "fiveHour": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UsageWindow"
+              }
+            ]
+          },
+          "sevenDay": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UsageWindow"
+              }
+            ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "AnswerRuntimeRequest": {
         "required": [
           "allow",
@@ -3251,6 +3285,16 @@
           },
           "secretHint": {
             "type": "string"
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AccountUsageDto"
+              }
+            ]
           }
         }
       },
@@ -4915,6 +4959,37 @@
         "properties": {
           "terminal": {
             "$ref": "#/components/schemas/TerminalDto"
+          }
+        }
+      },
+      "UsageWindow": {
+        "required": [
+          "utilization",
+          "resetsAt",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "utilization": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "resetsAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

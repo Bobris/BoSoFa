@@ -1,3 +1,4 @@
+using System.Text.Json;
 using BoSoFa.Protocol;
 using BTDB.ODBLayer;
 using BTDB.Replication.EventSourcing;
@@ -25,6 +26,44 @@ public interface IHarnessAccountTable : IRelation<HarnessAccount>
     void Insert(HarnessAccount account);
     HarnessAccount? FindByIdOrDefault(ulong id);
     bool RemoveById(ulong id);
+}
+
+/// <summary>The limits an account's latest turn reported, apart from the account because they change with every turn.</summary>
+public class HarnessAccountUsage
+{
+    [PrimaryKey(1)] public ulong AccountId { get; set; }
+
+    /// <summary>An <see cref="AccountUsageDto"/> as JSON, so a new kind of limit window needs no schema change.</summary>
+    public string LimitsJson { get; set; } = "";
+    public DateTime LimitsAt { get; set; }
+}
+
+public interface IHarnessAccountUsageTable : IRelation<HarnessAccountUsage>
+{
+    HarnessAccountUsage? FindByIdOrDefault(ulong accountId);
+    bool RemoveById(ulong accountId);
+}
+
+public static class AccountUsages
+{
+    /// <summary>Sessions of one account report independently, so an older report never replaces a newer one.</summary>
+    internal static void Record(ulong accountId, AccountUsageReport report)
+    {
+        if (accountId == 0 || Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(accountId) == null) return;
+        var table = Ambient.Relation<IHarnessAccountUsageTable>();
+        var row = table.FindByIdOrDefault(accountId) ?? new HarnessAccountUsage { AccountId = accountId };
+        if (report.At < row.LimitsAt) return;
+        row.LimitsAt = report.At;
+        row.LimitsJson = JsonSerializer.Serialize(new AccountUsageDto(report.FiveHour, report.SevenDay, report.At),
+            ProtocolJsonContext.Default.AccountUsageDto);
+        table.Upsert(row);
+    }
+
+    /// <summary>Must run inside a query scope.</summary>
+    public static AccountUsageDto? Of(ulong accountId) =>
+        Ambient.Relation<IHarnessAccountUsageTable>().FindByIdOrDefault(accountId) is { } row
+            ? JsonSerializer.Deserialize(row.LimitsJson, ProtocolJsonContext.Default.AccountUsageDto)
+            : null;
 }
 
 [BTDB.Generate]
@@ -89,6 +128,7 @@ public sealed class HarnessAccountRemovedHandler : IEventHandler<HarnessAccountR
         if (account == null) return new() { Outcome = CommandOutcome.NotFound };
         if (account.OwnerId != ev.UserId) return new() { Outcome = CommandOutcome.Forbidden };
         accounts.RemoveById(account.Id);
+        Ambient.Relation<IHarnessAccountUsageTable>().RemoveById(account.Id);
         Audit.Record(ev.When, ev.UserId, "account.removed", account.Label);
         return new() { Outcome = CommandOutcome.Ok, AccountId = account.Id };
     }

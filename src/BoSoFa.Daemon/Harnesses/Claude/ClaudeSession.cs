@@ -198,6 +198,9 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
                         break;
                 }
                 break;
+            case "rate_limit_event" when state.AccountId != null:
+                if (ClaudeUsage.LimitsOf(line, now) is { } usage) sink.Report(state.SessionId, usage);
+                break;
             case "stream_event":
                 TranslateStreamEvent(line);
                 break;

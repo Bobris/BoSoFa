@@ -461,6 +461,9 @@ public sealed class DaemonReportsReceivedHandler(IDomainSignals signals) : IEven
                 // means the turn waits, so readers never see the request beside a running session.
                 session.Status = SessionStatus.WaitingForApproval;
                 break;
+            case AccountUsageReport usage:
+                AccountUsages.Record(session.AccountId, usage);
+                break;
             case WorkspaceReport workspace:
                 session.WorkingDirectory = workspace.Path;
                 session.Branch = workspace.Branch;

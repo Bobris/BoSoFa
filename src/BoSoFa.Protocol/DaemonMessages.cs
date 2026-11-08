@@ -110,6 +110,7 @@ public sealed record UpdateDaemonCommand(string Version, string Manifest, string
 [JsonDerivedType(typeof(ApprovalRequestedReport), "approval")]
 [JsonDerivedType(typeof(ApprovalClosedReport), "approvalClosed")]
 [JsonDerivedType(typeof(WorkspaceReport), "workspace")]
+[JsonDerivedType(typeof(AccountUsageReport), "accountUsage")]
 public abstract record SessionReport;
 
 /// <summary>A transcript item. Text above <see cref="InlineLimit"/> is cut; blobs carry the rest later (M4).</summary>
@@ -131,6 +132,9 @@ public sealed record ApprovalRequestedReport(string Key, DateTime At, string Too
     string? Description) : SessionReport;
 
 public sealed record ApprovalClosedReport(string Key, string Reason) : SessionReport;
+
+/// <summary>The limits of the account this session runs with, as of <c>At</c>.</summary>
+public sealed record AccountUsageReport(DateTime At, UsageWindow? FiveHour, UsageWindow? SevenDay) : SessionReport;
 
 /// <summary>The session runs in this worktree, on this branch.</summary>
 public sealed record WorkspaceReport(string Path, string Branch) : SessionReport;
