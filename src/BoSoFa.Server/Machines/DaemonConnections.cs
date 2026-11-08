@@ -81,6 +81,9 @@ public sealed class DaemonConnections
 
     readonly ConcurrentDictionary<ulong, Connection> _connections = new();
 
+    /// <summary>Daemons connected to this node right now.</summary>
+    public int Count => _connections.Count;
+
     public Connection? Get(ulong machineId) => _connections.GetValueOrDefault(machineId);
 
     /// <summary>Registers a connection, replacing (and closing) an older one of the same machine.</summary>

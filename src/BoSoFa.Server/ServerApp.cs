@@ -10,7 +10,10 @@ using BTDB.Replication;
 using BTDB.Replication.EventLog;
 using BTDB.Replication.Http;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.FileProviders;
+using BoSoFa.Server.Telemetry;
 using Microsoft.OpenApi;
 
 namespace BoSoFa.Server;
@@ -22,6 +25,7 @@ public static class ServerApp
     public static WebApplication Build(string[] args, Action<WebApplicationBuilder>? configure = null)
     {
         var builder = WebApplication.CreateSlimBuilder(args);
+        builder.WebHost.UseKestrelHttpsConfiguration(); // the slim builder leaves out HTTPS endpoints from configuration
         configure?.Invoke(builder);
         var options = builder.Configuration.GetSection("BoSoFa").Get<ServerOptions>() ?? new ServerOptions();
         var data = Path.GetFullPath(options.DataDirectory, builder.Environment.ContentRootPath);
@@ -41,7 +45,15 @@ public static class ServerApp
                 document.AddComponent(type.Name, PolymorphicComponents(document,
                     await context.GetOrCreateSchemaAsync(type, null, cancellation)));
         }));
-        builder.Services.AddHealthChecks();
+        builder.Services.AddHealthChecks().AddCheck<ApplicationHealthCheck>("bosofa-application", tags: ["ready"]);
+        if (options.TrustForwardedHeaders)
+            builder.Services.Configure<ForwardedHeadersOptions>(forwarded =>
+            {
+                forwarded.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+                // Proxy addresses change with its pods; the deployment keeps everything else off this port.
+                forwarded.KnownIPNetworks.Clear();
+                forwarded.KnownProxies.Clear();
+            });
         // Cookies and daemon tokens must be readable on every node, so a cluster shares the key ring.
         storage.PersistKeys(builder.Services.AddDataProtection().SetApplicationName("bosofa"));
         builder.Services.AddSingleton(TimeProvider.System);
@@ -71,7 +83,7 @@ public static class ServerApp
         // The node owns (and disposes) its canonical storage.
         var nodeId = cluster?.NodeId ?? "single-node";
         var endpoint = cluster?.PeerUrl ?? "single-node";
-        var nodeOptions = new BtdbNodeOptions("bosofa", nodeId, endpoint, 1, Path.Combine(data, "cache"), storage.Canonical)
+        var nodeOptions = new BtdbNodeOptions("bosofa", nodeId, endpoint, Domain.Domain.ApplicationGeneration, Path.Combine(data, "cache"), storage.Canonical)
         {
             FlushToDisk = options.FlushToDisk
         };
@@ -79,7 +91,7 @@ public static class ServerApp
         builder.Services.AddSingleton<BtdbNode>();
         builder.Services.AddSingleton<IReplicationNodeHost>(sp => sp.GetRequiredService<BtdbNode>());
         var replication = new ReplicationNodeOptions("bosofa", endpoint, TimeSpan.FromMilliseconds(100),
-            TimeSpan.FromMilliseconds(250), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(1), 1);
+            TimeSpan.FromMilliseconds(250), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(1), Domain.Domain.ApplicationGeneration);
         if (cluster == null)
         {
             builder.Services.AddBTDBReplicationSingleNode(replication, 1000, TimeSpan.FromMilliseconds(250));
@@ -91,18 +103,23 @@ public static class ServerApp
             builder.Services.AddBTDBEventLog(cluster.PeerUrl, cluster.PeerKey);
         }
         builder.Services.AddHostedService(sp => sp.GetRequiredService<BtdbNode>()); // after BTDB's: stops first
+        builder.AddBoSoFaTelemetry(nodeId);
         builder.Services.AddSingleton<MachinePresenceService>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<MachinePresenceService>());
 
         var app = builder.Build();
         app.Services.GetRequiredService<BtdbNode>().Attach(app.Services);
 
+        if (options.TrustForwardedHeaders) app.UseForwardedHeaders();
+        if (cluster != null) app.UsePeerRoutesOnlyOnPeerPort(new Uri(cluster.PeerUrl).Port);
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
         app.UseCors(); // before authentication: a preflight carries no credentials
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapOpenApi();
-        app.MapHealthChecks("/health/ready");
+        // Liveness runs no checks: a node that is restoring or catching up must not be killed for it.
+        app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
         app.MapAuthEndpoints(options);
         app.MapApiEndpoints();
         app.MapMachineEndpoints();
@@ -132,6 +149,17 @@ public static class ServerApp
         app.MapSpa(Path.GetFullPath(options.WebRoot, builder.Environment.ContentRootPath));
         return app;
     }
+
+    /// <summary><c>RequireHost</c> trusts the Host header, which a client of the public port chooses. The connection's
+    /// local port is the real boundary.</summary>
+    static void UsePeerRoutesOnlyOnPeerPort(this WebApplication app, int peerPort) => app.Use((http, next) =>
+    {
+        if (http.Connection.LocalPort == peerPort ||
+            !(http.Request.Path.StartsWithSegments("/internal") || http.Request.Path.StartsWithSegments("/_btdb")))
+            return next(http);
+        http.Response.StatusCode = StatusCodes.Status404NotFound;
+        return Task.CompletedTask;
+    });
 
     /// <summary>The generator inlines the derived types but points the discriminator mapping at components it never
     /// adds. Moves each branch to its mapped component and refers to it, so the document resolves.</summary>

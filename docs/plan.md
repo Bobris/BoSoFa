@@ -577,6 +577,17 @@ Done when: on a fresh machine, install the desktop, click "enable this machine",
 4. **Claude account.** *Done, tried only with a stand-in for `claude`:* `bosofad claude-setup-token` runs it on a pseudo-terminal with an empty config folder, and the app sends the token straight to the server. A real sign-in still has to be tried.
 5. **Packaging and desktop touches.** Not started: an `.app` bundle and `dotnet tool` distribution, then notifications and deep links, which need that bundle's identity, and open in editor.
 
+### M7 steps
+
+Done when: 3 replicas run on a real AKS cluster over workload identity, and a rolling upgrade with an `ApplicationGeneration` bump keeps the data. M6's step 5 (packaging and desktop touches) is postponed until after M7.
+
+1. **Server production settings.** *Done, tested:* `/health/live` and a `/health/ready` that waits for the event loop, forwarded headers behind the ingress (`BoSoFa:TrustForwardedHeaders`), peer routes refused on the public port whatever the Host header says, HTTPS endpoints from `Kestrel:Endpoints`. BTDB's peer clients cannot take a custom CA, so a private CA reaches them through the container's trust store (`SSL_CERT_DIR`).
+2. **Azure identity.** *Written, needs the staging run:* `BoSoFa:Cluster:Azure:ServiceUri` reaches Blob through workload identity and `KeyVaultKey` wraps the Data Protection key ring.
+3. **OpenTelemetry.** *Done, tested against a fake collector:* traces, metrics and logs over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; meter `BoSoFa.Server` adds connected daemons, leadership and applied events.
+4. **Image and chart.** Container image, Helm chart (StatefulSet, headless Service, peer TLS, ingress tuned for WebSockets and streaming).
+5. **Staging.** A dedicated AKS cluster, 3 replicas, a rolling upgrade with a generation bump.
+6. **Backups.** A copy of the Blob container, and a tested restore.
+
 ## 10. Risks
 
 | Risk | Mitigation |

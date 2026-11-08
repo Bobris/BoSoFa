@@ -226,6 +226,16 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
     }
 }
 
+/// <summary>Ready once the event loop runs: replication's own check passes earlier, when the API could not yet serve.</summary>
+public sealed class ApplicationHealthCheck(BtdbNode node) : Microsoft.Extensions.Diagnostics.HealthChecks.IHealthCheck
+{
+    public Task<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult> CheckHealthAsync(
+        Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext context, CancellationToken cancellationToken = default) =>
+        Task.FromResult(node.Publisher != null
+            ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy()
+            : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("The application has not started."));
+}
+
 public sealed record BtdbNodeOptions(string ClusterId, string NodeId, string Endpoint, ulong ApplicationGeneration,
     string CacheDirectory, IBindableReplicationStorage Canonical)
 {

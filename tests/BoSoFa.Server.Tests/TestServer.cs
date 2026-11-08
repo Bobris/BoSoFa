@@ -22,6 +22,7 @@ sealed class TestServer : IAsyncDisposable
     }
 
     public string DataDirectory { get; }
+    public int PeerPort => _peerUrl!.Port;
     public Uri BaseAddress { get; private set; } = null!;
     public BoSoFa.Server.Btdb.BtdbNode Node => _app.Services.GetRequiredService<BoSoFa.Server.Btdb.BtdbNode>();
     bool _running;

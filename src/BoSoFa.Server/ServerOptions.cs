@@ -25,6 +25,10 @@ public sealed class ServerOptions
     /// <summary>How often a running daemon rollout is moved along.</summary>
     public int RolloutTickSeconds { get; set; } = 15;
 
+    /// <summary>Takes the client address and scheme from X-Forwarded-* headers. Only behind a proxy that sets them and
+    /// with nothing else able to reach this port.</summary>
+    public bool TrustForwardedHeaders { get; set; }
+
     public OidcOptions? Oidc { get; set; }
 
     /// <summary>Set to run this server as one node of a cluster; null is single-node mode.</summary>
@@ -51,11 +55,18 @@ public sealed class ClusterOptions
 
 public sealed class AzureStorageOptions
 {
-    /// <summary>A storage connection string (Azurite locally). Workload identity replaces it on AKS (M7).</summary>
+    /// <summary>A storage connection string (Azurite locally). Set this or <see cref="ServiceUri"/>.</summary>
     public string ConnectionString { get; set; } = "";
+
+    /// <summary>The storage account's blob endpoint, reached through workload identity (AKS).</summary>
+    public string ServiceUri { get; set; } = "";
 
     /// <summary>The container holding the leader document, EventLog, database files and Data Protection keys.</summary>
     public string Container { get; set; } = "bosofa";
+
+    /// <summary>A Key Vault key that wraps the Data Protection key ring at rest, reached through workload identity;
+    /// empty leaves the ring unwrapped in the container.</summary>
+    public string KeyVaultKey { get; set; } = "";
 }
 
 public sealed class OidcOptions

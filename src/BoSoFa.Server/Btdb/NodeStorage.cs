@@ -1,3 +1,5 @@
+using Azure.Core;
+using Azure.Identity;
 using Azure.Storage.Blobs;
 using BTDB.Replication;
 using BTDB.Replication.Azure;
@@ -47,15 +49,22 @@ public sealed record NodeStorage(
 
     static NodeStorage Azure(AzureStorageOptions azure)
     {
-        if (string.IsNullOrWhiteSpace(azure.ConnectionString))
-            throw new InvalidOperationException("BoSoFa:Cluster:Azure:ConnectionString is required.");
+        var hasConnectionString = !string.IsNullOrWhiteSpace(azure.ConnectionString);
+        var hasServiceUri = !string.IsNullOrWhiteSpace(azure.ServiceUri);
+        if (hasConnectionString == hasServiceUri)
+            throw new InvalidOperationException("Set exactly one of BoSoFa:Cluster:Azure:ConnectionString and ServiceUri.");
+        // Reads AZURE_CLIENT_ID, AZURE_TENANT_ID and AZURE_FEDERATED_TOKEN_FILE, which AKS injects into the pod.
+        var credential = new Lazy<TokenCredential>(() => new WorkloadIdentityCredential());
         // BTDB reconciles ambiguous conditional writes itself, so its clients never retry; authority (the lease) and
         // data transfers use separate clients, so a slow upload cannot delay a renewal.
         BlobContainerClient Container(int retries)
         {
             var clientOptions = new BlobClientOptions();
             clientOptions.Retry.MaxRetries = retries;
-            return new BlobServiceClient(azure.ConnectionString, clientOptions).GetBlobContainerClient(azure.Container);
+            var service = hasServiceUri
+                ? new BlobServiceClient(new Uri(azure.ServiceUri), credential.Value, clientOptions)
+                : new BlobServiceClient(azure.ConnectionString, clientOptions);
+            return service.GetBlobContainerClient(azure.Container);
         }
         var data = Container(0);
         data.CreateIfNotExists();
@@ -66,7 +75,12 @@ public sealed record NodeStorage(
                 InitialLeaderJson),
             _ => new AzureEventLogStorage(data, "eventlog"),
             new AzureReplicationStorage(data, "db/" + BtdbNode.Database),
-            dataProtection => dataProtection.PersistKeysToAzureBlobStorage(keys.GetBlobClient("dataprotection/keys.xml")),
+            dataProtection =>
+            {
+                dataProtection.PersistKeysToAzureBlobStorage(keys.GetBlobClient("dataprotection/keys.xml"));
+                if (!string.IsNullOrWhiteSpace(azure.KeyVaultKey))
+                    dataProtection.ProtectKeysWithAzureKeyVault(new Uri(azure.KeyVaultKey), credential.Value);
+            },
             new AzureBlobStore(keys)); // ordinary retries: blobs are immutable
     }
 }
