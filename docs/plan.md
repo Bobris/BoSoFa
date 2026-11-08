@@ -563,7 +563,7 @@ Done when: install on Windows, macOS and Linux, roll out a new daemon version re
 1. **API tokens.** *Done:* `bsf_` bearer tokens with the owner's rights, read-only or full control, managed only from a signed-in browser. Only the hash is stored.
 2. **Audit.** *Done:* commands write their entry in their own transaction; file transfers, terminals and account leases are recorded as they happen. Admins read it at `/audit`.
 3. **Long-poll fallback.** *Done:* after three refused WebSocket upgrades the daemon long-polls and tries a WebSocket again every 15 minutes (`--transport` forces either). A channel lives on one node; other nodes forward to it on the peer port.
-4. **Service install.** systemd, launchd and a Windows Service, plus `doctor`.
+4. **Service install.** *Done:* `bosofad install` writes a systemd unit, a launchd plist, or a Windows Service or logon task, all running the stable launcher, and `doctor` checks what the daemon needs. CI installs a real system service on all three OSes. The launcher already keeps versions side by side and takes back a new version that does not reach the server.
 5. **Launcher and self-update.** Versions side by side, trial and rollback, signed manifests, channels and waves.
 
 ## 10. Risks

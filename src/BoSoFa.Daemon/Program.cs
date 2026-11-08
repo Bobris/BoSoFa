@@ -16,6 +16,15 @@ void Stop(PosixSignalContext context)
 using var interrupt = PosixSignalRegistration.Create(PosixSignal.SIGINT, Stop);
 using var terminate = PosixSignalRegistration.Create(PosixSignal.SIGTERM, Stop);
 using var quit = PosixSignalRegistration.Create(PosixSignal.SIGQUIT, Stop);
+// Under the launcher, a closed standard input means stop; it also ends this process should the launcher die.
+if (Environment.GetEnvironmentVariable(BoSoFa.Daemon.Service.Launcher.LaunchedVariable) == "1")
+    _ = Task.Run(() =>
+    {
+        using var input = Console.OpenStandardInput();
+        var buffer = new byte[64];
+        while (input.Read(buffer, 0, buffer.Length) > 0) { }
+        stop.Cancel();
+    });
 return await Cli.RunAsync(args, Console.Out, Console.Error, stop.Token);
 
 namespace BoSoFa.Daemon
@@ -33,6 +42,10 @@ namespace BoSoFa.Daemon
                   [--roots <dir[:dir…]>]              Folders people may browse, besides the sessions' working directories.
                   [--transport auto|websocket|longpoll]  How to reach the server (default auto: long-poll if WebSockets are refused).
                   [--replay-fixture <file>]           Also offer the replay harness, playing this recorded transcript.
+              install [--scope user|system] [--service-user <name>] [--dry-run]
+                                                      Start with the machine (system) or at sign-in (user, the default).
+              uninstall [--scope user|system] [--dry-run]  Remove the service; the machine's identity stays.
+              doctor                                  Check what this daemon needs.
               status [--server <url>]                 Check that the server answers and speaks this protocol version.
               version                                 Print the daemon version.
 
@@ -50,6 +63,11 @@ namespace BoSoFa.Daemon
             var options = new Dictionary<string, string>(StringComparer.Ordinal);
             for (var i = 1; i < args.Length; i++)
             {
+                if (args[i] == "--dry-run")
+                {
+                    options["dry-run"] = "true";
+                    continue;
+                }
                 if (!args[i].StartsWith("--", StringComparison.Ordinal) || i + 1 >= args.Length)
                 {
                     error.WriteLine($"Unexpected argument '{args[i]}'.\n\n{Usage}");
@@ -76,6 +94,14 @@ namespace BoSoFa.Daemon
                     case "enroll" when options.TryGetValue("server", out var enrollServer):
                         return await EnrollAsync(store, new Uri(enrollServer),
                             options.GetValueOrDefault("name") ?? Environment.MachineName, output, error, cancellation);
+                    case "install":
+                        return Service.ServiceCommands.Install(store, options, output, error);
+                    case "uninstall":
+                        return Service.ServiceCommands.Uninstall(store, options, output, error);
+                    case "launcher":
+                        return await Service.ServiceCommands.LauncherAsync(store, options, output, cancellation);
+                    case "doctor":
+                        return Service.ServiceCommands.Doctor(store, options, output);
                     case "run":
                         return await RunLinkAsync(store, new(options.GetValueOrDefault("claude"),
                             options.GetValueOrDefault("replay-fixture"), CodexExecutable: options.GetValueOrDefault("codex"),
@@ -161,7 +187,13 @@ namespace BoSoFa.Daemon
                 harnesses with { Accounts = leaser, Profiles = leaser, Uploader = leaser }, output);
             try
             {
-                await new DaemonLink(state, key, output, outbox, host, transport).RunAsync(cancellation);
+                var link = new DaemonLink(state, key, output, outbox, host, transport);
+                if (Environment.GetEnvironmentVariable(Service.Launcher.LaunchedVariable) == "1")
+                {
+                    var versions = new Service.VersionStore(Path.GetFullPath(store.Directory));
+                    link.Connected += _ => versions.Confirm(Version); // ends the trial of a new version
+                }
+                await link.RunAsync(cancellation);
                 return 0;
             }
             catch (UnauthorizedAccessException exception)

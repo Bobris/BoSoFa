@@ -12,5 +12,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" />
   </ItemGroup>
 </Project>

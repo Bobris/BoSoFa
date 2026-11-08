@@ -49,6 +49,29 @@ jobs:
       - run: dotnet publish src/BoSoFa.Daemon -c Release -r ${{ matrix.rid }} -o out
       - run: ./out/bosofad version
         shell: bash
+      # A real install: the service manager must accept the definition and keep the launcher running.
+      - name: Install as a service (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo ./out/bosofad install --scope system --service-user "$USER" --data-dir /tmp/bosofa-service
+          sleep 5
+          systemctl is-active bosofad.service
+          sudo ./out/bosofad uninstall --scope system --data-dir /tmp/bosofa-service
+      - name: Install as a service (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          sudo ./out/bosofad install --scope system --service-user "$USER" --data-dir /tmp/bosofa-service
+          sleep 5
+          sudo launchctl print system/com.bosofa.daemon | grep -q 'state = running'
+          sudo ./out/bosofad uninstall --scope system --data-dir /tmp/bosofa-service
+      - name: Install as a service (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          ./out/bosofad.exe install --scope system --data-dir 'C:\bosofa-service'
+          sleep 5
+          sc.exe query BoSoFaDaemon | grep -q RUNNING
+          ./out/bosofad.exe uninstall --scope system --data-dir 'C:\bosofa-service'
       - uses: actions/upload-artifact@v4
         with:
           name: bosofad-${{ matrix.rid }}
