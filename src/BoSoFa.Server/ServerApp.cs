@@ -1,4 +1,5 @@
 using BoSoFa.Protocol;
+using BoSoFa.Server.Accounts;
 using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Live;
@@ -92,6 +93,7 @@ public static class ServerApp
         app.MapApiEndpoints();
         app.MapMachineEndpoints();
         app.MapSessionEndpoints();
+        app.MapAccountEndpoints();
         if (cluster != null)
         {
             // Peers reach each other on a separate port that the ingress never exposes.

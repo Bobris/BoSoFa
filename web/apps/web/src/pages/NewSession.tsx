@@ -1,4 +1,4 @@
-import { api, type Machine } from "@bosofa/api";
+import { api, type HarnessAccount, type Machine } from "@bosofa/api";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { paths } from "../router";
@@ -42,7 +42,13 @@ export default function NewSession() {
       .sort((a, b) => Number(b.online) - Number(a.online));
   });
 
+  const accounts = createMemo(async (): Promise<HarnessAccount[]> =>
+    me() ? ((await api.GET("/api/v1/accounts")).data ?? []) : [],
+  );
   const [machine, setMachine] = createSignal<string>();
+  const [account, setAccount] = createSignal("");
+  // The replay plays Claude Code, so it takes Claude accounts.
+  const usable = () => accounts().filter((a) => a.harness === (harness() === "replay" ? "claude" : harness()));
   const [harness, setHarness] = createSignal("claude");
   const [directory, setDirectory] = createSignal(remembered(lastDirectoryKey));
   const [mode, setMode] = createSignal("default");
@@ -63,6 +69,7 @@ export default function NewSession() {
         prompt: prompt(),
         permissionMode: mode(),
         model: model().trim() || null,
+        accountId: usable().some((a) => String(a.id) === account()) ? Number(account()) : null,
       },
     });
     setBusy(false);
@@ -115,6 +122,13 @@ export default function NewSession() {
               </select>
             </label>
           </div>
+          <label class="block space-y-1">
+            <span class="text-sm text-muted">Account</span>
+            <select class={field} value={account()} onChange={(event) => setAccount(event.currentTarget.value)}>
+              <option value="">The machine's own sign-in</option>
+              <For each={usable()}>{(option) => <option value={String(option.id)}>{option.label}</option>}</For>
+            </select>
+          </label>
           <label class="block space-y-1">
             <span class="text-sm text-muted">Working directory on the machine</span>
             <input

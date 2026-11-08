@@ -8,7 +8,10 @@ using System.Threading.Channels;
 namespace BoSoFa.Daemon.Harnesses.Claude;
 
 /// <summary>How to start (or resume) one Claude Code conversation.</summary>
-public sealed record ClaudeLaunch(string WorkingDirectory, string PermissionMode, string? Model, string? ResumeSessionId);
+/// <summary>How to start (or resume) one Claude Code conversation. <c>Environment</c> adds to (and overrides) the clean
+/// environment: the leased account's secret and its own <c>CLAUDE_CONFIG_DIR</c>.</summary>
+public sealed record ClaudeLaunch(string WorkingDirectory, string PermissionMode, string? Model, string? ResumeSessionId,
+    IReadOnlyDictionary<string, string>? Environment = null);
 
 /// <summary>The stream-json conversation with one Claude Code process, or a replay of one.</summary>
 public interface IClaudeTransport : IAsyncDisposable
@@ -112,6 +115,7 @@ public sealed class ClaudeProcess : IClaudeTransport
         start.Environment["CLAUDE_CODE_STARTUP_FAILURE_RESULTS"] = "1";
         start.Environment["CLAUDE_AGENT_SDK_CLIENT_APP"] = $"bosofa/{Cli.Version}";
         start.Environment["DISABLE_AUTOUPDATER"] = "1";
+        foreach (var (name, value) in launch.Environment ?? new Dictionary<string, string>()) start.Environment[name] = value;
         return new ClaudeProcess(Process.Start(start) ?? throw new InvalidOperationException("claude did not start."));
     }
 

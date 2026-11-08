@@ -58,8 +58,10 @@ public sealed record OutboxAck(ulong SessionId, long Seq);
 [JsonDerivedType(typeof(StopSessionCommand), "stopSession")]
 public abstract record MachineCommand(ulong SessionId);
 
+/// <summary>Starts a session. <c>AccountId</c> names the harness account whose secret the daemon leases just in time
+/// (<c>POST /api/daemon/v1/accounts/{id}/lease</c>); null runs on the machine's own sign-in.</summary>
 public sealed record StartSessionCommand(ulong SessionId, string Harness, string WorkingDirectory, string Prompt,
-    string PermissionMode, string? Model) : MachineCommand(SessionId);
+    string PermissionMode, string? Model, ulong? AccountId = null) : MachineCommand(SessionId);
 
 public sealed record SendMessageCommand(ulong SessionId, string Text, DispatchMode Mode = DispatchMode.Queue)
     : MachineCommand(SessionId);

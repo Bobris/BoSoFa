@@ -23,9 +23,19 @@ public sealed class SessionState
     public string? Model { get; set; }
     public string? HarnessSessionId { get; set; }
     public SessionStatus Status { get; set; }
+
+    /// <summary>The harness account whose secret is leased for each start of the harness; null: the machine's own sign-in.</summary>
+    public ulong? AccountId { get; set; }
 }
 
-public sealed record HarnessOptions(string? ClaudeExecutable = null, string? ReplayFixture = null);
+/// <summary>Fetches a harness account's secret for a session, just in time (plan §5.4.1).</summary>
+public interface IAccountLeaser
+{
+    Task<AccountLeaseResponse> LeaseAsync(ulong accountId, ulong sessionId, CancellationToken cancellation);
+}
+
+public sealed record HarnessOptions(string? ClaudeExecutable = null, string? ReplayFixture = null,
+    IAccountLeaser? Accounts = null);
 
 /// <summary>
 /// Applies the server's commands to the sessions of this machine. Commands are idempotent per ID (the journal), and
@@ -35,6 +45,7 @@ public sealed record HarnessOptions(string? ClaudeExecutable = null, string? Rep
 public sealed class SessionHost : ISessionSink, IAsyncDisposable
 {
     readonly string _directory;
+    readonly string _dataDirectory;
     readonly Outbox _outbox;
     readonly HarnessOptions _options;
     readonly TextWriter _log;
@@ -47,6 +58,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
 
     public SessionHost(string dataDirectory, Outbox outbox, HarnessOptions options, TextWriter log)
     {
+        _dataDirectory = dataDirectory;
         _directory = Path.Combine(dataDirectory, "sessions");
         Directory.CreateDirectory(_directory);
         _outbox = outbox;
@@ -72,13 +84,36 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     /// <summary>The harness implementation of a session; Claude Code and its replay share the Claude adapter.</summary>
     IHarnessSession Create(SessionState state) => new ClaudeSession(state, this, Launch(state), _log);
 
-    Func<ClaudeLaunch, IClaudeTransport> Launch(SessionState state) => state.Harness switch
+    Func<ClaudeLaunch, Task<IClaudeTransport>> Launch(SessionState state) => state.Harness switch
     {
-        HarnessNames.Replay when _options.ReplayFixture != null => _ => new ReplayTransport(_options.ReplayFixture),
-        HarnessNames.Claude => launch => ClaudeProcess.Start(ClaudeProcess.FindExecutable(_options.ClaudeExecutable) ??
-            throw new FileNotFoundException("The claude executable was not found on this machine."), launch),
+        HarnessNames.Replay when _options.ReplayFixture != null => async launch =>
+        {
+            await WithAccountAsync(state, launch); // leased like Claude Code, so tests cover the lease
+            return new ReplayTransport(_options.ReplayFixture);
+        },
+        HarnessNames.Claude => async launch =>
+        {
+            var executable = ClaudeProcess.FindExecutable(_options.ClaudeExecutable) ??
+                             throw new FileNotFoundException("The claude executable was not found on this machine.");
+            return ClaudeProcess.Start(executable, await WithAccountAsync(state, launch));
+        },
         _ => _ => throw new InvalidOperationException($"This daemon cannot run the {state.Harness} harness.")
     };
+
+    /// <summary>With an account: its secret only in the child's environment, and a config folder of its own, so
+    /// neither the machine's own login nor another account's state mixes in.</summary>
+    async Task<ClaudeLaunch> WithAccountAsync(SessionState state, ClaudeLaunch launch)
+    {
+        if (state.AccountId is not { } accountId) return launch;
+        if (_options.Accounts is not { } accounts)
+            throw new InvalidOperationException("This daemon cannot lease harness accounts.");
+        var lease = await accounts.LeaseAsync(accountId, state.SessionId, CancellationToken.None);
+        var configDirectory = Path.Combine(_dataDirectory, "profiles", $"account-{accountId}", "claude");
+        Directory.CreateDirectory(configDirectory);
+        var environment = new Dictionary<string, string> { ["CLAUDE_CONFIG_DIR"] = configDirectory };
+        environment[lease.Kind == AccountKind.ClaudeOAuthToken ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"] = lease.Secret;
+        return launch with { Environment = environment };
+    }
 
     /// <summary>Applies one command. True when it was new (the caller acknowledges both cases).</summary>
     public async Task<bool> ApplyAsync(ulong commandId, MachineCommand command)
@@ -93,7 +128,8 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                 var state = new SessionState
                 {
                     SessionId = start.SessionId, Harness = start.Harness, WorkingDirectory = start.WorkingDirectory,
-                    PermissionMode = start.PermissionMode, Model = start.Model, Status = SessionStatus.Starting
+                    PermissionMode = start.PermissionMode, Model = start.Model, Status = SessionStatus.Starting,
+                    AccountId = start.AccountId
                 };
                 Save(state);
                 session = Create(state);

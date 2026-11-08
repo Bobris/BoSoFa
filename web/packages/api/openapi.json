@@ -5,6 +5,53 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/daemon/v1/accounts/{id}/lease": {
+      "post": {
+        "tags": [
+          "AccountEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountLeaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountLeaseResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/auth/providers": {
       "get": {
         "tags": [
@@ -738,10 +785,137 @@
           }
         }
       }
+    },
+    "/api/v1/accounts": {
+      "get": {
+        "tags": [
+          "AccountEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HarnessAccountDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AccountEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateHarnessAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HarnessAccountDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{id}": {
+      "delete": {
+        "tags": [
+          "AccountEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AccountKind": {
+        "enum": [
+          "ClaudeOAuthToken",
+          "AnthropicApiKey",
+          "OpenAIApiKey"
+        ]
+      },
+      "AccountLeaseRequest": {
+        "required": [
+          "sessionId"
+        ],
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          }
+        }
+      },
+      "AccountLeaseResponse": {
+        "required": [
+          "kind",
+          "secret"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/AccountKind"
+          },
+          "secret": {
+            "type": "string"
+          }
+        }
+      },
       "AnswerRuntimeRequest": {
         "required": [
           "allow",
@@ -775,6 +949,25 @@
           },
           "devLogin": {
             "type": "boolean"
+          }
+        }
+      },
+      "CreateHarnessAccountRequest": {
+        "required": [
+          "kind",
+          "label",
+          "secret"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/AccountKind"
+          },
+          "label": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
           }
         }
       },
@@ -817,6 +1010,15 @@
               "null",
               "string"
             ]
+          },
+          "accountId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
           }
         }
       },
@@ -1029,6 +1231,64 @@
           "Expired"
         ]
       },
+      "HarnessAccountDto": {
+        "required": [
+          "id",
+          "kind",
+          "harness",
+          "label",
+          "ownerId",
+          "ownerName",
+          "createdAt",
+          "expiresAt",
+          "secretHint"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AccountKind"
+          },
+          "harness": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "ownerId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "ownerName": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "secretHint": {
+            "type": "string"
+          }
+        }
+      },
       "LiveClientMessage": {
         "required": [
           "t"
@@ -1210,7 +1470,9 @@
               "model",
               "permissionMode",
               "costUsd",
-              "canControl"
+              "canControl",
+              "accountId",
+              "accountLabel"
             ],
             "type": "object",
             "properties": {
@@ -1298,6 +1560,21 @@
               },
               "canControl": {
                 "type": "boolean"
+              },
+              "accountId": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "uint64"
+              },
+              "accountLabel": {
+                "type": [
+                  "null",
+                  "string"
+                ]
               }
             }
           },
@@ -1628,7 +1905,9 @@
           "model",
           "permissionMode",
           "costUsd",
-          "canControl"
+          "canControl",
+          "accountId",
+          "accountLabel"
         ],
         "type": "object",
         "properties": {
@@ -1709,6 +1988,21 @@
           },
           "canControl": {
             "type": "boolean"
+          },
+          "accountId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "accountLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -1855,6 +2149,9 @@
     }
   },
   "tags": [
+    {
+      "name": "AccountEndpoints"
+    },
     {
       "name": "testhost"
     },

@@ -30,6 +30,9 @@ public class Session
     public long LastReportSeq { get; set; }
 
     public double CostUsd { get; set; }
+
+    /// <summary>The harness account the session runs with; 0 means the machine's own sign-in.</summary>
+    public ulong AccountId { get; set; }
 }
 
 public interface ISessionTable : IRelation<Session>
@@ -144,6 +147,7 @@ public class SessionCreated : EventWithResult<SessionCommandResult>
     public string Prompt { get; set; } = "";
     public string PermissionMode { get; set; } = "";
     public string? Model { get; set; }
+    public ulong AccountId { get; set; }
 }
 
 public class SessionMessageSent : EventWithResult<SessionCommandResult>
@@ -261,17 +265,27 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
         var machine = Ambient.Relation<IMachineTable>().FindByIdOrDefault(ev.MachineId);
         if (machine == null) return new() { Outcome = CommandOutcome.NotFound };
         if (!Sessions.CanControl(ev.UserId, machine)) return new() { Outcome = CommandOutcome.Forbidden };
+        if (ev.AccountId != 0)
+        {
+            // Only the creator's own account, and one for this harness (the replay plays Claude Code).
+            var account = Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(ev.AccountId);
+            if (account == null) return new() { Outcome = CommandOutcome.NotFound };
+            var harness = ev.Harness == Harnesses.Replay ? Harnesses.Claude : ev.Harness;
+            if (account.OwnerId != ev.UserId) return new() { Outcome = CommandOutcome.Forbidden };
+            if (AccountSecrets.HarnessOf(account.Kind) != harness) return new() { Outcome = CommandOutcome.Invalid };
+        }
         var session = new Session
         {
             Id = Ambient.AllocateId(), MachineId = machine.Id, CreatedById = ev.UserId, Harness = ev.Harness,
             WorkingDirectory = ev.WorkingDirectory.Trim(), Title = Sessions.TitleOf(ev.Prompt),
             PermissionMode = ev.PermissionMode, Model = string.IsNullOrWhiteSpace(ev.Model) ? null : ev.Model.Trim(),
-            Status = SessionStatus.Starting, CreatedAt = ev.When, UpdatedAt = ev.When
+            Status = SessionStatus.Starting, CreatedAt = ev.When, UpdatedAt = ev.When, AccountId = ev.AccountId
         };
         Ambient.Relation<ISessionTable>().Insert(session);
         Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt);
         Sessions.IssueCommand(signals, machine.Id, new StartSessionCommand(session.Id, session.Harness,
-            session.WorkingDirectory, ev.Prompt, session.PermissionMode, session.Model), ev.When);
+            session.WorkingDirectory, ev.Prompt, session.PermissionMode, session.Model,
+            session.AccountId == 0 ? null : session.AccountId), ev.When);
         Sessions.Changed(signals, session, ev.When);
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }

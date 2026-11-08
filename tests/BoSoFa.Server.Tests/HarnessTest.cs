@@ -57,7 +57,7 @@ public class HarnessTest
         {
             SessionId = 1, Harness = Harnesses.Claude, WorkingDirectory = Path.GetTempPath(), PermissionMode = "default"
         };
-        await using IHarnessSession session = new ClaudeSession(state, new NullSink(), _ => transport, TextWriter.Null);
+        await using IHarnessSession session = new ClaudeSession(state, new NullSink(), _ => Task.FromResult<IClaudeTransport>(transport), TextWriter.Null);
 
         await session.SendAsync("first", DispatchMode.Steer); // nothing runs yet: steering is a plain send
         await session.SendAsync("queued", DispatchMode.Queue); // the CLI queues it behind the running turn

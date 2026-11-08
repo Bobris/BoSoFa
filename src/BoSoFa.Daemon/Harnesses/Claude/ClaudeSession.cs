@@ -11,7 +11,7 @@ namespace BoSoFa.Daemon.Harnesses.Claude;
 /// exits (or the daemon restarted) the next message resumes the conversation with <c>--resume</c>. Translates the
 /// CLI's stream into durable reports (items, status, run ends, approvals) and ephemeral text deltas.
 /// </summary>
-public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<ClaudeLaunch, IClaudeTransport> launch,
+public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<ClaudeLaunch, Task<IClaudeTransport>> launch,
     TextWriter log) : IHarnessSession
 {
     static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(60);
@@ -102,10 +102,11 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
         IClaudeTransport transport;
         try
         {
-            transport = launch(new(state.WorkingDirectory, state.PermissionMode, state.Model, state.HarnessSessionId));
+            transport = await launch(new(state.WorkingDirectory, state.PermissionMode, state.Model, state.HarnessSessionId));
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or
-                                              System.ComponentModel.Win32Exception or FileNotFoundException)
+                                              System.ComponentModel.Win32Exception or FileNotFoundException or
+                                              HttpRequestException or UnauthorizedAccessException)
         {
             sink.Report(state.SessionId, new StatusReport(SessionStatus.Failed, Error: $"Claude Code did not start: {exception.Message}"));
             return null;

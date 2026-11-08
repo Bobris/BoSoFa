@@ -46,6 +46,11 @@ public static class ProtocolVersion
 [JsonSerializable(typeof(CreateSessionRequest))]
 [JsonSerializable(typeof(SendMessageRequest))]
 [JsonSerializable(typeof(AnswerRuntimeRequest))]
+[JsonSerializable(typeof(HarnessAccountDto))]
+[JsonSerializable(typeof(HarnessAccountDto[]))]
+[JsonSerializable(typeof(CreateHarnessAccountRequest))]
+[JsonSerializable(typeof(AccountLeaseRequest))]
+[JsonSerializable(typeof(AccountLeaseResponse))]
 [JsonSerializable(typeof(LiveClientMessage))]
 [JsonSerializable(typeof(LiveServerMessage))]
 public sealed partial class ProtocolJsonContext : JsonSerializerContext;

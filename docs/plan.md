@@ -505,7 +505,11 @@ Done when: the same project runs on Claude, Codex and Gemini, with diffs per run
 1. **Harness abstraction in the daemon.** *Done:* `IHarnessSession`, with `DispatchMode` sent from the composer as Queue or Steer.
    - `IHarnessSession` (send with `Queue` or `Steer`, interrupt, answer, stop) behind a factory per harness. `ClaudeSession` becomes the first implementation.
    - `SendMessageCommand` gains the dispatch mode. Steering a running Claude turn means interrupting it, then sending.
-2. **Harness accounts.**
+2. **Harness accounts.** *Done:*
+   - `HarnessAccount` holds Data Protection ciphertext (a per-account purpose), and the UI only ever sees a hint.
+   - `/api/daemon/v1/accounts/{id}/lease` hands the secret only to the session's machine, for the account owner's own sessions.
+   - The daemon passes it only in the Claude child's environment, with a `CLAUDE_CONFIG_DIR` per account.
+   - `AccountTest` checks that the plain secret appears nowhere in the server's files.
    - A `HarnessAccount` relation (§5.4.1) with secrets encrypted by Data Protection, and the lease endpoint for daemons.
    - Pasted Claude tokens and API keys from the UI, injected only into the child's environment, with a per-account `CLAUDE_CONFIG_DIR`.
 3. **Codex adapter.**

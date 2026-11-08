@@ -256,7 +256,8 @@ function SessionView(props: { id: number }) {
             </div>
             <p class="text-sm text-muted">
               {session().machineName} · {session().harness}
-              <Show when={session().model}>{(model) => <> · {model()}</>}</Show> ·{" "}
+              <Show when={session().model}>{(model) => <> · {model()}</>}</Show>
+              <Show when={session().accountLabel}>{(account) => <> · {account()}</>}</Show> ·{" "}
               <span class="font-mono">{session().workingDirectory}</span> · {session().permissionMode}
               <Show when={Number(session().costUsd) > 0}> · ${Number(session().costUsd).toFixed(4)}</Show>
             </p>

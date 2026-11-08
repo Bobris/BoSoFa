@@ -55,6 +55,20 @@ public sealed class ServerClient(Uri server, HttpMessageHandler? handler = null)
         return (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.DaemonTokenResponse, cancellation))!;
     }
 
+    /// <summary>The secret of a harness account for one of this machine's sessions (plan §5.4.1).</summary>
+    public async Task<AccountLeaseResponse> LeaseAccountAsync(string accessToken, ulong accountId, ulong sessionId,
+        CancellationToken cancellation)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/daemon/v1/accounts/{accountId}/lease")
+        {
+            Content = JsonContent.Create(new AccountLeaseRequest(sessionId), ProtocolJsonContext.Default.AccountLeaseRequest)
+        };
+        request.Headers.Authorization = new("Bearer", accessToken);
+        using var response = await _http.SendAsync(request, cancellation);
+        await EnsureSuccessAsync(response, cancellation);
+        return (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.AccountLeaseResponse, cancellation))!;
+    }
+
     static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellation)
     {
         if (response.IsSuccessStatusCode) return;

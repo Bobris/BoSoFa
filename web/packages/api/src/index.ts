@@ -12,6 +12,8 @@ export type SessionStatus = Session["status"];
 export type SessionItem = components["schemas"]["SessionItemDto"];
 export type RuntimeRequest = components["schemas"]["RuntimeRequestDto"];
 export type CreateSession = components["schemas"]["CreateSessionRequest"];
+export type HarnessAccount = components["schemas"]["HarnessAccountDto"];
+export type AccountKind = HarnessAccount["kind"];
 export type LiveClientMessage = components["schemas"]["LiveClientMessage"];
 export type LiveServerMessage = components["schemas"]["LiveServerMessage"];
 

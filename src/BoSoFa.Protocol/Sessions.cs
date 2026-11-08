@@ -61,7 +61,9 @@ public sealed record SessionDto(
     string? Model,
     string PermissionMode,
     double CostUsd,
-    bool CanControl);
+    bool CanControl,
+    ulong? AccountId,
+    string? AccountLabel);
 
 /// <summary>One persisted transcript entry. <c>Data</c> holds JSON details (tool input, run usage) and <c>Ref</c> the
 /// harness's message ID, which live deltas carry too.</summary>
@@ -95,7 +97,8 @@ public sealed record CreateSessionRequest(
     string WorkingDirectory,
     string Prompt,
     string? PermissionMode,
-    string? Model);
+    string? Model,
+    ulong? AccountId = null);
 
 /// <summary>How a message reaches a session whose turn is still running.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<DispatchMode>))]
@@ -115,6 +118,9 @@ public sealed record AnswerRuntimeRequest(bool Allow, string? Message);
 public static class Harnesses
 {
     public const string Claude = "claude";
+
+    /// <summary>OpenAI Codex through <c>codex app-server</c> (M3 step 3).</summary>
+    public const string Codex = "codex";
 
     /// <summary>Plays a recorded Claude Code transcript; only on daemons started with <c>--replay-fixture</c>.</summary>
     public const string Replay = "replay";

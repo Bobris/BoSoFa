@@ -24,6 +24,10 @@ export default function Home() {
         <div class="mx-auto max-w-3xl space-y-6">
           <div class="flex items-center justify-between gap-4">
             <h1 class="text-2xl font-semibold">Hello {user().name}</h1>
+            <span class="flex items-center gap-4">
+            <a href={paths.accounts()} class="text-sm text-muted hover:text-ink">
+              Accounts
+            </a>
             <button
               class="text-sm text-muted hover:text-ink"
               onClick={async () => {
@@ -33,6 +37,7 @@ export default function Home() {
             >
               Sign out
             </button>
+            </span>
           </div>
           <Sessions />
           <Machines />

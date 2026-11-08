@@ -37,7 +37,8 @@ public static class SessionEndpoints
         return new(session.Id, session.MachineId, machine?.Name ?? "", session.Harness, session.WorkingDirectory,
             session.Title, session.Status, session.CreatedById, creator?.Name ?? "", session.CreatedAt, session.UpdatedAt,
             session.LastSeq, session.Model, session.PermissionMode, session.CostUsd,
-            machine != null && machine.OwnerId == userId);
+            machine != null && machine.OwnerId == userId, session.AccountId == 0 ? null : session.AccountId,
+            session.AccountId == 0 ? null : Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId)?.Label);
     }
 
     static RuntimeRequestDto ToDto(RuntimeRequest request) => new(request.Id, request.SessionId, request.ToolName,
@@ -92,7 +93,7 @@ public static class SessionEndpoints
         {
             MachineId = request.MachineId, UserId = http.User.UserId() ?? 0, Harness = request.Harness,
             WorkingDirectory = request.WorkingDirectory, Prompt = request.Prompt,
-            PermissionMode = request.PermissionMode ?? "default", Model = request.Model
+            PermissionMode = request.PermissionMode ?? "default", Model = request.Model, AccountId = request.AccountId ?? 0
         });
 
     static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> SendMessageAsync(ulong id,

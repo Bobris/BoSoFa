@@ -4,6 +4,54 @@
  */
 
 export interface paths {
+    "/api/daemon/v1/accounts/{id}/lease": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AccountLeaseRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AccountLeaseResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/providers": {
         parameters: {
             query?: never;
@@ -929,10 +977,129 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HarnessAccountDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateHarnessAccountRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HarnessAccountDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {unknown} */
+        AccountKind: "ClaudeOAuthToken" | "AnthropicApiKey" | "OpenAIApiKey";
+        AccountLeaseRequest: {
+            /** Format: uint64 */
+            sessionId: number | string;
+        };
+        AccountLeaseResponse: {
+            kind: components["schemas"]["AccountKind"];
+            secret: string;
+        };
         AnswerRuntimeRequest: {
             allow: boolean;
             message: null | string;
@@ -940,6 +1107,11 @@ export interface components {
         AuthProviders: {
             oidc: null | string;
             devLogin: boolean;
+        };
+        CreateHarnessAccountRequest: {
+            kind: components["schemas"]["AccountKind"];
+            label: string;
+            secret: string;
         };
         CreateSessionRequest: {
             /** Format: uint64 */
@@ -949,6 +1121,8 @@ export interface components {
             prompt: string;
             permissionMode: null | string;
             model: null | string;
+            /** Format: uint64 */
+            accountId?: null | number | string;
         };
         DaemonTokenRequest: {
             /** Format: uint64 */
@@ -1005,6 +1179,21 @@ export interface components {
         };
         /** @enum {unknown} */
         EnrollStatus: "Pending" | "Approved" | "Expired";
+        HarnessAccountDto: {
+            /** Format: uint64 */
+            id: number | string;
+            kind: components["schemas"]["AccountKind"];
+            harness: string;
+            label: string;
+            /** Format: uint64 */
+            ownerId: number | string;
+            ownerName: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: null | string;
+            secretHint: string;
+        };
         LiveClientMessage: components["schemas"]["LiveClientMessageLiveSubscribe"] | components["schemas"]["LiveClientMessageLiveUnsubscribe"];
         LiveClientMessageLiveSubscribe: {
             /** @enum {string} */
@@ -1064,6 +1253,9 @@ export interface components {
                 /** Format: double */
                 costUsd: number | string;
                 canControl: boolean;
+                /** Format: uint64 */
+                accountId: null | number | string;
+                accountLabel: null | string;
             };
             items: {
                 /** Format: int64 */
@@ -1157,6 +1349,9 @@ export interface components {
             /** Format: double */
             costUsd: number | string;
             canControl: boolean;
+            /** Format: uint64 */
+            accountId: null | number | string;
+            accountLabel: null | string;
         };
         SessionItemDto: {
             /** Format: int64 */
