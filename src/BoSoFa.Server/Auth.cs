@@ -22,7 +22,12 @@ public static class Auth
     {
         var authentication = services.AddAuthentication(PersonOrScript)
             .AddPolicyScheme(PersonOrScript, null, policy => policy.ForwardDefaultSelector = context =>
-                Tokens.ApiTokens.IsPresented(context.Request) ? Tokens.ApiTokens.Scheme : CookieAuthenticationDefaults.AuthenticationScheme)
+                Tokens.ApiTokens.IsPresented(context.Request) ? Tokens.ApiTokens.Scheme
+                : Desktop.DesktopAuthenticationHandler.IsPresented(context.Request) ? Desktop.DesktopTokenService.Scheme
+                : Desktop.LiveTicketAuthenticationHandler.IsPresented(context.Request) ? Desktop.LiveTicketAuthenticationHandler.SchemeName
+                : CookieAuthenticationDefaults.AuthenticationScheme)
+            .AddScheme<AuthenticationSchemeOptions, Desktop.DesktopAuthenticationHandler>(Desktop.DesktopTokenService.Scheme, null)
+            .AddScheme<AuthenticationSchemeOptions, Desktop.LiveTicketAuthenticationHandler>(Desktop.LiveTicketAuthenticationHandler.SchemeName, null)
             .AddScheme<AuthenticationSchemeOptions, Tokens.ApiTokenAuthenticationHandler>(Tokens.ApiTokens.Scheme, null)
             .AddCookie(cookie =>
             {

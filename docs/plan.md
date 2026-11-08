@@ -566,6 +566,16 @@ Done when: install on Windows, macOS and Linux, roll out a new daemon version re
 4. **Service install.** *Done:* `bosofad install` writes a systemd unit, a launchd plist, or a Windows Service or logon task, all running the stable launcher, and `doctor` checks what the daemon needs. CI installs a real system service on all three OSes. The launcher already keeps versions side by side and takes back a new version that does not reach the server.
 5. **Launcher and self-update.** *Done, run for real with published macOS binaries:* a signed release reached a running daemon and was confirmed after it reconnected, and a deliberately broken release was taken back by the launcher and halted its rollout. Manifests are signed offline (`bosofad release-keygen`, `release-publish`) and a build embeds the public key through `-p:BoSoFaReleasePublicKey=…`. A build without a key refuses every update. Machines wait for their sessions to go idle, for at most 30 minutes. Channels and pins are in the API; only rollouts have a page so far.
 
+### M6 steps
+
+Done when: on a fresh machine, install the desktop, click "enable this machine", and run a session.
+
+1. **Server for the desktop.** *Done:* CORS for `app://bosofa`, sign-in through the system browser (loopback redirect, PKCE) ending in a 15-minute access token and a rotating refresh token, one-time tickets for the live socket, and an Origin check on it.
+2. **The app.** `BoSoFa.Desktop` (NeoAstra) hosting the same SPA through a `Platform` interface, with its sign-in and the keychain.
+3. **This machine.** `LocalDaemon` RPC over a local control socket: detect, install, enroll, start, stop.
+4. **Claude account.** `claude setup-token` in a pseudo-terminal, as in §5.4.1.
+5. **Desktop touches.** Notifications, deep links, open in editor.
+
 ## 10. Risks
 
 | Risk | Mitigation |

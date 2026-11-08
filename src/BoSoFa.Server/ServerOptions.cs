@@ -19,6 +19,9 @@ public sealed class ServerOptions
     /// <summary>Refuses daemon WebSockets, as some proxies do, to try the long-poll fallback.</summary>
     public bool RefuseDaemonWebSockets { get; set; }
 
+    /// <summary>Where desktop apps run their page from; only these may call the API from another origin.</summary>
+    public string[] DesktopOrigins { get; set; } = ["app://bosofa"];
+
     /// <summary>How often a running daemon rollout is moved along.</summary>
     public int RolloutTickSeconds { get; set; } = 15;
 

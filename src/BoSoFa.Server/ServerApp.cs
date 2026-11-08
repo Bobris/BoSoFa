@@ -51,6 +51,11 @@ public static class ServerApp
         builder.Services.AddSingleton<LiveHub>();
         builder.Services.AddSingleton<LiveRelay>();
         builder.Services.AddSingleton<MachineRpcClient>();
+        builder.Services.AddSingleton<BoSoFa.Server.Desktop.DesktopTokenService>();
+        builder.Services.AddSingleton<BoSoFa.Server.Desktop.LiveTicketsUsed>();
+        builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy => policy.WithOrigins(options.DesktopOrigins)
+            .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE").WithHeaders("authorization", "content-type")
+            .SetPreflightMaxAge(TimeSpan.FromHours(1))));
         builder.Services.AddSingleton<DaemonPump>();
         builder.Services.AddSingleton<LongPollChannels>();
         builder.Services.AddSingleton<PollEndpoints>();
@@ -93,6 +98,7 @@ public static class ServerApp
         app.Services.GetRequiredService<BtdbNode>().Attach(app.Services);
 
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
+        app.UseCors(); // before authentication: a preflight carries no credentials
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapOpenApi();
@@ -105,6 +111,7 @@ public static class ServerApp
         app.MapSessionEndpoints();
         app.MapAccountEndpoints();
         app.MapApiTokenEndpoints();
+        BoSoFa.Server.Desktop.DesktopEndpoints.MapDesktopEndpoints(app);
         app.MapAuditEndpoints();
         app.MapCatalogEndpoints();
         app.MapBlobEndpoints();

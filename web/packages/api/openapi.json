@@ -52,6 +52,25 @@
         }
       }
     },
+    "/api/v1/live/ticket": {
+      "post": {
+        "tags": [
+          "testhost"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveTicket"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/audit": {
       "get": {
         "tags": [
@@ -1838,6 +1857,135 @@
         }
       }
     },
+    "/auth/desktop/approve": {
+      "post": {
+        "tags": [
+          "DesktopEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesktopApproveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesktopApproveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/desktop/token": {
+      "post": {
+        "tags": [
+          "DesktopEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesktopTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesktopTokens"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/desktop/refresh": {
+      "post": {
+        "tags": [
+          "DesktopEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesktopRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesktopTokens"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/desktop/revoke": {
+      "post": {
+        "tags": [
+          "DesktopEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesktopRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/api/v1/mcp-servers": {
       "get": {
         "tags": [
@@ -2583,6 +2731,90 @@
           "expiresAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "DesktopApproveRequest": {
+        "required": [
+          "redirectUri",
+          "codeChallenge",
+          "state"
+        ],
+        "type": "object",
+        "properties": {
+          "redirectUri": {
+            "type": "string"
+          },
+          "codeChallenge": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "DesktopApproveResponse": {
+        "required": [
+          "redirect"
+        ],
+        "type": "object",
+        "properties": {
+          "redirect": {
+            "type": "string"
+          }
+        }
+      },
+      "DesktopRefreshRequest": {
+        "required": [
+          "refreshToken"
+        ],
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
+      "DesktopTokenRequest": {
+        "required": [
+          "code",
+          "codeVerifier",
+          "redirectUri",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "codeVerifier": {
+            "type": "string"
+          },
+          "redirectUri": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "DesktopTokens": {
+        "required": [
+          "accessToken",
+          "expiresAt",
+          "refreshToken"
+        ],
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "refreshToken": {
+            "type": "string"
           }
         }
       },
@@ -3766,6 +3998,17 @@
           }
         }
       },
+      "LiveTicket": {
+        "required": [
+          "ticket"
+        ],
+        "type": "object",
+        "properties": {
+          "ticket": {
+            "type": "string"
+          }
+        }
+      },
       "MachineDto": {
         "required": [
           "id",
@@ -4689,13 +4932,13 @@
       "name": "AccountEndpoints"
     },
     {
+      "name": "testhost"
+    },
+    {
       "name": "AuditEndpoints"
     },
     {
       "name": "CatalogEndpoints"
-    },
-    {
-      "name": "testhost"
     },
     {
       "name": "MachineEndpoints"
@@ -4711,6 +4954,9 @@
     },
     {
       "name": "ApiTokens"
+    },
+    {
+      "name": "DesktopEndpoints"
     },
     {
       "name": "BlobEndpoints"

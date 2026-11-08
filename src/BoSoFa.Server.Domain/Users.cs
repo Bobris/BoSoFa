@@ -86,7 +86,7 @@ public static class Domain
         typeof(IMachinePresenceTable), typeof(IHarnessAccountTable),
         typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable), typeof(IMcpServerTable),
         typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable), typeof(IAuditEntryTable),
-        typeof(IDaemonReleaseTable), typeof(IMachineUpdatePolicyTable), typeof(IDaemonRolloutTable), typeof(IDaemonRolloutMachineTable)
+        typeof(IDaemonReleaseTable), typeof(IMachineUpdatePolicyTable), typeof(IDaemonRolloutTable), typeof(IDaemonRolloutMachineTable), typeof(IDesktopSessionTable)
     ];
 
     public static EventDispatcher CreateDispatcher(IDomainSignals signals) => new EventDispatcher()
@@ -118,5 +118,8 @@ public static class Domain
         .Register(new MachineUpdatePolicySetHandler())
         .Register(new DaemonRolloutStartedHandler())
         .Register(new DaemonRolloutHaltRequestedHandler())
-        .Register(new DaemonRolloutTickedHandler(signals));
+        .Register(new DaemonRolloutTickedHandler(signals))
+        .Register(new DesktopSessionStartedHandler())
+        .Register(new DesktopSessionRefreshedHandler())
+        .Register(new DesktopSessionRevokedHandler());
 }

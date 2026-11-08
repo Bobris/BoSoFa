@@ -154,11 +154,16 @@ public static class SessionEndpoints
     /// <summary>The UI's live connection: subscribe to sessions, receive their missing items and pending requests
     /// whenever they change, plus ephemeral deltas.</summary>
     static async Task LiveAsync(HttpContext http, BtdbNode node, LiveHub hub, LiveRelay relay, MachineRpcClient rpc,
-        IHostApplicationLifetime lifetime)
+        ServerOptions options, IHostApplicationLifetime lifetime)
     {
         if (!http.WebSockets.IsWebSocketRequest)
         {
             http.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+        if (!IsAllowedOrigin(http, options))
+        {
+            http.Response.StatusCode = StatusCodes.Status403Forbidden; // another site's page must not ride on this user's sign-in
             return;
         }
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
@@ -233,6 +238,14 @@ public static class SessionEndpoints
             try { await sending; }
             catch (Exception) { /* the connection is gone */ }
         }
+    }
+
+    /// <summary>Tools send no Origin; a page's must be this server (directly or through a proxy that keeps Host) or a desktop app.</summary>
+    static bool IsAllowedOrigin(HttpContext http, ServerOptions options)
+    {
+        var origin = http.Request.Headers.Origin.ToString();
+        return origin.Length == 0 || options.DesktopOrigins.Contains(origin) ||
+               (Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.Authority == http.Request.Host.Value);
     }
 
     static async Task SendLiveAsync(WebSocket socket, EventPublisher publisher, LiveHub.Subscriber subscriber,
