@@ -87,7 +87,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         }
         try
         {
-            await _rpc!.RequestAsync("turn/steer", new JsonObject
+            await (_rpc ?? throw new IOException("Codex exited.")).RequestAsync("turn/steer", new JsonObject
             {
                 ["threadId"] = state.HarnessSessionId, ["expectedTurnId"] = steerable, ["input"] = Input(text)
             }, RequestTimeout);
@@ -119,7 +119,8 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
             _inputTokens = _outputTokens = 0;
         }
         sink.Report(state.SessionId, new StatusReport(SessionStatus.Running));
-        var result = await _rpc!.RequestAsync("turn/start", new JsonObject
+        var rpc = _rpc ?? throw new IOException("Codex exited.");
+        var result = await rpc.RequestAsync("turn/start", new JsonObject
         {
             ["threadId"] = state.HarnessSessionId, ["input"] = Input(text)
         }, RequestTimeout);
@@ -314,8 +315,13 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
     {
         try
         {
-            await foreach (var message in rpc.Notifications.ReadAllAsync())
-                try { Translate(message); }
+            await foreach (var message in rpc.Incoming.ReadAllAsync())
+                try
+                {
+                    if (message.Reached != null) message.Reached();
+                    else if (message.Id != null) rpc.Serve(message);
+                    else Translate(message);
+                }
                 catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException)
                 {
                     log.WriteLine($"Session {state.SessionId}: skipped {message.Method}: {exception.Message}");
@@ -427,7 +433,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
                 break;
             case "fileChange" when ClaudeJson.Obj(item, "changes") is { ValueKind: JsonValueKind.Array } changes:
                 var diff = new StringBuilder();
-                foreach (var change in changes.EnumerateArray()) diff.AppendLine(ClaudeJson.Str(change, "diff"));
+                foreach (var change in changes.EnumerateArray()) diff.Append(ClaudeJson.Str(change, "diff")).Append('\n');
                 sink.Report(state.SessionId, new ItemReport(SessionItemKind.ToolResult, now,
                     status == "declined" ? "Declined." : Cut(diff.ToString()), id, IsError: failed));
                 break;

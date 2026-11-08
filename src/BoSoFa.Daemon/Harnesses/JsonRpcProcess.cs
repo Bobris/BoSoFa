@@ -7,8 +7,9 @@ using System.Threading.Channels;
 
 namespace BoSoFa.Daemon.Harnesses;
 
-/// <summary>A JSON-RPC message from the process: a notification (no id) or a request it sends us (with an id).</summary>
-public sealed record JsonRpcIncoming(string Method, JsonElement Params, JsonElement? Id);
+/// <summary>A JSON-RPC message from the process: a notification (no id) or a request it sends us (with an id).
+/// <c>Reached</c> marks a position in the stream instead (see <see cref="JsonRpcProcess.DrainAsync"/>).</summary>
+public sealed record JsonRpcIncoming(string Method, JsonElement Params, JsonElement? Id, Action? Reached = null);
 
 /// <summary>The error a JSON-RPC response carried.</summary>
 public sealed class JsonRpcException(int code, string message) : Exception(message)
@@ -18,9 +19,10 @@ public sealed class JsonRpcException(int code, string message) : Exception(messa
 
 /// <summary>
 /// A harness that speaks JSON-RPC 2.0 over newline-delimited stdio (Codex app-server, ACP agents). Requests are
-/// correlated by id; requests from the process go to <see cref="OnRequest"/> (answered concurrently, as a process
-/// may ask while it still owes us an answer); notifications queue in <see cref="Notifications"/>. The child starts
-/// from the environment it is given and nothing else.
+/// correlated by id. Notifications and requests from the process share one ordered queue, <see cref="Incoming"/>: a
+/// request must not overtake the updates sent before it (an approval refers to an item announced just earlier). The
+/// consumer hands requests to <see cref="Serve"/>, which answers them concurrently, as a process may ask while it
+/// still owes us an answer. The child starts from the environment it is given and nothing else.
 /// </summary>
 public sealed class JsonRpcProcess : IAsyncDisposable
 {
@@ -54,8 +56,36 @@ public sealed class JsonRpcProcess : IAsyncDisposable
     /// <summary>Answers a request from the process; the result is serialized as the response's <c>result</c>.</summary>
     public Func<JsonRpcIncoming, Task<JsonNode?>>? OnRequest { get; set; }
 
-    /// <summary>Notifications from the process; completes when it exits.</summary>
-    public ChannelReader<JsonRpcIncoming> Notifications => _notifications.Reader;
+    /// <summary>Notifications and requests from the process, in order; completes when it exits.</summary>
+    public ChannelReader<JsonRpcIncoming> Incoming => _notifications.Reader;
+
+    /// <summary>Completes once the consumer of <see cref="Incoming"/> has handled everything received so far. A response
+    /// can overtake the notifications before it in that queue; a turn that ends with a response waits for this.</summary>
+    public Task DrainAsync()
+    {
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_notifications.Writer.TryWrite(new("", default, null, reached.SetResult))) reached.TrySetResult();
+        return reached.Task;
+    }
+
+    /// <summary>Answers a request taken from <see cref="Incoming"/>, without blocking the consumer.</summary>
+    public void Serve(JsonRpcIncoming request)
+    {
+        var id = request.Id!.Value;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (OnRequest is not { } handler) await RespondErrorAsync(id, -32601, $"{request.Method} is not supported.");
+                else await RespondAsync(id, await handler(request));
+            }
+            catch (Exception exception)
+            {
+                try { await RespondErrorAsync(id, -32603, exception.Message); }
+                catch (Exception) { /* the process is gone */ }
+            }
+        });
+    }
 
     public string StandardErrorTail
     {
@@ -163,25 +193,7 @@ public sealed class JsonRpcProcess : IAsyncDisposable
             else waiter.TrySetResult(root.TryGetProperty("result", out var result) ? result : default);
             return;
         }
-        var incoming = new JsonRpcIncoming(method, parameters, hasId ? id : null);
-        if (!hasId)
-        {
-            _notifications.Writer.TryWrite(incoming);
-            return;
-        }
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                if (OnRequest is not { } handler) await RespondErrorAsync(id, -32601, $"{method} is not supported.");
-                else await RespondAsync(id, await handler(incoming));
-            }
-            catch (Exception exception)
-            {
-                try { await RespondErrorAsync(id, -32603, exception.Message); }
-                catch (Exception) { /* the process is gone */ }
-            }
-        });
+        _notifications.Writer.TryWrite(new JsonRpcIncoming(method, parameters, hasId ? id : null));
     }
 
     async Task PumpStderrAsync()

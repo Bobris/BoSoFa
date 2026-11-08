@@ -184,10 +184,11 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
         }
         sink.Report(state.SessionId, new StatusReport(SessionStatus.Running));
         var clock = Stopwatch.StartNew();
+        var rpc = _rpc ?? throw new IOException("The agent exited.");
         JsonElement result;
         try
         {
-            result = await _rpc!.RequestAsync("session/prompt", new JsonObject
+            result = await rpc.RequestAsync("session/prompt", new JsonObject
             {
                 ["sessionId"] = state.HarnessSessionId,
                 ["prompt"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text })
@@ -195,9 +196,11 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
         }
         catch (JsonRpcException exception)
         {
+            await rpc.DrainAsync();
             EndTurn("failed", true, clock.ElapsedMilliseconds, exception.Message);
             return;
         }
+        await rpc.DrainAsync(); // the response can overtake this turn's last updates
         var reason = ClaudeJson.Str(result, "stopReason") ?? "end_turn";
         EndTurn(reason == "end_turn" ? "completed" : reason, reason is "refusal", clock.ElapsedMilliseconds, null);
     }
@@ -236,7 +239,6 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
         JsonNode Selected(string? option) => new JsonObject { ["outcome"] = new JsonObject { ["outcome"] = "selected", ["optionId"] = option } };
         if (state.PermissionMode == "bypassPermissions" && allow != null) return Selected(allow);
 
-        FlushText();
         var call = ClaudeJson.Obj(parameters, "toolCall") ?? default;
         var answer = new TaskCompletionSource<bool?>(TaskCreationOptions.RunContinuationsAsynchronously);
         _approvals[key] = answer;
@@ -288,8 +290,10 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
     {
         try
         {
-            await foreach (var message in rpc.Notifications.ReadAllAsync())
-                if (message.Method == "session/update" && !_loading && ClaudeJson.Obj(message.Params, "update") is { } update)
+            await foreach (var message in rpc.Incoming.ReadAllAsync())
+                if (message.Reached != null) message.Reached();
+                else if (message.Id != null) rpc.Serve(message);
+                else if (message.Method == "session/update" && !_loading && ClaudeJson.Obj(message.Params, "update") is { } update)
                     try { Translate(update); }
                     catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException)
                     {
@@ -360,8 +364,8 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
         var output = new StringBuilder();
         if (ClaudeJson.Obj(update, "content") is { ValueKind: JsonValueKind.Array } content)
             foreach (var part in content.EnumerateArray())
-                if (ClaudeJson.Obj(part, "content") is { } inner && ClaudeJson.Str(inner, "text") is { } text) output.AppendLine(text);
-                else if (ClaudeJson.Str(part, "type") == "diff") output.AppendLine(ClaudeJson.Str(part, "path"));
+                if (ClaudeJson.Obj(part, "content") is { } inner && ClaudeJson.Str(inner, "text") is { } text) output.Append(text).Append('\n');
+                else if (ClaudeJson.Str(part, "type") == "diff") output.Append(ClaudeJson.Str(part, "path")).Append('\n');
         if (output.Length == 0 && ClaudeJson.Obj(update, "rawOutput") is { } raw) output.Append(raw.GetRawText());
         var result = output.ToString();
         sink.Report(state.SessionId, new ItemReport(SessionItemKind.ToolResult, DateTime.UtcNow,
