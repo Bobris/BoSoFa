@@ -18,14 +18,21 @@ public static class ServerApp
     const string InitialLeaderJson =
         """{"format":1,"clusterId":"bosofa","term":0,"revision":0,"applicationGeneration":0,"databaseNames":[]} """;
 
-    /// <summary>Single-node mode on local file-system storage; the cluster mode on Azure Blob comes in milestone M2.</summary>
+    /// <summary>Single-node mode on local file-system storage, or a cluster node (<see cref="ServerOptions.Cluster"/>)
+    /// with peer endpoints on their own port. Cluster storage is the file system shared by nodes of one process for now;
+    /// Azure Blob comes next (plan, M2 step 2).</summary>
     public static WebApplication Build(string[] args, Action<WebApplicationBuilder>? configure = null)
     {
         var builder = WebApplication.CreateSlimBuilder(args);
         configure?.Invoke(builder);
         var options = builder.Configuration.GetSection("BoSoFa").Get<ServerOptions>() ?? new ServerOptions();
         var data = Path.GetFullPath(options.DataDirectory, builder.Environment.ContentRootPath);
-        var shared = Path.Combine(data, "shared");
+        var cluster = options.Cluster;
+        // Storage shared by every node: in single-node mode below the data directory; a file-system cluster (several
+        // nodes in one process, for tests) names one shared directory.
+        var shared = cluster?.SharedDirectory is { } sharedDirectory
+            ? Path.GetFullPath(sharedDirectory, builder.Environment.ContentRootPath)
+            : Path.Combine(data, "shared");
         builder.Services.AddSingleton(options);
 
         builder.Services.ConfigureHttpJsonOptions(json =>
@@ -41,8 +48,9 @@ public static class ServerApp
                     await context.GetOrCreateSchemaAsync(type, null, cancellation)));
         }));
         builder.Services.AddHealthChecks();
+        // Cookies and daemon tokens must be readable on every node, so a cluster shares the key ring.
         builder.Services.AddDataProtection().SetApplicationName("bosofa")
-            .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(data, "keys")));
+            .PersistKeysToFileSystem(new DirectoryInfo(cluster != null ? Path.Combine(shared, "keys") : Path.Combine(data, "keys")));
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddBoSoFaAuthentication(options);
         builder.Services.AddSingleton<DaemonTokens>();
@@ -61,7 +69,9 @@ public static class ServerApp
         builder.Services.AddSingleton<IEventLogStorage>(_ =>
             new FileSystemEventLogStorage(Path.Combine(shared, "eventlog"), flushToDisk: options.FlushToDisk));
         // The node owns (and disposes) its canonical storage.
-        var nodeOptions = new BtdbNodeOptions("bosofa", "single-node", "single-node", 1, Path.Combine(data, "cache"),
+        var nodeId = cluster?.NodeId ?? "single-node";
+        var endpoint = cluster?.PeerUrl ?? "single-node";
+        var nodeOptions = new BtdbNodeOptions("bosofa", nodeId, endpoint, 1, Path.Combine(data, "cache"),
             new FileSystemReplicationStorage(Path.Combine(shared, "db", BtdbNode.Database), flushToDisk: options.FlushToDisk))
         {
             FlushToDisk = options.FlushToDisk
@@ -69,10 +79,18 @@ public static class ServerApp
         builder.Services.AddSingleton(nodeOptions);
         builder.Services.AddSingleton<BtdbNode>();
         builder.Services.AddSingleton<IReplicationNodeHost>(sp => sp.GetRequiredService<BtdbNode>());
-        builder.Services.AddBTDBReplicationSingleNode(new ReplicationNodeOptions("bosofa", "single-node",
-                TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(250), TimeSpan.FromSeconds(2),
-                TimeSpan.FromSeconds(1), 1), 1000, TimeSpan.FromMilliseconds(250));
-        builder.Services.AddBTDBEventLogSingleNode();
+        var replication = new ReplicationNodeOptions("bosofa", endpoint, TimeSpan.FromMilliseconds(100),
+            TimeSpan.FromMilliseconds(250), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(1), 1);
+        if (cluster == null)
+        {
+            builder.Services.AddBTDBReplicationSingleNode(replication, 1000, TimeSpan.FromMilliseconds(250));
+            builder.Services.AddBTDBEventLogSingleNode();
+        }
+        else
+        {
+            builder.Services.AddBTDBReplication(replication, 1000, TimeSpan.FromMilliseconds(250));
+            builder.Services.AddBTDBEventLog(cluster.PeerUrl, cluster.PeerKey);
+        }
         builder.Services.AddHostedService(sp => sp.GetRequiredService<BtdbNode>()); // after BTDB's: stops first
 
         var app = builder.Build();
@@ -87,6 +105,13 @@ public static class ServerApp
         app.MapApiEndpoints();
         app.MapMachineEndpoints();
         app.MapSessionEndpoints();
+        if (cluster != null)
+        {
+            // Peers reach each other on a separate port that the ingress never exposes.
+            var peerHost = $"*:{new Uri(cluster.PeerUrl).Port}";
+            app.MapBTDBReplication().RequireHost(peerHost);
+            app.MapBTDBEventLog().RequireHost(peerHost);
+        }
         app.MapSpa(Path.GetFullPath(options.WebRoot, builder.Environment.ContentRootPath));
         return app;
     }

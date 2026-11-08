@@ -457,12 +457,12 @@ M1 is done. With real Claude Code (`haiku`) on this laptop: a session started fr
 
 Done when: the M1 scenario passes while the leader node is killed. The nodes run as plain processes on Azurite, locally and in CI; Docker is optional.
 
-1. **Every node runs the application.**
+1. **Every node runs the application.** *Done:* `ClusterTest` runs two nodes in one process on shared file storage. A follower restored from the leader's published history applies every event itself, writes made on it reach the leader's log, and a sign-in is valid on both nodes.
    - Today only the leader starts the `EventPublisher` (from `PrepareSchemaAsync`), so followers neither consume events nor serve reads.
    - After restore, a follower calls `ObjectDB.TryInitializeRelationsWithoutWriting` (new in BTDB). Once its history holds this build's schema, it starts the same publisher, which consumes into its own ObjectDB.
    - While the schema is missing, it keeps the loop stopped and restores again until it is there, or until it leads.
    - Leader-only work runs under `ReplicationLeadership.RunWhileLeaderAsync`.
-2. **Cluster configuration.**
+2. **Cluster configuration.** *Started:* `BoSoFa:Cluster` (node id, peer URL, peer key, shared directory) selects the HTTP registrations, with peer endpoints on their own port. The Data Protection key ring is shared on file storage. Azure storages are next.
    - `BoSoFa:Cluster` selects `AddBTDBReplication` + `AddBTDBEventLog` with `AzureLeaderStorage`, `AzureReplicationStorage` and `AzureEventLogStorage` (Azurite locally). A blob client without SDK retries handles authority.
    - The peer endpoints (`MapBTDBReplication`, `MapBTDBEventLog`) go on a separate internal port with `RequireHost`.
    - The Data Protection key ring moves to Blob, so cookies and daemon tokens work on every node.

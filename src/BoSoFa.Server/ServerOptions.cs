@@ -17,6 +17,24 @@ public sealed class ServerOptions
     public bool DevLogin { get; set; }
 
     public OidcOptions? Oidc { get; set; }
+
+    /// <summary>Set to run this server as one node of a cluster; null is single-node mode.</summary>
+    public ClusterOptions? Cluster { get; set; }
+}
+
+public sealed class ClusterOptions
+{
+    /// <summary>This node's identity, unique and stable across restarts (a StatefulSet pod name).</summary>
+    public string NodeId { get; set; } = "";
+
+    /// <summary>This node's peer origin as other nodes reach it, on its own port (HTTP only on loopback).</summary>
+    public string PeerUrl { get; set; } = "";
+
+    /// <summary>Bearer key shared by the nodes for EventLog requests between them.</summary>
+    public string PeerKey { get; set; } = "";
+
+    /// <summary>File-system storage shared by every node of a cluster that runs in one process (tests).</summary>
+    public string? SharedDirectory { get; set; }
 }
 
 public sealed class OidcOptions

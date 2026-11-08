@@ -9,10 +9,11 @@ namespace BoSoFa.Server.Btdb;
 
 /// <summary>
 /// The server's replicated database "main": restored (or created empty) from canonical storage, then driven by one
-/// <see cref="EventPublisher"/> over the EventLog topics "data" and "metadata". The application starts only after the
-/// leader prepared (and published) the schema of this build in <see cref="PrepareSchemaAsync"/>, so a build that adds
-/// relations never persists them in an application commit. Followers (cluster mode, M2) will need the schema version
-/// in the application generation instead, see BTDB Doc/ReplicationHosting.md "Upgrades".
+/// <see cref="EventPublisher"/> over the EventLog topics "data" and "metadata". Every node runs that application and
+/// consumes every event into its own database; the leader also publishes it. A node starts the application once its
+/// restored history holds this build's schema. Only the leader writes the schema (genesis or upgrade) in
+/// <see cref="PrepareSchemaAsync"/>; a follower restored without it waits, and restarts to restore it when the leader
+/// publishes it (<see cref="SchemaDetached"/>). Schema changes need a new application generation (plan §8).
 /// </summary>
 public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, IHostApplicationLifetime lifetime)
     : IReplicationNodeHost, IHostedService, IAsyncDisposable
@@ -34,6 +35,7 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
     EventPublisher? _publisher;
     Task? _application;
     int _started;
+    bool _schemaReady;
 
     public IBindableReplicationStorage Canonical { get; } = options.Canonical;
     public ReplicationNodeRole Role { get; private set; } = ReplicationNodeRole.Restoring;
@@ -66,6 +68,7 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
         }, cancellation);
         _objects = new ObjectDB();
         _objects.Open(_db, false, new DBOptions().WithoutAutoRegistrationOfRelations());
+        _schemaReady = false;
         logger.LogInformation(restored ? "Restored database {Database}" : "Starting new database {Database}", Database);
         if (restored)
         {
@@ -81,7 +84,7 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
         CancellationToken cancellation)
     {
         if (!authority.IsValid) throw new IOException("Leader authority ended before schema preparation.");
-        await InitializeRelationsAsync(cancellation);
+        await EnsureSchemaAsync(true, cancellation);
         var end = _capture.Completed;
         if (end.FileId != 0 && Publisher == null)
             using (var read = _db!.StartReadOnlyTransaction())
@@ -98,14 +101,40 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
             services.GetRequiredService<IReplicationScheduler>(), options.CheckpointInterval, options.DeletionDelay, _objects);
     }
 
-    async Task InitializeRelationsAsync(CancellationToken cancellation)
+    /// <summary>Registers this build's relations. Only the leader may write them (genesis or a schema upgrade, in
+    /// <see cref="PrepareSchemaAsync"/>); any other node may only find them already in its restored history, because
+    /// its database must change exactly as the leader's does.</summary>
+    async Task<bool> EnsureSchemaAsync(bool mayWrite, CancellationToken cancellation)
     {
         await _schema.WaitAsync(cancellation);
         try
         {
-            await _objects!.InitializeRelations(Domain.Domain.Relations);
+            if (_schemaReady) return true;
+            if (mayWrite) await _objects!.InitializeRelations(Domain.Domain.Relations);
+            else if (!await _objects!.TryInitializeRelationsWithoutWriting(Domain.Domain.Relations)) return false;
+            _schemaReady = true;
+            return true;
         }
         finally { _schema.Release(); }
+    }
+
+    /// <summary>A restored node (follower, or a leader still activating) runs the application as soon as its history
+    /// holds this build's schema: every node consumes the same events into its own database.</summary>
+    async Task StartIfSchemaPresentAsync()
+    {
+        try
+        {
+            if (await EnsureSchemaAsync(false, _stopping.Token)) StartApplication();
+            else
+                logger.LogInformation(
+                    "The restored database lacks this build's schema; the application starts once a leader writes it");
+        }
+        catch (OperationCanceledException) when (_stopping.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            logger.LogCritical(error, "Checking the schema failed; restarting the process");
+            lifetime.StopApplication();
+        }
     }
 
     void StartApplication()
@@ -118,7 +147,6 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
         try
         {
             var services = await _services.Task;
-            await InitializeRelationsAsync(_stopping.Token); // read-only: the schema is already in the database
             var log = services.GetRequiredService<IEventLog>();
             var publisher = new EventPublisher(_objects!, log.GetTopic("data"), log.GetTopic("metadata"),
                 Domain.Domain.CreateDispatcher(services.GetRequiredService<IDomainSignals>()),
@@ -163,7 +191,18 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
         Environment.Exit(75);
     }
 
-    public void ReportStatus(ReplicationNodeRole role) => Role = role;
+    public void ReportStatus(ReplicationNodeRole role)
+    {
+        Role = role;
+        if (role is ReplicationNodeRole.Follower or ReplicationNodeRole.Activating or ReplicationNodeRole.Leader &&
+            Volatile.Read(ref _started) == 0)
+            _ = StartIfSchemaPresentAsync();
+    }
+
+    /// <summary>The leader published a schema this node's history lacks (genesis or an upgrade after it restored).
+    /// Its database can no longer follow, so the process restarts and restores the published schema.</summary>
+    public void SchemaDetached(string database) =>
+        RequestRestart($"The leader published a newer schema of {database}; restoring it.");
     public void DatabaseRemoved(string database) { }
 
     public ValueTask<ulong> CaptureInitializationCursorAsync(string database, CancellationToken cancellation) =>
