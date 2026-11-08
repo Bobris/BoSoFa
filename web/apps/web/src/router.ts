@@ -8,6 +8,7 @@ export const Router = createRouter({
     { path: "/enroll", component: lazy(() => import("./pages/Enroll")) },
     { path: "/catalog", component: lazy(() => import("./pages/Catalog")) },
     { path: "/accounts", component: lazy(() => import("./pages/Accounts")) },
+    { path: "/machines/:id", matchFilters: { id: int }, component: lazy(() => import("./pages/Machine")) },
     { path: "/sessions/new", component: lazy(() => import("./pages/NewSession")) },
     { path: "/sessions/:id", matchFilters: { id: int }, component: lazy(() => import("./pages/Session")) },
     { path: "*404", component: lazy(() => import("./pages/NotFound")) },

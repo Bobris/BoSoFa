@@ -17,6 +17,7 @@ export type AccountKind = HarnessAccount["kind"];
 export type McpServer = components["schemas"]["McpServerDto"];
 export type SkillBundle = components["schemas"]["SkillBundleDto"];
 export type Profile = components["schemas"]["ProfileDto"];
+export type FileEntry = components["schemas"]["FileEntry"];
 export type LiveClientMessage = components["schemas"]["LiveClientMessage"];
 export type LiveServerMessage = components["schemas"]["LiveServerMessage"];
 

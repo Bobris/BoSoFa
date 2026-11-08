@@ -33,7 +33,7 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
     readonly ConcurrentDictionary<ulong, Follower> _following = new();
     readonly CancellationTokenSource _stopping = new();
 
-    string? PeerKey => options.Cluster?.PeerKey;
+    public string? PeerKey => options.Cluster?.PeerKey;
     string NodeId => options.Cluster?.NodeId ?? "single-node";
 
     /// <summary>Owner side: a delta of a daemon connected here, for every node that follows this machine.</summary>
@@ -75,10 +75,21 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
         finally { streams.TryRemove(channel, out _); }
     }
 
-    static bool Authorized(HttpContext http, string key) =>
+    public static bool Authorized(HttpContext http, string key) =>
         AuthenticationHeaderValue.TryParse(http.Request.Headers.Authorization, out var header) &&
         header.Scheme == "Bearer" && header.Parameter is { } presented &&
         CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(presented), Encoding.UTF8.GetBytes(key));
+
+    /// <summary>The peer URL of the node holding this machine's daemon, unless that is this node.</summary>
+    public string? OwnerPeerUrl(ulong machineId)
+    {
+        if (_node.Publisher is not { } publisher) return null;
+        using var query = publisher.StartQuery();
+        return Ambient.Relation<IMachinePresenceTable>().FindByIdOrDefault(machineId) is { } presence &&
+               presence.NodeId != NodeId && presence.PeerUrl.Length > 0
+            ? presence.PeerUrl
+            : null;
+    }
 
     /// <summary>Following side: while the lease is held, this node receives the machine's deltas from whichever node
     /// holds its daemon (nothing to do when that is this node, or in single-node mode).</summary>
@@ -186,7 +197,7 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
                 using (attempt)
                     try
                     {
-                        if (OwnerPeerUrl() is { } owner) await RelayAsync(owner, attempt.Token);
+                        if (_relay.OwnerPeerUrl(_machineId) is { } owner) await RelayAsync(owner, attempt.Token);
                         await Task.Delay(TimeSpan.FromSeconds(1), attempt.Token); // retry, or wait for a presence change
                     }
                     catch (Exception exception) when (exception is OperationCanceledException or IOException or
@@ -197,17 +208,6 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
                                 exception.Message);
                     }
             }
-        }
-
-        /// <summary>The peer URL of the node holding this machine's daemon, unless that is this node.</summary>
-        string? OwnerPeerUrl()
-        {
-            if (_relay._node.Publisher is not { } publisher) return null;
-            using var query = publisher.StartQuery();
-            return Ambient.Relation<IMachinePresenceTable>().FindByIdOrDefault(_machineId) is { } presence &&
-                   presence.NodeId != _relay.NodeId && presence.PeerUrl.Length > 0
-                ? presence.PeerUrl
-                : null;
         }
 
         async Task RelayAsync(string owner, CancellationToken cancellation)

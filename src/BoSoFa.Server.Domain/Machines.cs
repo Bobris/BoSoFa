@@ -247,3 +247,9 @@ public sealed class NodePresenceExpiredHandler(IDomainSignals signals) : IEventH
         }
     }
 }
+
+public static class MachineAccess
+{
+    /// <summary>Who may start sessions, answer approvals, and reach the machine's files and terminals.</summary>
+    public static bool CanControl(ulong userId, Machine machine) => userId != 0 && machine.OwnerId == userId;
+}

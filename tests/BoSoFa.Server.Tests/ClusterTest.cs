@@ -187,6 +187,9 @@ public class ClusterTest(Azurite azurite, ITestOutputHelper output) : IClassFixt
             Assert.Contains(waiting, message => message is LiveDelta { Ref: "msg_01Replay:0" });
             Step("deltas and the approval reached the follower's client");
 
+            var roots = await onSecond.GetFromJsonAsync<FileRootsResult>($"/api/v1/machines/{state.MachineId}/files/roots");
+            Assert.Equal(work, Assert.Single(roots!.Roots)); // answered by the daemon, through the node that holds it
+
             var request = waiting.OfType<LiveSessionUpdate>().Last(update => update.Requests.Length == 1).Requests[0];
             (await onSecond.PostAsJsonAsync($"/api/v1/sessions/{session.Id}/requests/{request.Id}/answer",
                 new AnswerRuntimeRequest(true, null))).EnsureSuccessStatusCode();

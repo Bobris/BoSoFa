@@ -39,4 +39,4 @@ public static class DaemonToken
 }
 
 public sealed record MachineDto(ulong Id, string Name, string Os, string Arch, ulong OwnerId, string OwnerName,
-    string DaemonVersion, bool Online, DateTime? ConnectedAt, InstalledHarness[] Harnesses);
+    string DaemonVersion, bool Online, DateTime? ConnectedAt, InstalledHarness[] Harnesses, bool CanControl = false);

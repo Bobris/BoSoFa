@@ -78,6 +78,9 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
                 case OutboxAckMessage ack:
                     outbox?.Ack(ack.Acks);
                     break;
+                case RpcRequestMessage call:
+                    connection.Serve(call);
+                    break;
             }
     }
 
@@ -114,6 +117,23 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
                 };
             _workers = [PingAsync(_stop.Token), SendOutboxAsync(_stop.Token), ApplyCommandsAsync(_stop.Token)];
             SendInventory();
+        }
+
+        /// <summary>On its own task: a large transfer must not hold up the commands behind it.</summary>
+        public void Serve(RpcRequestMessage call)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var result = _host != null
+                        ? await _host.Files.HandleAsync(call.Request, _stop.Token)
+                        : new RpcFailure("This daemon has no file access.");
+                    await SendAsync(new RpcResponseMessage(call.Id, result), _stop.Token);
+                }
+                catch (Exception exception) when (exception is WebSocketException or OperationCanceledException or
+                                                      ObjectDisposedException or IOException) { }
+            });
         }
 
         /// <summary>The server's picture of this machine's harnesses: after connecting and after every install.</summary>

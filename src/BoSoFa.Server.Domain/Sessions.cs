@@ -206,7 +206,6 @@ static class Sessions
 {
     public const int MaximumPromptLength = 100_000;
 
-    public static bool CanControl(ulong userId, Machine machine) => userId != 0 && machine.OwnerId == userId;
 
     public static long AppendItem(Session session, SessionItemKind kind, DateTime at, string text, string? toolUseId = null,
         string? toolName = null, string? data = null, bool isError = false, string? itemRef = null)
@@ -249,7 +248,7 @@ static class Sessions
         if (session == null) return (null, null, CommandOutcome.NotFound);
         var machine = Ambient.Relation<IMachineTable>().FindByIdOrDefault(session.MachineId);
         if (machine == null) return (null, null, CommandOutcome.NotFound);
-        return CanControl(userId, machine) ? (session, machine, CommandOutcome.Ok) : (null, null, CommandOutcome.Forbidden);
+        return MachineAccess.CanControl(userId, machine) ? (session, machine, CommandOutcome.Ok) : (null, null, CommandOutcome.Forbidden);
     }
 
     public static string TitleOf(string prompt)
@@ -272,7 +271,7 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
     {
         var machine = Ambient.Relation<IMachineTable>().FindByIdOrDefault(ev.MachineId);
         if (machine == null) return new() { Outcome = CommandOutcome.NotFound };
-        if (!Sessions.CanControl(ev.UserId, machine)) return new() { Outcome = CommandOutcome.Forbidden };
+        if (!MachineAccess.CanControl(ev.UserId, machine)) return new() { Outcome = CommandOutcome.Forbidden };
         if (ev.AccountId != 0)
         {
             // Only the creator's own account, and one for this harness (the replay plays Claude Code).

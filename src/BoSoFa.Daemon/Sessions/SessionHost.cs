@@ -47,7 +47,7 @@ public interface IAccountLeaser
 
 public sealed record HarnessOptions(string? ClaudeExecutable = null, string? ReplayFixture = null,
     IAccountLeaser? Accounts = null, string? CodexExecutable = null, IProfileSource? Profiles = null,
-    IBlobUploader? Uploader = null);
+    IBlobUploader? Uploader = null, string[]? Roots = null);
 
 /// <summary>
 /// Applies the server's commands to the sessions of this machine. Commands are idempotent per ID (the journal), and
@@ -80,6 +80,8 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         {
             lock (_sessions) return _sessions.GetValueOrDefault(id)?.State;
         }, this, options.Uploader);
+        Files = new MachineFiles(FileRoots, options.Uploader, options.Profiles);
+        _configuredRoots = options.Roots ?? [];
         _directory = Path.Combine(dataDirectory, "sessions");
         Directory.CreateDirectory(_directory);
         _outbox = outbox;
@@ -191,6 +193,20 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         var environment = new Dictionary<string, string> { ["CLAUDE_CONFIG_DIR"] = configDirectory };
         environment[lease.Kind == AccountKind.ClaudeOAuthToken ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"] = lease.Secret;
         return launch with { Environment = environment };
+    }
+
+    readonly string[] _configuredRoots;
+
+    /// <summary>The file browser and transfers of this machine.</summary>
+    public MachineFiles Files { get; }
+
+    /// <summary>What people may browse: configured folders and the working directories of this machine's sessions.</summary>
+    string[] FileRoots()
+    {
+        string[] working;
+        lock (_sessions) working = _sessions.Values.Select(session => session.State.WorkingDirectory).ToArray();
+        return _configuredRoots.Concat(working).Select(Path.GetFullPath).Select(Path.TrimEndingDirectorySeparator).Distinct()
+            .Where(Directory.Exists).ToArray();
     }
 
     /// <summary>The BoSoFa MCP server every session of this machine gets.</summary>

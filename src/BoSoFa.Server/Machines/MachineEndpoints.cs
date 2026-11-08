@@ -136,7 +136,8 @@ public static class MachineEndpoints
     {
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using var query = publisher.StartQuery();
-        return Ambient.Relation<IMachineTable>().Select(machine => ToDto(machine))
+        var userId = http.User.UserId() ?? 0;
+        return Ambient.Relation<IMachineTable>().Select(machine => ToDto(machine) with { CanControl = MachineAccess.CanControl(userId, machine) })
             .OrderBy(machine => machine.Name, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
@@ -266,6 +267,9 @@ public static class MachineEndpoints
                             Harnesses = JsonSerializer.Serialize(inventory.Harnesses, ProtocolJsonContext.Default.InstalledHarnessArray)
                         }, cancellation);
                         break;
+                    case RpcResponseMessage response:
+                        connection.CompleteCall(response);
+                        break;
                     case DeltaMessage delta:
                         if (SessionBelongsTo(publisher, delta.SessionId, machineId))
                         {
@@ -280,6 +284,7 @@ public static class MachineEndpoints
         finally
         {
             connections.Remove(connection);
+            connection.Close();
             try
             {
                 await publisher.PublishAsync(

@@ -7,10 +7,9 @@ namespace BoSoFa.Daemon.Sessions;
 
 /// <summary>Where the daemon gets what a session's profile resolves to; the server's answer holds MCP secrets, so it is
 /// fetched per launch and kept in memory only.</summary>
-public interface IProfileSource
+public interface IProfileSource : IBlobDownloader
 {
     Task<SessionProfileResponse> GetProfileAsync(ulong sessionId, CancellationToken cancellation);
-    Task DownloadBlobAsync(string sha256, string file, CancellationToken cancellation);
 }
 
 /// <summary>A profile made ready for a harness: its MCP servers, and a folder holding <c>skills/&lt;name&gt;/</c>.</summary>

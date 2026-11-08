@@ -26,6 +26,7 @@ namespace BoSoFa.Daemon
 
               enroll --server <url> [--name <name>]   Join a BoSoFa server; a signed-in person approves the shown code.
               run [--claude <path>] [--codex <path>]  Stay connected to the server and run its sessions (foreground).
+                  [--roots <dir[:dir…]>]              Folders people may browse, besides the sessions' working directories.
                   [--replay-fixture <file>]           Also offer the replay harness, playing this recorded transcript.
               status [--server <url>]                 Check that the server answers and speaks this protocol version.
               version                                 Print the daemon version.
@@ -72,7 +73,8 @@ namespace BoSoFa.Daemon
                             options.GetValueOrDefault("name") ?? Environment.MachineName, output, error, cancellation);
                     case "run":
                         return await RunLinkAsync(store, new(options.GetValueOrDefault("claude"),
-                            options.GetValueOrDefault("replay-fixture"), CodexExecutable: options.GetValueOrDefault("codex")),
+                            options.GetValueOrDefault("replay-fixture"), CodexExecutable: options.GetValueOrDefault("codex"),
+                            Roots: options.GetValueOrDefault("roots")?.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)),
                             output, error, cancellation);
                     default:
                         error.WriteLine(Usage);

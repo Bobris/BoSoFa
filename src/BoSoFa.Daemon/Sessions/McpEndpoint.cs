@@ -16,6 +16,12 @@ public interface IBlobUploader
     Task<BlobRef> UploadAsync(string file, CancellationToken cancellation);
 }
 
+/// <summary>Fetches a blob of the server to a local file; the content is checked against the hash.</summary>
+public interface IBlobDownloader
+{
+    Task DownloadBlobAsync(string sha256, string file, CancellationToken cancellation);
+}
+
 /// <summary>
 /// The BoSoFa MCP server (plan §5.5): one loopback HTTP endpoint for every session, <c>/mcp/&lt;session&gt;</c>, each with
 /// its own bearer. Streamable HTTP with plain JSON responses, which the protocol allows for servers without

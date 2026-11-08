@@ -49,6 +49,7 @@ public static class ServerApp
         builder.Services.AddSingleton<DaemonConnections>();
         builder.Services.AddSingleton<LiveHub>();
         builder.Services.AddSingleton<LiveRelay>();
+        builder.Services.AddSingleton<MachineRpcClient>();
         builder.Services.AddSingleton<IDomainSignals, DomainSignals>();
 
         // BTDB: one replicated database plus the EventLog (see NodeStorage).
@@ -93,6 +94,7 @@ public static class ServerApp
         app.MapAuthEndpoints(options);
         app.MapApiEndpoints();
         app.MapMachineEndpoints();
+        app.MapFileEndpoints();
         app.MapSessionEndpoints();
         app.MapAccountEndpoints();
         app.MapCatalogEndpoints();
@@ -105,6 +107,8 @@ public static class ServerApp
             app.MapBTDBEventLog().RequireHost(peerHost);
             app.MapGet(LiveRelay.PathPrefix + "{machineId}",
                 (HttpContext http, ulong machineId, LiveRelay relay) => relay.ServeAsync(http, machineId)).RequireHost(peerHost);
+            app.MapPost(MachineRpcClient.PathPrefix + "{machineId}/rpc",
+                (HttpContext http, ulong machineId, MachineRpcClient rpc) => rpc.ServeAsync(http, machineId)).RequireHost(peerHost);
         }
         app.MapSpa(Path.GetFullPath(options.WebRoot, builder.Environment.ContentRootPath));
         return app;

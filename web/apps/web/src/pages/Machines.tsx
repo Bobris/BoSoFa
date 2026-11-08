@@ -30,7 +30,11 @@ export default function Machines() {
                     class={["inline-block size-2 rounded-full", machine().online ? "bg-green-500" : "bg-line"]}
                     title={machine().online ? "Online" : "Offline"}
                   />
-                  {machine().name}
+                  <Show when={machine().canControl} fallback={machine().name}>
+                    <a class="text-accent hover:underline" href={`/machines/${machine().id}`}>
+                      {machine().name}
+                    </a>
+                  </Show>
                   <span class="text-muted">
                     {machine().os} {machine().arch}
                   </span>

@@ -15,6 +15,8 @@ namespace BoSoFa.Protocol;
 [JsonDerivedType(typeof(OutboxAckMessage), "outboxAck")]
 [JsonDerivedType(typeof(DeltaMessage), "delta")]
 [JsonDerivedType(typeof(InventoryMessage), "inventory")]
+[JsonDerivedType(typeof(RpcRequestMessage), "rpc")]
+[JsonDerivedType(typeof(RpcResponseMessage), "rpcResult")]
 public abstract record DaemonMessage;
 
 /// <summary>First message of the daemon after connecting.</summary>
@@ -48,6 +50,11 @@ public sealed record DeltaMessage(ulong SessionId, string Ref, string Text) : Da
 
 /// <summary>Daemon → server: the harnesses this machine has installed; sent after connecting and after each install.</summary>
 public sealed record InventoryMessage(InstalledHarness[] Harnesses) : DaemonMessage;
+
+/// <summary>Server → daemon: answer this now with a <see cref="RpcResponseMessage"/> of the same <c>Id</c>.</summary>
+public sealed record RpcRequestMessage(ulong Id, MachineRpc Request) : DaemonMessage;
+
+public sealed record RpcResponseMessage(ulong Id, MachineRpcResult Result) : DaemonMessage;
 
 public sealed record OutboxRecord(ulong SessionId, long Seq, SessionReport Report);
 

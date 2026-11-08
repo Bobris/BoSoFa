@@ -13,6 +13,9 @@ public sealed class DaemonConnections
     {
         readonly SemaphoreSlim _send = new(1);
         readonly SemaphoreSlim _commands = new(0);
+        readonly ConcurrentDictionary<ulong, TaskCompletionSource<MachineRpcResult>> _calls = new();
+        long _lastCall;
+        volatile bool _closed;
 
         public ulong MachineId { get; } = machineId;
 
@@ -34,6 +37,34 @@ public sealed class DaemonConnections
             finally { _send.Release(); }
         }
 
+        /// <summary>Asks the daemon and waits for its answer.</summary>
+        public async Task<MachineRpcResult> CallAsync(MachineRpc request, CancellationToken cancellation)
+        {
+            var id = (ulong)Interlocked.Increment(ref _lastCall);
+            var call = new TaskCompletionSource<MachineRpcResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _calls[id] = call;
+            try
+            {
+                if (_closed) return Disconnected;
+                await SendAsync(new RpcRequestMessage(id, request), cancellation);
+                return await call.Task.WaitAsync(cancellation);
+            }
+            finally { _calls.TryRemove(id, out _); }
+        }
+
+        public void CompleteCall(RpcResponseMessage response)
+        {
+            if (_calls.TryRemove(response.Id, out var call)) call.TrySetResult(response.Result);
+        }
+
+        /// <summary>The socket is gone, and with it every answer still on its way.</summary>
+        public void Close()
+        {
+            _closed = true;
+            foreach (var id in _calls.Keys)
+                if (_calls.TryRemove(id, out var call)) call.TrySetResult(Disconnected);
+        }
+
         /// <summary>New commands are in the inbox.</summary>
         public void WakeCommands()
         {
@@ -46,6 +77,8 @@ public sealed class DaemonConnections
             while (_commands.Wait(0)) { }
         }
     }
+
+    static readonly RpcFailure Disconnected = new("The machine disconnected.");
 
     readonly ConcurrentDictionary<ulong, Connection> _connections = new();
 
