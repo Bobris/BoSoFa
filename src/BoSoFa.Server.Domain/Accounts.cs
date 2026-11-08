@@ -71,6 +71,7 @@ public sealed class HarnessAccountAddedHandler : IEventHandler<HarnessAccountAdd
             ExpiresAt = ev.Kind == AccountKind.ClaudeOAuthToken ? ev.When + ClaudeTokenLifetime : null
         };
         Ambient.Relation<IHarnessAccountTable>().Insert(account);
+        Audit.Record(ev.When, ev.OwnerId, "account.added", account.Label, ev.Kind.ToString());
         return new() { Outcome = CommandOutcome.Ok, AccountId = account.Id };
     }
 }
@@ -88,6 +89,7 @@ public sealed class HarnessAccountRemovedHandler : IEventHandler<HarnessAccountR
         if (account == null) return new() { Outcome = CommandOutcome.NotFound };
         if (account.OwnerId != ev.UserId) return new() { Outcome = CommandOutcome.Forbidden };
         accounts.RemoveById(account.Id);
+        Audit.Record(ev.When, ev.UserId, "account.removed", account.Label);
         return new() { Outcome = CommandOutcome.Ok, AccountId = account.Id };
     }
 }

@@ -2,6 +2,7 @@ using BoSoFa.Protocol;
 using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Machines;
+using BoSoFa.Server.Tokens;
 using BTDB.Replication.EventSourcing;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -82,6 +83,7 @@ public static class AccountEndpoints
         var machineId = http.User.MachineId();
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         HarnessAccount account;
+        ulong owner;
         using (publisher.StartQuery())
         {
             if (Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(id) is not { } found) return TypedResults.NotFound();
@@ -90,9 +92,11 @@ public static class AccountEndpoints
                 session.CreatedById != found.OwnerId || session.Status == SessionStatus.Stopped)
                 return TypedResults.Forbid();
             account = found;
+            owner = session.CreatedById;
         }
-        loggers.CreateLogger("BoSoFa.Server.Accounts").LogInformation(
-            "Account {AccountId} leased to machine {MachineId} for session {SessionId}", id, machineId, request.SessionId);
+        var logger = loggers.CreateLogger("BoSoFa.Server.Accounts");
+        logger.LogInformation("Account {AccountId} leased to machine {MachineId} for session {SessionId}", id, machineId, request.SessionId);
+        await AuditEndpoints.RecordAsync(publisher, owner, "account.leased", account.Label, $"session {request.SessionId} on machine {machineId}", logger);
         return TypedResults.Ok(new AccountLeaseResponse(account.Kind,
             Protector(protection, account.SecretId).Unprotect(account.ProtectedSecret)));
     }

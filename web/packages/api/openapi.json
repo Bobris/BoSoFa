@@ -52,6 +52,42 @@
         }
       }
     },
+    "/api/v1/audit": {
+      "get": {
+        "tags": [
+          "AuditEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuditEntryDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/daemon/v1/sessions/{id}/profile": {
       "get": {
         "tags": [
@@ -1952,6 +1988,52 @@
           "TarGz",
           "Zip"
         ]
+      },
+      "AuditEntryDto": {
+        "required": [
+          "id",
+          "at",
+          "actorId",
+          "actorName",
+          "action",
+          "target",
+          "detail"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "actorId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "actorName": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
       },
       "AuthProviders": {
         "required": [
@@ -4194,6 +4276,9 @@
   "tags": [
     {
       "name": "AccountEndpoints"
+    },
+    {
+      "name": "AuditEndpoints"
     },
     {
       "name": "CatalogEndpoints"

@@ -85,6 +85,7 @@ public static class ProtocolVersion
 [JsonSerializable(typeof(ApiTokenDto[]))]
 [JsonSerializable(typeof(CreateApiTokenRequest))]
 [JsonSerializable(typeof(CreatedApiToken))]
+[JsonSerializable(typeof(AuditEntryDto[]))]
 [JsonSerializable(typeof(LiveClientMessage))]
 [JsonSerializable(typeof(LiveServerMessage))]
 public sealed partial class ProtocolJsonContext : JsonSerializerContext;

@@ -53,6 +53,16 @@ public static class FileEndpoints
             ? CallAsync<FileStoreResult>(id, request, node, rpc, http)
             : Task.FromResult<Results<Ok<FileStoreResult>, NotFound, ForbidHttpResult, BadRequest<string>>>(TypedResults.BadRequest("Not a lowercase SHA-256."));
 
+    /// <summary>What crosses the machine's boundary or starts something on it; browsing is not audited.</summary>
+    static (string Action, string Detail)? AuditLineOf(MachineRpc request) => request switch
+    {
+        FileFetchRequest fetch => ("file.downloaded", fetch.Path),
+        FileStoreRequest store => ("file.uploaded", Path.Combine(store.Directory, store.Name)),
+        TerminalOpenRequest open => ("terminal.opened", open.WorkingDirectory ?? "home folder"),
+        TerminalCloseRequest close => ("terminal.closed", close.TerminalId),
+        _ => null
+    };
+
     static async Task<Results<Ok<T>, NotFound, ForbidHttpResult, BadRequest<string>>> CallAsync<T>(ulong id, MachineRpc request, BtdbNode node,
         MachineRpcClient rpc, HttpContext http) where T : MachineRpcResult
     {
@@ -63,7 +73,11 @@ public static class FileEndpoints
             if (Ambient.Relation<IMachineTable>().FindByIdOrDefault(id) is not { } machine) return TypedResults.NotFound();
             if (!MachineAccess.CanControl(http.User.UserId() ?? 0, machine)) return TypedResults.Forbid();
         }
-        return await rpc.CallAsync(id, request, http.RequestAborted) switch
+        var answer = await rpc.CallAsync(id, request, http.RequestAborted);
+        if (answer is T && AuditLineOf(request) is var (action, detail))
+            await AuditEndpoints.RecordAsync(publisher, http.User.UserId() ?? 0, action, $"machine {id}", detail,
+                http.RequestServices.GetRequiredService<ILogger<MachineRpcClient>>());
+        return answer switch
         {
             T result => TypedResults.Ok(result),
             RpcFailure failure => TypedResults.BadRequest(failure.Message),

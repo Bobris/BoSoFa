@@ -140,6 +140,7 @@ public sealed class EnrollmentApprovedHandler : IEventHandler<EnrollmentApproved
         Ambient.Relation<IMachineTable>().Insert(machine);
         enrollment.MachineId = machine.Id;
         enrollments.Update(enrollment);
+        Audit.Record(ev.When, ev.ApproverId, "machine.enrolled", machine.Name, $"machine {machine.Id}");
         return new() { Status = EnrollStatus.Approved, MachineId = machine.Id };
     }
 }

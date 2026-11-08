@@ -104,6 +104,7 @@ public sealed class McpServerPublishedHandler : IEventHandler<McpServerPublished
             Name = ev.Name, Transport = ev.Transport, Command = ev.Command, Args = ev.Args, Url = ev.Url,
             SecretNames = ev.SecretNames, SecretId = ev.SecretId, ProtectedSecrets = ev.ProtectedSecrets
         });
+        Audit.Record(ev.When, ev.UserId, "mcp.published", ev.Name);
         return new() { Outcome = CommandOutcome.Ok };
     }
 }
@@ -120,6 +121,7 @@ public sealed class SkillBundlePublishedHandler : IEventHandler<SkillBundlePubli
         {
             Name = ev.Name, Version = ev.Version, Sha256 = ev.Sha256, Description = ev.Description, PublishedAt = ev.When
         });
+        Audit.Record(ev.When, ev.UserId, "skill.published", ev.Name, ev.Version);
         return new() { Outcome = CommandOutcome.Ok };
     }
 }
@@ -142,6 +144,7 @@ public sealed class ProfileSavedHandler : IEventHandler<ProfileSaved, SessionCom
         {
             Name = ev.Name, Model = ev.Model, PermissionMode = ev.PermissionMode, McpServers = ev.McpServers, Skills = ev.Skills
         });
+        Audit.Record(ev.When, ev.UserId, "profile.saved", ev.Name);
         return new() { Outcome = CommandOutcome.Ok };
     }
 }

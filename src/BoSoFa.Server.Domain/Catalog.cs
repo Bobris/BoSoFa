@@ -69,6 +69,7 @@ public sealed class HarnessReleasePublishedHandler : IEventHandler<HarnessReleas
         {
             Harness = ev.Harness, Version = ev.Version, Artifacts = ev.Artifacts, PublishedAt = ev.When
         });
+        Audit.Record(ev.When, ev.UserId, "harness.published", ev.Harness, ev.Version);
         return new() { Outcome = CommandOutcome.Ok };
     }
 }
@@ -89,6 +90,7 @@ public sealed class HarnessInstallRequestedHandler(IDomainSignals signals) : IEv
             .FirstOrDefault(candidate => candidate.Platform == platform);
         if (artifact == null) return new() { Outcome = CommandOutcome.Invalid }; // no build for this platform
         Sessions.IssueCommand(signals, machine.Id, new InstallHarnessCommand(ev.Harness, ev.Version, artifact), ev.When);
+        Audit.Record(ev.When, ev.UserId, "harness.install", ev.Harness, $"{ev.Version} on machine {ev.MachineId}");
         return new() { Outcome = CommandOutcome.Ok };
     }
 }

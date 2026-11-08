@@ -53,6 +53,14 @@ public class ApiTokenTest
         Assert.Equal(HttpStatusCode.Forbidden, (await anna.DeleteAsync($"/api/v1/tokens/{read.Details.Id}")).StatusCode);
 
         Assert.Equal(HttpStatusCode.NoContent, (await boris.DeleteAsync($"/api/v1/tokens/{read.Details.Id}")).StatusCode);
+
+        // The audit log names who did it, newest first, and only admins read it; the first person to sign in is one.
+        Assert.Equal(HttpStatusCode.Forbidden, (await anna.GetAsync("/api/v1/audit")).StatusCode);
+        var audit = (await boris.GetFromJsonAsync<AuditEntryDto[]>("/api/v1/audit"))!;
+        Assert.Equal(("token.revoked", "boris@example.com"), (audit[0].Action, audit[0].ActorName));
+        Assert.Equal("account.added", audit[1].Action);
+        var older = (await boris.GetFromJsonAsync<AuditEntryDto[]>($"/api/v1/audit?before={audit[1].Id}"))!;
+        Assert.Equal(audit[2..], older);
         Assert.Equal(HttpStatusCode.Unauthorized, (await reader.GetAsync("/api/v1/machines")).StatusCode);
     }
 }

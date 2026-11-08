@@ -62,6 +62,7 @@ public sealed class ApiTokenCreatedHandler : IEventHandler<ApiTokenCreated, ApiT
             ExpiresAt = ev.ExpiresInDays is { } days ? ev.When.AddDays(days) : null
         };
         Ambient.Relation<IApiTokenTable>().Insert(token);
+        Audit.Record(ev.When, ev.OwnerId, "token.created", token.Name, ev.Scope.ToString());
         return new() { Outcome = CommandOutcome.Ok, TokenId = token.Id };
     }
 }
@@ -77,6 +78,7 @@ public sealed class ApiTokenRevokedHandler : IEventHandler<ApiTokenRevoked, ApiT
         if (token == null) return new() { Outcome = CommandOutcome.NotFound };
         if (token.OwnerId != ev.UserId) return new() { Outcome = CommandOutcome.Forbidden };
         tokens.RemoveById(token.Id);
+        Audit.Record(ev.When, ev.UserId, "token.revoked", token.Name);
         return new() { Outcome = CommandOutcome.Ok, TokenId = token.Id };
     }
 }

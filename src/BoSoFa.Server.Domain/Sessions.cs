@@ -297,6 +297,7 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
             session.WorkingDirectory, ev.Prompt, session.PermissionMode, session.Model,
             session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree, ev.ProfileName != null), ev.When);
         Sessions.Changed(signals, session, ev.When);
+        Audit.Record(ev.When, ev.UserId, "session.created", $"session {session.Id}", $"{ev.Harness} in {ev.WorkingDirectory} on machine {ev.MachineId}");
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }
 }
@@ -345,6 +346,7 @@ public sealed class SessionStopRequestedHandler(IDomainSignals signals)
         var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId);
         if (session == null) return new() { Outcome = outcome };
         Sessions.IssueCommand(signals, machine!.Id, new StopSessionCommand(session.Id), ev.When);
+        Audit.Record(ev.When, ev.UserId, "session.stopped", $"session {session.Id}");
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }
 }
@@ -370,6 +372,7 @@ public sealed class RuntimeRequestAnsweredHandler(IDomainSignals signals)
         Sessions.IssueCommand(signals, machine!.Id,
             new AnswerApprovalCommand(session.Id, request.Key, ev.Allow, ev.Message), ev.When);
         Sessions.Changed(signals, session, ev.When);
+        Audit.Record(ev.When, ev.UserId, ev.Allow ? "approval.allowed" : "approval.denied", $"session {session.Id}", request.ToolName);
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }
 }

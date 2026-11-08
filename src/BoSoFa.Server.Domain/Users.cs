@@ -85,7 +85,7 @@ public static class Domain
         typeof(ISessionItemTable), typeof(IRuntimeRequestTable), typeof(IMachineCommandTable),
         typeof(IMachinePresenceTable), typeof(IHarnessAccountTable),
         typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable), typeof(IMcpServerTable),
-        typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable)
+        typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable), typeof(IAuditEntryTable)
     ];
 
     public static EventDispatcher CreateDispatcher(IDomainSignals signals) => new EventDispatcher()
@@ -111,5 +111,6 @@ public static class Domain
         .Register(new SkillBundlePublishedHandler())
         .Register(new ProfileSavedHandler())
         .Register(new ApiTokenCreatedHandler())
-        .Register(new ApiTokenRevokedHandler());
+        .Register(new ApiTokenRevokedHandler())
+        .Register(new ActionAuditedHandler());
 }

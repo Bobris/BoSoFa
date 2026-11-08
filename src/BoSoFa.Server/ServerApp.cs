@@ -99,6 +99,7 @@ public static class ServerApp
         app.MapSessionEndpoints();
         app.MapAccountEndpoints();
         app.MapApiTokenEndpoints();
+        app.MapAuditEndpoints();
         app.MapCatalogEndpoints();
         app.MapBlobEndpoints();
         if (cluster != null)

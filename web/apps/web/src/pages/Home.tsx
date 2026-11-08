@@ -28,6 +28,11 @@ export default function Home() {
             <a href={paths.catalog()} class="text-sm text-muted hover:text-ink">
               Catalog
             </a>
+            <Show when={user().role === "Admin"}>
+              <a href={paths.audit()} class="text-sm text-muted hover:text-ink">
+                Audit
+              </a>
+            </Show>
             <a href={paths.tokens()} class="text-sm text-muted hover:text-ink">
               API tokens
             </a>

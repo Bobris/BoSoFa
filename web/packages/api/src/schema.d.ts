@@ -52,6 +52,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    before?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AuditEntryDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/daemon/v1/sessions/{id}/profile": {
         parameters: {
             query?: never;
@@ -2210,6 +2247,18 @@ export interface components {
         ApiTokenScope: "Read" | "Control";
         /** @enum {unknown} */
         ArtifactKind: "Binary" | "TarGz" | "Zip";
+        AuditEntryDto: {
+            /** Format: uint64 */
+            id: number | string;
+            /** Format: date-time */
+            at: string;
+            /** Format: uint64 */
+            actorId: number | string;
+            actorName: string;
+            action: string;
+            target: string;
+            detail: string;
+        };
         AuthProviders: {
             oidc: null | string;
             devLogin: boolean;
