@@ -17,6 +17,9 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+      # The cluster tests run on a private Azurite blob service.
+      - name: Install Azurite
+        run: npm install --global azurite@3.35.0
       - run: dotnet build BoSoFa.slnx -c Release
       # Includes ContractTest: the checked-in web/packages/api/openapi.json must match the server.
       - run: dotnet test BoSoFa.slnx -c Release --no-build

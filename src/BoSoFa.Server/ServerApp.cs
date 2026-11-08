@@ -15,12 +15,8 @@ namespace BoSoFa.Server;
 
 public static class ServerApp
 {
-    const string InitialLeaderJson =
-        """{"format":1,"clusterId":"bosofa","term":0,"revision":0,"applicationGeneration":0,"databaseNames":[]} """;
-
     /// <summary>Single-node mode on local file-system storage, or a cluster node (<see cref="ServerOptions.Cluster"/>)
-    /// with peer endpoints on their own port. Cluster storage is the file system shared by nodes of one process for now;
-    /// Azure Blob comes next (plan, M2 step 2).</summary>
+    /// with peer endpoints on their own port. Storage is chosen by <see cref="NodeStorage"/>.</summary>
     public static WebApplication Build(string[] args, Action<WebApplicationBuilder>? configure = null)
     {
         var builder = WebApplication.CreateSlimBuilder(args);
@@ -28,11 +24,7 @@ public static class ServerApp
         var options = builder.Configuration.GetSection("BoSoFa").Get<ServerOptions>() ?? new ServerOptions();
         var data = Path.GetFullPath(options.DataDirectory, builder.Environment.ContentRootPath);
         var cluster = options.Cluster;
-        // Storage shared by every node: in single-node mode below the data directory; a file-system cluster (several
-        // nodes in one process, for tests) names one shared directory.
-        var shared = cluster?.SharedDirectory is { } sharedDirectory
-            ? Path.GetFullPath(sharedDirectory, builder.Environment.ContentRootPath)
-            : Path.Combine(data, "shared");
+        var storage = NodeStorage.Create(options, data, builder.Environment.ContentRootPath);
         builder.Services.AddSingleton(options);
 
         builder.Services.ConfigureHttpJsonOptions(json =>
@@ -49,8 +41,7 @@ public static class ServerApp
         }));
         builder.Services.AddHealthChecks();
         // Cookies and daemon tokens must be readable on every node, so a cluster shares the key ring.
-        builder.Services.AddDataProtection().SetApplicationName("bosofa")
-            .PersistKeysToFileSystem(new DirectoryInfo(cluster != null ? Path.Combine(shared, "keys") : Path.Combine(data, "keys")));
+        storage.PersistKeys(builder.Services.AddDataProtection().SetApplicationName("bosofa"));
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddBoSoFaAuthentication(options);
         builder.Services.AddSingleton<DaemonTokens>();
@@ -58,21 +49,14 @@ public static class ServerApp
         builder.Services.AddSingleton<LiveHub>();
         builder.Services.AddSingleton<IDomainSignals, DomainSignals>();
 
-        // BTDB: one replicated database plus the EventLog, both on local directories in single-node mode. Factories,
-        // so the container disposes the storages with the host: a file-system store keeps its directory lock and the
-        // in-memory leader lease until its last instance is disposed, and a host restarted in the same process (tests)
-        // would otherwise wait for the old lease to expire.
+        // BTDB: one replicated database plus the EventLog (see NodeStorage).
         builder.Services.AddSingleton<IReplicationScheduler>(new SystemReplicationScheduler());
-        builder.Services.AddSingleton<IReplicationLeaderStorage>(_ =>
-            new FileSystemLeaderStorage(Path.Combine(shared, "leader"), TimeSpan.FromSeconds(15), InitialLeaderJson,
-                flushToDisk: options.FlushToDisk));
-        builder.Services.AddSingleton<IEventLogStorage>(_ =>
-            new FileSystemEventLogStorage(Path.Combine(shared, "eventlog"), flushToDisk: options.FlushToDisk));
+        builder.Services.AddSingleton(storage.Leader);
+        builder.Services.AddSingleton(storage.EventLog);
         // The node owns (and disposes) its canonical storage.
         var nodeId = cluster?.NodeId ?? "single-node";
         var endpoint = cluster?.PeerUrl ?? "single-node";
-        var nodeOptions = new BtdbNodeOptions("bosofa", nodeId, endpoint, 1, Path.Combine(data, "cache"),
-            new FileSystemReplicationStorage(Path.Combine(shared, "db", BtdbNode.Database), flushToDisk: options.FlushToDisk))
+        var nodeOptions = new BtdbNodeOptions("bosofa", nodeId, endpoint, 1, Path.Combine(data, "cache"), storage.Canonical)
         {
             FlushToDisk = options.FlushToDisk
         };

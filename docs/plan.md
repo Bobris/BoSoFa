@@ -462,7 +462,7 @@ Done when: the M1 scenario passes while the leader node is killed. The nodes run
    - After restore, a follower calls `ObjectDB.TryInitializeRelationsWithoutWriting` (new in BTDB). Once its history holds this build's schema, it starts the same publisher, which consumes into its own ObjectDB.
    - While the schema is missing, it keeps the loop stopped and restores again until it is there, or until it leads.
    - Leader-only work runs under `ReplicationLeadership.RunWhileLeaderAsync`.
-2. **Cluster configuration.** *Started:* `BoSoFa:Cluster` (node id, peer URL, peer key, shared directory) selects the HTTP registrations, with peer endpoints on their own port. The Data Protection key ring is shared on file storage. Azure storages are next.
+2. **Cluster configuration.** *Done:* `BoSoFa:Cluster:Azure` (connection string, container) puts the leader document, EventLog, database files and Data Protection key ring in one Blob container (`NodeStorage`). `ClusterTest` runs on shared files and on a private Azurite, which CI installs. Workload identity instead of a connection string comes in M7. A stopping follower waited 10 s for a presence exchange that could no longer happen; this is fixed in BTDB master and will be adopted with the next patch release.
    - `BoSoFa:Cluster` selects `AddBTDBReplication` + `AddBTDBEventLog` with `AzureLeaderStorage`, `AzureReplicationStorage` and `AzureEventLogStorage` (Azurite locally). A blob client without SDK retries handles authority.
    - The peer endpoints (`MapBTDBReplication`, `MapBTDBEventLog`) go on a separate internal port with `RequireHost`.
    - The Data Protection key ring moves to Blob, so cookies and daemon tokens work on every node.

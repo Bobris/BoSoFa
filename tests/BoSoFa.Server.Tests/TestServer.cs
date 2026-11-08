@@ -33,14 +33,20 @@ sealed class TestServer : IAsyncDisposable
         return server;
     }
 
-    /// <summary>One node of a cluster whose nodes share <paramref name="sharedDirectory"/> in this process.</summary>
-    public static async Task<TestServer> StartClusterNodeAsync(string sharedDirectory, string nodeId)
+    /// <summary>One node of a cluster below <paramref name="root"/>: its data in its own directory, the shared state in
+    /// Azure Blob when <paramref name="azure"/> is a connection string, else in a directory all nodes of this process
+    /// share.</summary>
+    public static async Task<TestServer> StartClusterNodeAsync(string root, string nodeId, string? azure = null,
+        string container = "bosofa")
     {
         var peerUrl = new Uri($"http://127.0.0.1:{FreePort()}");
-        var server = new TestServer(Path.Combine(sharedDirectory, nodeId),
+        string[] storage = azure != null
+            ? ["--BoSoFa:Cluster:Azure:ConnectionString", azure, "--BoSoFa:Cluster:Azure:Container", container]
+            : ["--BoSoFa:Cluster:SharedDirectory", Path.Combine(root, "shared")];
+        var server = new TestServer(Path.Combine(root, nodeId),
         [
             "--BoSoFa:Cluster:NodeId", nodeId, "--BoSoFa:Cluster:PeerUrl", peerUrl.ToString().TrimEnd('/'),
-            "--BoSoFa:Cluster:PeerKey", "test-peer-key", "--BoSoFa:Cluster:SharedDirectory", Path.Combine(sharedDirectory, "shared")
+            "--BoSoFa:Cluster:PeerKey", "test-peer-key", ..storage
         ], peerUrl);
         await server.StartAppAsync();
         return server;

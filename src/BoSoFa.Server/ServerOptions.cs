@@ -35,6 +35,18 @@ public sealed class ClusterOptions
 
     /// <summary>File-system storage shared by every node of a cluster that runs in one process (tests).</summary>
     public string? SharedDirectory { get; set; }
+
+    /// <summary>Azure Blob storage shared by the nodes; required for a cluster of separate processes.</summary>
+    public AzureStorageOptions? Azure { get; set; }
+}
+
+public sealed class AzureStorageOptions
+{
+    /// <summary>A storage connection string (Azurite locally). Workload identity replaces it on AKS (M7).</summary>
+    public string ConnectionString { get; set; } = "";
+
+    /// <summary>The container holding the leader document, EventLog, database files and Data Protection keys.</summary>
+    public string Container { get; set; } = "bosofa";
 }
 
 public sealed class OidcOptions
