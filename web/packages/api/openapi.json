@@ -380,6 +380,111 @@
         }
       }
     },
+    "/api/v1/machines/{id}/harnesses": {
+      "post": {
+        "tags": [
+          "MachineEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallHarnessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/harness-releases": {
+      "get": {
+        "tags": [
+          "MachineEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HarnessReleaseDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "MachineEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishHarnessRelease"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sessions": {
       "get": {
         "tags": [
@@ -934,6 +1039,13 @@
           }
         }
       },
+      "ArtifactKind": {
+        "enum": [
+          "Binary",
+          "TarGz",
+          "Zip"
+        ]
+      },
       "AuthProviders": {
         "required": [
           "oidc",
@@ -1289,6 +1401,97 @@
             "format": "date-time"
           },
           "secretHint": {
+            "type": "string"
+          }
+        }
+      },
+      "HarnessArtifact": {
+        "required": [
+          "platform",
+          "url",
+          "sha256",
+          "kind",
+          "entryPoint"
+        ],
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ArtifactKind"
+          },
+          "entryPoint": {
+            "type": "string"
+          }
+        }
+      },
+      "HarnessReleaseDto": {
+        "required": [
+          "harness",
+          "version",
+          "artifacts",
+          "publishedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "harness": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HarnessArtifact"
+            }
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InstalledHarness": {
+        "required": [
+          "harness",
+          "version",
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "harness": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "InstallHarnessRequest": {
+        "required": [
+          "harness",
+          "version"
+        ],
+        "type": "object",
+        "properties": {
+          "harness": {
+            "type": "string"
+          },
+          "version": {
             "type": "string"
           }
         }
@@ -1753,7 +1956,8 @@
           "ownerName",
           "daemonVersion",
           "online",
-          "connectedAt"
+          "connectedAt",
+          "harnesses"
         ],
         "type": "object",
         "properties": {
@@ -1797,6 +2001,34 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "harnesses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstalledHarness"
+            }
+          }
+        }
+      },
+      "PublishHarnessRelease": {
+        "required": [
+          "harness",
+          "version",
+          "artifacts"
+        ],
+        "type": "object",
+        "properties": {
+          "harness": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HarnessArtifact"
+            }
           }
         }
       },

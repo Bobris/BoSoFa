@@ -526,9 +526,22 @@ Done when: the same project runs on Claude, Codex and Gemini, with diffs per run
    - Worktrees live in the daemon's data folder and are not cleaned up yet.
    - A session runs in place or in a `bosofa/<slug>` worktree.
    - A hidden-ref checkpoint is taken before and after each run, and the run's diff is stored and shown per run.
-6. **Install catalog.**
+6. **Install catalog.** *Done for binary, tar.gz and zip artifacts:*
+   - An admin publishes a `HarnessRelease` (`POST /api/v1/harness-releases`; https only, SHA-256 required), and an owner installs it with `POST /api/v1/machines/{id}/harnesses`.
+   - The daemon verifies the hash, unpacks aside and moves into place, so a failed install keeps the previous version. Machines report their inventory, and an installed binary wins over the PATH.
+   - No UI to publish or install yet. npm-only agents (Gemini CLI) still need the `npm` kind and a managed Node runtime.
    - `HarnessRelease` entries with per-RID artifacts and SHA-256 hashes. The daemon installs into `harnesses/<id>/<version>/` and reports its inventory.
    - Gemini and Codex are installed through it.
+
+### M3 status (2026-11-08)
+
+Steps 1–6 are implemented, but the milestone's "done when" is not fully met yet:
+
+- **Claude Code:** real turns ran in M1.
+- **OpenCode (ACP):** a real turn and a resume after a daemon restart ran.
+- **Codex:** the protocol is tested against a fake server, and the AOT daemon with the real 0.167 CLI reached the device-code prompt. A full real turn needs a person to sign in.
+- **Gemini CLI:** wired to the ACP adapter but never run. It is npm-only, so it needs the catalog's `npm` kind or a manual install.
+- **Open:** one Windows CI run hung once in the .NET tests and did not recur. CI now names a hung test after 3 minutes.
 
 ## 10. Risks
 

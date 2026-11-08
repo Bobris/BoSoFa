@@ -30,6 +30,9 @@ public static class MachineEndpoints
         api.MapGet("/enrollments/{userCode}", GetEnrollmentAsync);
         api.MapPost("/enrollments/{userCode}/approve", ApproveEnrollmentAsync);
         api.MapGet("/machines", ListMachinesAsync);
+        api.MapPost("/machines/{id}/harnesses", InstallHarnessAsync);
+        api.MapGet("/harness-releases", ListReleasesAsync);
+        api.MapPost("/harness-releases", PublishReleaseAsync);
     }
 
     static string NormalizeCode(string code) => new string(code.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray()) is
@@ -137,13 +140,62 @@ public static class MachineEndpoints
             .OrderBy(machine => machine.Name, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
+    static async Task<HarnessReleaseDto[]> ListReleasesAsync(BtdbNode node, HttpContext http)
+    {
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        using var query = publisher.StartQuery();
+        return Ambient.Relation<IHarnessReleaseTable>().Select(release => new HarnessReleaseDto(release.Harness, release.Version,
+                JsonSerializer.Deserialize(release.Artifacts, ProtocolJsonContext.Default.HarnessArtifactArray)!, release.PublishedAt))
+            .OrderBy(release => release.Harness, StringComparer.Ordinal).ThenByDescending(release => release.PublishedAt).ToArray();
+    }
+
+    static async Task<Results<NoContent, NotFound, ForbidHttpResult, BadRequest<string>>> PublishReleaseAsync(
+        PublishHarnessRelease request, BtdbNode node, HttpContext http)
+    {
+        if (request.Artifacts.Length == 0 || request.Artifacts.Any(artifact =>
+                artifact.Sha256.Length != 64 || !artifact.Sha256.All(Uri.IsHexDigit) || !IsAllowedUrl(artifact.Url) ||
+                string.IsNullOrWhiteSpace(artifact.EntryPoint)))
+            return TypedResults.BadRequest("Every artifact needs an https URL, a SHA-256 hash and an entry point.");
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        return CommandResult(await publisher.PublishAndWaitAsync(new HarnessReleasePublished
+        {
+            UserId = http.User.UserId() ?? 0, Harness = request.Harness, Version = request.Version,
+            Artifacts = JsonSerializer.Serialize(request.Artifacts, ProtocolJsonContext.Default.HarnessArtifactArray)
+        }, http.RequestAborted));
+    }
+
+    /// <summary>https only; plain http is for a server on this very machine (development and tests).</summary>
+    static bool IsAllowedUrl(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                                            (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback);
+
+    static async Task<Results<NoContent, NotFound, ForbidHttpResult, BadRequest<string>>> InstallHarnessAsync(ulong id,
+        InstallHarnessRequest request, BtdbNode node, HttpContext http)
+    {
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        return CommandResult(await publisher.PublishAndWaitAsync(new HarnessInstallRequested
+        {
+            UserId = http.User.UserId() ?? 0, MachineId = id, Harness = request.Harness, Version = request.Version
+        }, http.RequestAborted));
+    }
+
+    static Results<NoContent, NotFound, ForbidHttpResult, BadRequest<string>> CommandResult(SessionCommandResult result) =>
+        result.Outcome switch
+        {
+            CommandOutcome.Ok => TypedResults.NoContent(),
+            CommandOutcome.NotFound => TypedResults.NotFound(),
+            CommandOutcome.Forbidden => TypedResults.Forbid(),
+            _ => TypedResults.BadRequest("That release cannot be used here.")
+        };
+
     /// <summary>Must run inside a query scope. Online means some node holds the daemon's connection.</summary>
     static MachineDto ToDto(Machine machine)
     {
         var owner = Ambient.Relation<IUserTable>().FindByIdOrDefault(machine.OwnerId);
         var presence = Ambient.Relation<IMachinePresenceTable>().FindByIdOrDefault(machine.Id);
         return new(machine.Id, machine.Name, machine.Os, machine.Arch, machine.OwnerId, owner?.Name ?? "",
-            presence?.DaemonVersion ?? machine.DaemonVersion, presence != null, presence?.ConnectedAt);
+            presence?.DaemonVersion ?? machine.DaemonVersion, presence != null, presence?.ConnectedAt,
+            Ambient.Relation<IMachineHarnessTable>().ListById(machine.Id)
+                .Select(harness => new InstalledHarness(harness.Harness, harness.Version, harness.Error)).ToArray());
     }
 
     /// <summary>The daemon's WebSocket: hello/welcome, then every unacknowledged inbox command (and new ones as they
@@ -206,6 +258,13 @@ public static class MachineEndpoints
                         break;
                     case OutboxMessage outbox:
                         await connection.SendAsync(await StoreReportsAsync(publisher, machineId, outbox), cancellation);
+                        break;
+                    case InventoryMessage inventory:
+                        await publisher.PublishAsync(new MachineInventoryReported
+                        {
+                            MachineId = machineId,
+                            Harnesses = JsonSerializer.Serialize(inventory.Harnesses, ProtocolJsonContext.Default.InstalledHarnessArray)
+                        }, cancellation);
                         break;
                     case DeltaMessage delta:
                         if (SessionBelongsTo(publisher, delta.SessionId, machineId))

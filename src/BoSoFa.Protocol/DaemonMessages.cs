@@ -14,6 +14,7 @@ namespace BoSoFa.Protocol;
 [JsonDerivedType(typeof(OutboxMessage), "outbox")]
 [JsonDerivedType(typeof(OutboxAckMessage), "outboxAck")]
 [JsonDerivedType(typeof(DeltaMessage), "delta")]
+[JsonDerivedType(typeof(InventoryMessage), "inventory")]
 public abstract record DaemonMessage;
 
 /// <summary>First message of the daemon after connecting.</summary>
@@ -45,6 +46,9 @@ public sealed record OutboxAckMessage(OutboxAck[] Acks) : DaemonMessage;
 /// disconnected; the final item arrives through the outbox anyway.</summary>
 public sealed record DeltaMessage(ulong SessionId, string Ref, string Text) : DaemonMessage;
 
+/// <summary>Daemon → server: the harnesses this machine has installed; sent after connecting and after each install.</summary>
+public sealed record InventoryMessage(InstalledHarness[] Harnesses) : DaemonMessage;
+
 public sealed record OutboxRecord(ulong SessionId, long Seq, SessionReport Report);
 
 public sealed record OutboxAck(ulong SessionId, long Seq);
@@ -56,6 +60,7 @@ public sealed record OutboxAck(ulong SessionId, long Seq);
 [JsonDerivedType(typeof(InterruptCommand), "interrupt")]
 [JsonDerivedType(typeof(AnswerApprovalCommand), "answerApproval")]
 [JsonDerivedType(typeof(StopSessionCommand), "stopSession")]
+[JsonDerivedType(typeof(InstallHarnessCommand), "installHarness")]
 public abstract record MachineCommand(ulong SessionId);
 
 /// <summary>Starts a session. <c>AccountId</c> names the harness account whose secret the daemon leases just in time
@@ -72,6 +77,9 @@ public sealed record AnswerApprovalCommand(ulong SessionId, string Key, bool All
     : MachineCommand(SessionId);
 
 public sealed record StopSessionCommand(ulong SessionId) : MachineCommand(SessionId);
+
+/// <summary>Not about a session (<c>SessionId</c> 0): download, verify and install this harness version.</summary>
+public sealed record InstallHarnessCommand(string Harness, string Version, HarnessArtifact Artifact) : MachineCommand(0);
 
 /// <summary>A durable fact a daemon reports about one of its sessions, kind in <c>k</c>.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "k")]

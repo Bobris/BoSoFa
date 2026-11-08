@@ -105,6 +105,7 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
             _log = log;
             _stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             if (outbox != null) outbox.Appended += Wake;
+            if (host != null) host.Installer.Changed += SendInventory;
             if (host != null)
                 host.DeltaSink = delta =>
                 {
@@ -112,6 +113,19 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
                     Wake();
                 };
             _workers = [PingAsync(_stop.Token), SendOutboxAsync(_stop.Token), ApplyCommandsAsync(_stop.Token)];
+            SendInventory();
+        }
+
+        /// <summary>The server's picture of this machine's harnesses: after connecting and after every install.</summary>
+        void SendInventory()
+        {
+            if (_host == null) return;
+            _ = Task.Run(async () =>
+            {
+                try { await SendAsync(new InventoryMessage(_host.Installer.Inventory()), _stop.Token); }
+                catch (Exception exception) when (exception is WebSocketException or OperationCanceledException or
+                                                      ObjectDisposedException or IOException) { }
+            });
         }
 
         void Wake()
@@ -169,6 +183,7 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
         public async ValueTask DisposeAsync()
         {
             if (_outbox != null) _outbox.Appended -= Wake;
+            if (_host != null) _host.Installer.Changed -= SendInventory;
             if (_host != null) _host.DeltaSink = null;
             await _stop.CancelAsync();
             foreach (var worker in _workers)

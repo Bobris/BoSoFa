@@ -69,6 +69,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     {
         // Absolute: harnesses run in the session's working directory, so a relative profile path would point nowhere.
         _dataDirectory = Path.GetFullPath(dataDirectory);
+        Installer = new HarnessInstaller(_dataDirectory);
         _directory = Path.Combine(dataDirectory, "sessions");
         Directory.CreateDirectory(_directory);
         _outbox = outbox;
@@ -101,10 +102,10 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     };
 
     /// <summary>An ACP agent uses the machine's own sign-in of that tool (accounts for these come with the catalog).</summary>
-    static Task<JsonRpcProcess> LaunchAcp(SessionState state, string name, string[] arguments)
+    Task<JsonRpcProcess> LaunchAcp(SessionState state, string name, string[] arguments)
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var executable = HarnessEnvironment.FindExecutable(null, OperatingSystem.IsWindows() ? [name + ".exe"] : [name],
+        var executable = HarnessEnvironment.FindExecutable(Installer.Find(name), OperatingSystem.IsWindows() ? [name + ".exe"] : [name],
                              Path.Combine(home, $".{name}", "bin"), "/opt/homebrew/bin", "/usr/local/bin") ??
                          throw new IOException($"The {name} executable was not found on this machine.");
         return Task.FromResult(JsonRpcProcess.Start(executable, arguments, state.WorkingDirectory, HarnessEnvironment.Clean(),
@@ -115,7 +116,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     /// are kept in a file there, so a background service does not depend on the keychain.</summary>
     async Task<CodexLaunch> LaunchCodexAsync(SessionState state)
     {
-        var executable = HarnessEnvironment.FindExecutable(_options.CodexExecutable,
+        var executable = HarnessEnvironment.FindExecutable(_options.CodexExecutable ?? Installer.Find(HarnessNames.Codex),
                              OperatingSystem.IsWindows() ? ["codex.exe"] : ["codex"], "/opt/homebrew/bin", "/usr/local/bin") ??
                          throw new FileNotFoundException("The codex executable was not found on this machine.");
         string? apiKey = null;
@@ -151,7 +152,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         },
         HarnessNames.Claude => async launch =>
         {
-            var executable = ClaudeProcess.FindExecutable(_options.ClaudeExecutable) ??
+            var executable = ClaudeProcess.FindExecutable(_options.ClaudeExecutable ?? Installer.Find(HarnessNames.Claude)) ??
                              throw new FileNotFoundException("The claude executable was not found on this machine.");
             return ClaudeProcess.Start(executable, await WithAccountAsync(state, launch));
         },
@@ -173,10 +174,20 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         return launch with { Environment = environment };
     }
 
+    /// <summary>Installed harnesses and failed installs, for the server's inventory.</summary>
+    public HarnessInstaller Installer { get; }
+
     /// <summary>Applies one command. True when it was new (the caller acknowledges both cases).</summary>
     public async Task<bool> ApplyAsync(ulong commandId, MachineCommand command)
     {
         if (_journal.Contains(commandId)) return false;
+        if (command is InstallHarnessCommand install)
+        {
+            // In the background: a download can take minutes, and other commands must not wait for it.
+            _ = Task.Run(() => Installer.InstallAsync(install, CancellationToken.None));
+            _journal.Add(commandId);
+            return true;
+        }
         IHarnessSession? session;
         lock (_sessions) session = _sessions.GetValueOrDefault(command.SessionId);
         switch (command)

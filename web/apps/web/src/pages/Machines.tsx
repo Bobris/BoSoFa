@@ -36,6 +36,13 @@ export default function Machines() {
                   </span>
                 </span>
                 <span class="text-xs text-muted">
+                  <For each={machine().harnesses} keyed={(harness) => harness.harness}>
+                    {(harness) => (
+                      <span class={["mr-2", { "text-red-600": !!harness().error }]} title={harness().error ?? undefined}>
+                        {harness().harness} {harness().version}
+                      </span>
+                    )}
+                  </For>
                   {machine().ownerName} · bosofad {shortVersion(machine().daemonVersion)}
                 </span>
               </li>

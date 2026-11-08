@@ -562,6 +562,133 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/machines/{id}/harnesses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["InstallHarnessRequest"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/harness-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HarnessReleaseDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PublishHarnessRelease"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions": {
         parameters: {
             query?: never;
@@ -1104,6 +1231,8 @@ export interface components {
             allow: boolean;
             message: null | string;
         };
+        /** @enum {unknown} */
+        ArtifactKind: "Binary" | "TarGz" | "Zip";
         AuthProviders: {
             oidc: null | string;
             devLogin: boolean;
@@ -1195,6 +1324,29 @@ export interface components {
             /** Format: date-time */
             expiresAt: null | string;
             secretHint: string;
+        };
+        HarnessArtifact: {
+            platform: string;
+            url: string;
+            sha256: string;
+            kind: components["schemas"]["ArtifactKind"];
+            entryPoint: string;
+        };
+        HarnessReleaseDto: {
+            harness: string;
+            version: string;
+            artifacts: components["schemas"]["HarnessArtifact"][];
+            /** Format: date-time */
+            publishedAt: string;
+        };
+        InstalledHarness: {
+            harness: string;
+            version: string;
+            error: null | string;
+        };
+        InstallHarnessRequest: {
+            harness: string;
+            version: string;
         };
         LiveClientMessage: components["schemas"]["LiveClientMessageLiveSubscribe"] | components["schemas"]["LiveClientMessageLiveUnsubscribe"];
         LiveClientMessageLiveSubscribe: {
@@ -1305,6 +1457,12 @@ export interface components {
             online: boolean;
             /** Format: date-time */
             connectedAt: null | string;
+            harnesses: components["schemas"]["InstalledHarness"][];
+        };
+        PublishHarnessRelease: {
+            harness: string;
+            version: string;
+            artifacts: components["schemas"]["HarnessArtifact"][];
         };
         RuntimeRequestDto: {
             /** Format: uint64 */
