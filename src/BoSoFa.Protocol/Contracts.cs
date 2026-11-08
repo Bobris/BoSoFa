@@ -94,6 +94,7 @@ public static class ProtocolVersion
 [JsonSerializable(typeof(LiveTicket))]
 [JsonSerializable(typeof(DaemonManifest))]
 [JsonSerializable(typeof(PublishDaemonRelease))]
+[JsonSerializable(typeof(SignedDaemonRelease))]
 [JsonSerializable(typeof(DaemonReleaseDto[]))]
 [JsonSerializable(typeof(StartDaemonRollout))]
 [JsonSerializable(typeof(DaemonRolloutDto[]))]

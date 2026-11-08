@@ -1,5 +1,6 @@
-import { api, type Machine } from "@bosofa/api";
+import { api, getPlatform, type Machine } from "@bosofa/api";
 import { createMemo, For, onSettled, refresh, Show } from "solid-js";
+import ThisMachine from "../components/ThisMachine";
 import { paths } from "../router";
 import { shortVersion } from "../version";
 
@@ -12,6 +13,10 @@ export default function Machines() {
   });
 
   return (
+    <div class="space-y-4">
+    <Show when={getPlatform().localDaemon}>
+      <ThisMachine />
+    </Show>
     <section class="rounded-lg border border-line bg-panel">
       <h2 class="px-4 py-3 border-b border-line text-sm font-medium">Machines</h2>
       <Show
@@ -56,5 +61,6 @@ export default function Machines() {
         </ul>
       </Show>
     </section>
+    </div>
   );
 }

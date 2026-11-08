@@ -7,6 +7,9 @@ using NeoAstra.Rpc;
 
 // A desktop client of a BoSoFa server: the same SolidJS page as the web, in a NeoAstra window. Environment:
 //   BOSOFA_DESKTOP_DATA        this app's data folder (default: the per-user data folder)
+//   BOSOFA_DESKTOP_DAEMON      use this daemon binary instead of a release from the server
+//   BOSOFA_DESKTOP_DAEMON_DATA the daemon's data folder (default: its per-user data folder)
+//   BOSOFA_DESKTOP_DAEMON_INSTALL_ARGS  more arguments for install and uninstall, such as --dry-run to change nothing
 //   BOSOFA_DESKTOP_SMOKE       a JavaScript file run in the page; it sets window.__smoke to a string when it is done
 //   BOSOFA_DESKTOP_SMOKE_OUT   where that string is written, after which the app closes
 
@@ -22,6 +25,11 @@ if (!File.Exists(Path.Combine(spa, "index.html")))
 }
 
 using var account = new DesktopAccount(dataRoot, new SafeStorageVault(NeoSafeStorage.CreateSystem("dev.bosofa.desktop", Path.Combine(dataRoot, "secrets"))));
+using var daemonHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+var localDaemon = new LocalDaemon(account, dataRoot,
+    Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON_DATA") is { Length: > 0 } daemonData ? Path.GetFullPath(daemonData) : LocalDaemon.DefaultDirectory(),
+    new ProcessCommandRunner(), daemonHttp, LocalDaemon.EmbeddedReleaseKey, Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON") is { Length: > 0 } daemonPath ? daemonPath : null,
+    Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON_INSTALL_ARGS")?.Split(' ', StringSplitOptions.RemoveEmptyEntries));
 return NeoApplication.Run(new NeoApplicationOptions { ApplicationName = "BoSoFa", ShutdownMode = NeoApplicationShutdownMode.Explicit }, async application =>
 {
     try
@@ -38,6 +46,7 @@ return NeoApplication.Run(new NeoApplicationOptions { ApplicationName = "BoSoFa"
         var builder = new NeoRpcBuilder(new NeoRpcOptions { ContractHash = NeoRpcGeneratedContract.Hash, Release = true });
         builder.AddAuthService(new AuthService(account));
         builder.AddFilesService(new FilesService(account));
+        builder.AddLocalDaemonService(new LocalDaemonService(localDaemon));
         await using var rpc = builder.Build();
         window.Show();
         await using var view = await environment.CreateWebViewAsync(NeoAstraHost.FillWindow(window), new NeoAstraOptions

@@ -1406,6 +1406,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/daemon-releases/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query: {
+                    rid: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SignedDaemonRelease"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/daemon-rollouts": {
         parameters: {
             query?: never;
@@ -3348,6 +3392,11 @@ export interface components {
         SetMachineUpdatePolicy: {
             channel: string;
             pinnedVersion: null | string;
+        };
+        SignedDaemonRelease: {
+            version: string;
+            manifest: string;
+            signature: string;
         };
         SkillBundleDto: {
             name: string;

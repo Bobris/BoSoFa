@@ -1,4 +1,4 @@
-import { api, type AccountKind, type HarnessAccount } from "@bosofa/api";
+import { api, getPlatform, type AccountKind, type HarnessAccount } from "@bosofa/api";
 import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, refresh, Show } from "solid-js";
 import { paths } from "../router";
@@ -63,6 +63,7 @@ export default function Accounts() {
 
   return (
     <Show when={me()}>
+      {(user) => (
       <div class="mx-auto max-w-2xl space-y-6">
         <h1 class="text-xl font-semibold">Harness accounts</h1>
         <section class="rounded-lg border border-line bg-panel">
@@ -102,6 +103,26 @@ export default function Accounts() {
             </ul>
           </Show>
         </section>
+        <Show when={getPlatform().localDaemon}>
+          {(local) => (
+            <section class="space-y-2 rounded-lg border border-line bg-panel p-4 text-sm">
+              <h2 class="font-medium">Add your Claude subscription</h2>
+              <p class="text-xs text-muted">Signs in with Claude Code in your browser. The token goes to the server and is never shown.</p>
+              <button
+                class="rounded-md bg-accent px-3 py-1.5 font-medium text-white"
+                disabled={busy()}
+                onClick={async () => {
+                  setBusy(true);
+                  setError(await local().addClaudeAccount(`Claude (${user().name})`));
+                  setBusy(false);
+                  refresh(accounts);
+                }}
+              >
+                {busy() ? "Waiting for the browser…" : "Sign in to Claude"}
+              </button>
+            </section>
+          )}
+        </Show>
         <form class="space-y-3 rounded-lg border border-line bg-panel p-4" onSubmit={add}>
           <h2 class="text-sm font-medium">Add an account</h2>
           <select class={field} value={kind()} onChange={(event) => setKind(event.currentTarget.value as AccountKind)}>
@@ -139,6 +160,7 @@ export default function Accounts() {
           </p>
         </form>
       </div>
+      )}
     </Show>
   );
 }

@@ -1128,6 +1128,38 @@
         }
       }
     },
+    "/api/v1/daemon-releases/latest": {
+      "get": {
+        "tags": [
+          "ReleaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignedDaemonRelease"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/v1/daemon-rollouts": {
       "get": {
         "tags": [
@@ -4697,6 +4729,25 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "SignedDaemonRelease": {
+        "required": [
+          "version",
+          "manifest",
+          "signature"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "manifest": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
           }
         }
       },

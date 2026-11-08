@@ -108,6 +108,8 @@ namespace BoSoFa.Daemon
                     case "release-publish" when options.ContainsKey("server") && options.ContainsKey("key") && options.ContainsKey("version") && options.ContainsKey("artifacts"):
                         return await Service.ReleaseCommands.PublishAsync(new Uri(options["server"]), options["key"], options["version"],
                             options.GetValueOrDefault("channel") ?? Protocol.DaemonReleases.Stable, options["artifacts"], output, error, cancellation);
+                    case "claude-setup-token":
+                        return await Service.ClaudeSetupToken.RunAsync(options.GetValueOrDefault("claude"), output, error, cancellation);
                     case "doctor":
                         return Service.ServiceCommands.Doctor(store, options, output);
                     case "run":

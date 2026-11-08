@@ -17,6 +17,7 @@ public static class ReleaseEndpoints
         var api = app.MapGroup("/api/v1").RequireAuthorization();
         api.MapGet("/daemon-releases", ListReleasesAsync);
         api.MapPost("/daemon-releases", PublishAsync);
+        api.MapGet("/daemon-releases/latest", LatestAsync);
         api.MapGet("/daemon-rollouts", ListRolloutsAsync);
         api.MapPost("/daemon-rollouts", StartAsync);
         api.MapPost("/daemon-rollouts/{id}/halt", HaltAsync);
@@ -36,6 +37,18 @@ public static class ReleaseEndpoints
         return Ambient.Relation<IDaemonReleaseTable>().OrderByDescending(release => release.PublishedAt)
             .Select(release => new DaemonReleaseDto(release.Version, release.Channel, release.PublishedAt,
                 Parse(release.Manifest)?.Artifacts.Select(artifact => artifact.Rid).ToArray() ?? [])).ToArray();
+    }
+
+    /// <summary>The newest stable release with a build for this platform: how a desktop app gets its first daemon.</summary>
+    static async Task<Results<Ok<SignedDaemonRelease>, NotFound>> LatestAsync(string rid, BtdbNode node, HttpContext http)
+    {
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        using var query = publisher.StartQuery();
+        return Ambient.Relation<IDaemonReleaseTable>().Where(release => release.Channel == DaemonReleases.Stable)
+                .OrderByDescending(release => release.PublishedAt)
+                .FirstOrDefault(release => Parse(release.Manifest)?.Artifacts.Any(artifact => artifact.Rid == rid) == true) is { } latest
+            ? TypedResults.Ok(new SignedDaemonRelease(latest.Version, latest.Manifest, latest.Signature))
+            : TypedResults.NotFound();
     }
 
     static async Task<Results<NoContent, NotFound, ForbidHttpResult, BadRequest<string>>> PublishAsync(PublishDaemonRelease request, IBlobStore blobs, BtdbNode node,

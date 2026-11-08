@@ -248,7 +248,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - Managed policy can forbid it (`allowedProviders`, forced login method); the CLI then exits with a message.
   - Only the hidden `auth login --gateway-json` has a machine-readable mode, and it covers the enterprise gateway only.
 - **Desktop flow (M6), "Add Claude account":**
-  1. The desktop asks its local daemon (over the control socket) to run the official `claude setup-token` in a pseudo-terminal. It runs with a fresh, empty `CLAUDE_CONFIG_DIR` and the clean environment of §5.4, so the user's own login is untouched.
+  1. The desktop runs `bosofad claude-setup-token`, which runs the official `claude setup-token` in a pseudo-terminal. It runs with a fresh, empty `CLAUDE_CONFIG_DIR` and the clean environment of §5.4, so the user's own login is untouched.
   2. The CLI opens the browser on this same machine, so the `localhost` callback just works. If the CLI prints "Browser didn't open", the desktop opens the URL itself.
   3. The daemon strips ANSI codes and matches `sk-ant-oat\d+-[A-Za-z0-9_-]+`. Optionally it reads the account email and plan with `claude auth status --json` under the token (to verify in a spike). It then sends the token to the server over TLS with the desktop's bearer token, wipes it locally, and never shows it to the user.
   4. We drive the official CLI instead of copying its OAuth client: BoSoFa does not pose as Claude Code's OAuth app, and policy checks and future changes stay the CLI's business.
@@ -346,7 +346,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - Distribution: `dotnet tool install -g BoSoFa.Desktop` (like CodeAlta), later signed installers.
 - **Talking to the server:** the WebView calls the server directly (CORS plus a bearer from the desktop token flow), with `connect-src` including the server origin. Alternative: tunnel through C# RPC. Decide in the M0 spike.
 - **Native RPC services** (`[NeoRpcService]`):
-  - `LocalDaemon`: detect, install as service, enroll this machine, start/stop, tail logs. It talks to the daemon over a local control socket (a named pipe or Unix socket), never over the network.
+  - `LocalDaemon`: detect, install as service, enroll this machine, disable. It drives the daemon's command line and reads its state files, never over the network.
   - Also: OS notifications, open in editor/Finder, file pickers, deep links (`bosofa://`), the OS keychain for the refresh token.
 - **Platform abstraction in the UI:** `web/packages/client` defines a `Platform` interface. `apps/web` implements the browser version and `apps/desktop` the NeoAstra version. Features that need a local daemon are hidden on the web.
 
@@ -573,9 +573,9 @@ Done when: on a fresh machine, install the desktop, click "enable this machine",
 
 1. **Server for the desktop.** *Done:* CORS for `app://bosofa`, sign-in through the system browser (loopback redirect, PKCE) ending in a 15-minute access token and a rotating refresh token, one-time tickets for the live socket, and an Origin check on it.
 2. **The app.** *Done, run on macOS against a real server:* `BoSoFa.Desktop` (NeoAstra) runs the web app's source behind a `Platform` in `@bosofa/api`. It signs in through the browser, keeps the refresh token in the OS keychain, and calls the server directly with a CSP built at run time. Not done yet: an `.app` bundle and installers. Windows and Linux are only built, never run.
-3. **This machine.** `LocalDaemon` RPC over a local control socket: detect, install, enroll, start, stop.
-4. **Claude account.** `claude setup-token` in a pseudo-terminal, as in §5.4.1.
-5. **Desktop touches.** Notifications, deep links, open in editor.
+3. **This machine.** *Done, run on macOS except for the real service install, which used `--dry-run` here and is covered by CI's installs:* "Enable this machine" takes a signed daemon from the server's releases, enrolls it, approves the code as the signed-in person, and installs the service; a real Claude session then ran on it. The app drives `bosofad`'s command line and reads its state files, which turned out to need no control socket. A release must exist on the server, and the build needs `BoSoFaReleasePublicKey`.
+4. **Claude account.** *Done, tried only with a stand-in for `claude`:* `bosofad claude-setup-token` runs it on a pseudo-terminal with an empty config folder, and the app sends the token straight to the server. A real sign-in still has to be tried.
+5. **Packaging and desktop touches.** Not started: an `.app` bundle and `dotnet tool` distribution, then notifications and deep links, which need that bundle's identity, and open in editor.
 
 ## 10. Risks
 

@@ -12,6 +12,9 @@ public sealed record DaemonManifest(string Version, DaemonArtifact[] Artifacts);
 
 public sealed record PublishDaemonRelease(string Manifest, string Signature, string Channel);
 
+/// <summary>A release with what is needed to check it.</summary>
+public sealed record SignedDaemonRelease(string Version, string Manifest, string Signature);
+
 public sealed record DaemonReleaseDto(string Version, string Channel, DateTime PublishedAt, string[] Rids);
 
 [JsonConverter(typeof(JsonStringEnumConverter<DaemonRolloutStatus>))]

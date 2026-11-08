@@ -10,6 +10,10 @@
          chosen at run time, and NeoAstra's npm-only frontend build is off. -->
     <NeoAstraBuildFrontend>false</NeoAstraBuildFrontend>
   </PropertyGroup>
+  <ItemGroup Condition="'$(BoSoFaReleasePublicKey)' != ''">
+    <!-- The key that signs daemon releases, as in the daemon itself. -->
+    <AssemblyMetadata Include="BoSoFaReleasePublicKey" Value="$(BoSoFaReleasePublicKey)" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
     <PackageReference Include="NeoAstra" />

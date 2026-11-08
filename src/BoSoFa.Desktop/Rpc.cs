@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using NeoAstra.Rpc;
 
@@ -56,6 +57,41 @@ public sealed class AuthService
     }
 }
 
+public sealed record ActionResponse(string? Error);
+
+public sealed record AddClaudeAccountRequest(string Label);
+
+/// <summary>"Enable this machine", and the Claude sign-in that needs this computer's browser.</summary>
+[NeoRpcService("localDaemon", Version = 1)]
+public sealed class LocalDaemonService
+{
+    readonly LocalDaemon _daemon;
+
+    internal LocalDaemonService(LocalDaemon daemon) => _daemon = daemon;
+
+    [NeoRpcMethod("status")]
+    public LocalDaemonStatus Status(EmptyRequest request) => _daemon.Status();
+
+    [NeoRpcMethod("enable")]
+    public async ValueTask<ActionResponse> EnableAsync(EmptyRequest request, CancellationToken cancellationToken) => await GuardAsync(_daemon.EnableAsync, cancellationToken);
+
+    [NeoRpcMethod("disable")]
+    public async ValueTask<ActionResponse> DisableAsync(EmptyRequest request, CancellationToken cancellationToken) => await GuardAsync(_daemon.DisableAsync, cancellationToken);
+
+    [NeoRpcMethod("addClaudeAccount")]
+    public async ValueTask<ActionResponse> AddClaudeAccountAsync(AddClaudeAccountRequest request, CancellationToken cancellationToken) =>
+        await GuardAsync(cancellation => _daemon.AddClaudeAccountAsync(request.Label, cancellation), cancellationToken);
+
+    static async ValueTask<ActionResponse> GuardAsync(Func<CancellationToken, Task<string?>> action, CancellationToken cancellationToken)
+    {
+        try { return new(await action(cancellationToken)); }
+        catch (Exception exception) when (exception is HttpRequestException or IOException or InvalidOperationException or System.ComponentModel.Win32Exception or JsonException)
+        {
+            return new(exception.Message);
+        }
+    }
+}
+
 [NeoRpcService("files", Version = 1)]
 public sealed class FilesService
 {
@@ -80,5 +116,8 @@ public sealed class FilesService
 [JsonSerializable(typeof(DoneResponse))]
 [JsonSerializable(typeof(SaveBlobRequest))]
 [JsonSerializable(typeof(SaveBlobResponse))]
+[JsonSerializable(typeof(LocalDaemonStatus))]
+[JsonSerializable(typeof(ActionResponse))]
+[JsonSerializable(typeof(AddClaudeAccountRequest))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class DesktopRpcJsonContext : JsonSerializerContext;

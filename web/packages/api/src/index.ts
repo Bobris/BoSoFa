@@ -40,6 +40,13 @@ export interface Platform {
   signIn?(server: string): Promise<string | undefined>;
   /** The server this desktop app last used. */
   readonly server?: string;
+  /** Desktop only: this computer's daemon. Each action gives back what went wrong, if anything. */
+  readonly localDaemon?: {
+    status(): Promise<{ enrolled: boolean; installed: boolean }>;
+    enable(): Promise<string | undefined>;
+    disable(): Promise<string | undefined>;
+    addClaudeAccount(label: string): Promise<string | undefined>;
+  };
 }
 
 function createApi(platform: Platform) {
