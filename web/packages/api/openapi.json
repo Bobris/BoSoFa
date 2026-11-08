@@ -332,10 +332,434 @@
           }
         }
       }
+    },
+    "/api/v1/sessions": {
+      "get": {
+        "tags": [
+          "SessionEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "SessionEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}": {
+      "get": {
+        "tags": [
+          "SessionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/items": {
+      "get": {
+        "tags": [
+          "SessionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionItemDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/requests": {
+      "get": {
+        "tags": [
+          "SessionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RuntimeRequestDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/messages": {
+      "post": {
+        "tags": [
+          "SessionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/interrupt": {
+      "post": {
+        "tags": [
+          "SessionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/stop": {
+      "post": {
+        "tags": [
+          "SessionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/requests/{requestId}/answer": {
+      "post": {
+        "tags": [
+          "SessionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerRuntimeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AnswerRuntimeRequest": {
+        "required": [
+          "allow",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "allow": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "AuthProviders": {
         "required": [
           "oidc",
@@ -351,6 +775,48 @@
           },
           "devLogin": {
             "type": "boolean"
+          }
+        }
+      },
+      "CreateSessionRequest": {
+        "required": [
+          "machineId",
+          "harness",
+          "workingDirectory",
+          "prompt",
+          "permissionMode",
+          "model"
+        ],
+        "type": "object",
+        "properties": {
+          "machineId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "harness": {
+            "type": "string"
+          },
+          "workingDirectory": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "permissionMode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -556,6 +1022,431 @@
           "Expired"
         ]
       },
+      "LiveClientMessage": {
+        "required": [
+          "t"
+        ],
+        "type": "object",
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/LiveClientMessageLiveSubscribe"
+          },
+          {
+            "$ref": "#/components/schemas/LiveClientMessageLiveUnsubscribe"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "t",
+          "mapping": {
+            "subscribe": "#/components/schemas/LiveClientMessageLiveSubscribe",
+            "unsubscribe": "#/components/schemas/LiveClientMessageLiveUnsubscribe"
+          }
+        }
+      },
+      "LiveClientMessageLiveSubscribe": {
+        "required": [
+          "sessionId",
+          "afterSeq"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "subscribe"
+            ],
+            "type": "string"
+          },
+          "sessionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "afterSeq": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "LiveClientMessageLiveUnsubscribe": {
+        "required": [
+          "sessionId"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "unsubscribe"
+            ],
+            "type": "string"
+          },
+          "sessionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          }
+        }
+      },
+      "LiveServerMessage": {
+        "required": [
+          "t"
+        ],
+        "type": "object",
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/LiveServerMessageLiveSessionUpdate"
+          },
+          {
+            "$ref": "#/components/schemas/LiveServerMessageLiveDelta"
+          },
+          {
+            "$ref": "#/components/schemas/LiveServerMessageLiveError"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "t",
+          "mapping": {
+            "session": "#/components/schemas/LiveServerMessageLiveSessionUpdate",
+            "delta": "#/components/schemas/LiveServerMessageLiveDelta",
+            "error": "#/components/schemas/LiveServerMessageLiveError"
+          }
+        }
+      },
+      "LiveServerMessageLiveDelta": {
+        "required": [
+          "sessionId",
+          "ref",
+          "text"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "delta"
+            ],
+            "type": "string"
+          },
+          "sessionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "LiveServerMessageLiveError": {
+        "required": [
+          "sessionId",
+          "message"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "error"
+            ],
+            "type": "string"
+          },
+          "sessionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "LiveServerMessageLiveSessionUpdate": {
+        "required": [
+          "session",
+          "items",
+          "requests"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "session"
+            ],
+            "type": "string"
+          },
+          "session": {
+            "required": [
+              "id",
+              "machineId",
+              "machineName",
+              "harness",
+              "workingDirectory",
+              "title",
+              "status",
+              "createdById",
+              "createdByName",
+              "createdAt",
+              "updatedAt",
+              "lastSeq",
+              "model",
+              "permissionMode",
+              "costUsd",
+              "canControl"
+            ],
+            "type": "object",
+            "properties": {
+              "id": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "format": "uint64"
+              },
+              "machineId": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "format": "uint64"
+              },
+              "machineName": {
+                "type": "string"
+              },
+              "harness": {
+                "type": "string"
+              },
+              "workingDirectory": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "Starting",
+                  "Running",
+                  "WaitingForApproval",
+                  "Idle",
+                  "Stopped",
+                  "Failed"
+                ]
+              },
+              "createdById": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "format": "uint64"
+              },
+              "createdByName": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "lastSeq": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "format": "int64"
+              },
+              "model": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "permissionMode": {
+                "type": "string"
+              },
+              "costUsd": {
+                "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+                "type": [
+                  "number",
+                  "string"
+                ],
+                "format": "double"
+              },
+              "canControl": {
+                "type": "boolean"
+              }
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "required": [
+                "seq",
+                "kind",
+                "at",
+                "text",
+                "toolUseId",
+                "toolName",
+                "data",
+                "isError",
+                "ref"
+              ],
+              "type": "object",
+              "properties": {
+                "seq": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int64"
+                },
+                "kind": {
+                  "enum": [
+                    "User",
+                    "Assistant",
+                    "Thinking",
+                    "ToolUse",
+                    "ToolResult",
+                    "RunEnded",
+                    "Notice"
+                  ]
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "toolUseId": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "toolName": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "data": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "isError": {
+                  "type": "boolean"
+                },
+                "ref": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                }
+              }
+            }
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "required": [
+                "id",
+                "sessionId",
+                "toolName",
+                "toolUseId",
+                "input",
+                "description",
+                "status",
+                "raisedAt",
+                "answeredByName",
+                "answeredAt"
+              ],
+              "type": "object",
+              "properties": {
+                "id": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "uint64"
+                },
+                "sessionId": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "uint64"
+                },
+                "toolName": {
+                  "type": "string"
+                },
+                "toolUseId": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "input": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "status": {
+                  "enum": [
+                    "Pending",
+                    "Allowed",
+                    "Denied",
+                    "Cancelled"
+                  ]
+                },
+                "raisedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "answeredByName": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "answeredAt": {
+                  "type": [
+                    "null",
+                    "string"
+                  ],
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
       "MachineDto": {
         "required": [
           "id",
@@ -612,6 +1503,279 @@
             "format": "date-time"
           }
         }
+      },
+      "RuntimeRequestDto": {
+        "required": [
+          "id",
+          "sessionId",
+          "toolName",
+          "toolUseId",
+          "input",
+          "description",
+          "status",
+          "raisedAt",
+          "answeredByName",
+          "answeredAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "sessionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "toolName": {
+            "type": "string"
+          },
+          "toolUseId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "input": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/RuntimeRequestStatus"
+          },
+          "raisedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "answeredByName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "answeredAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "RuntimeRequestStatus": {
+        "enum": [
+          "Pending",
+          "Allowed",
+          "Denied",
+          "Cancelled"
+        ]
+      },
+      "SendMessageRequest": {
+        "required": [
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionDto": {
+        "required": [
+          "id",
+          "machineId",
+          "machineName",
+          "harness",
+          "workingDirectory",
+          "title",
+          "status",
+          "createdById",
+          "createdByName",
+          "createdAt",
+          "updatedAt",
+          "lastSeq",
+          "model",
+          "permissionMode",
+          "costUsd",
+          "canControl"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "machineId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "machineName": {
+            "type": "string"
+          },
+          "harness": {
+            "type": "string"
+          },
+          "workingDirectory": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          },
+          "createdById": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "createdByName": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastSeq": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "permissionMode": {
+            "type": "string"
+          },
+          "costUsd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "canControl": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SessionItemDto": {
+        "required": [
+          "seq",
+          "kind",
+          "at",
+          "text",
+          "toolUseId",
+          "toolName",
+          "data",
+          "isError",
+          "ref"
+        ],
+        "type": "object",
+        "properties": {
+          "seq": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SessionItemKind"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "text": {
+            "type": "string"
+          },
+          "toolUseId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "toolName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "data": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "ref": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SessionItemKind": {
+        "enum": [
+          "User",
+          "Assistant",
+          "Thinking",
+          "ToolUse",
+          "ToolResult",
+          "RunEnded",
+          "Notice"
+        ]
+      },
+      "SessionStatus": {
+        "enum": [
+          "Starting",
+          "Running",
+          "WaitingForApproval",
+          "Idle",
+          "Stopped",
+          "Failed"
+        ]
       },
       "UserDto": {
         "required": [
@@ -679,6 +1843,9 @@
     },
     {
       "name": "MachineEndpoints"
+    },
+    {
+      "name": "SessionEndpoints"
     }
   ]
 }

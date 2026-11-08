@@ -15,7 +15,7 @@ namespace BoSoFa.Server.Btdb;
 /// in the application generation instead, see BTDB Doc/ReplicationHosting.md "Upgrades".
 /// </summary>
 public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, IHostApplicationLifetime lifetime)
-    : IReplicationNodeHost, IAsyncDisposable
+    : IReplicationNodeHost, IHostedService, IAsyncDisposable
 {
     public const string Database = "main";
     static readonly TrlSuccessor Genesis = new("1.trl", 1);
@@ -121,7 +121,7 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
             await InitializeRelationsAsync(_stopping.Token); // read-only: the schema is already in the database
             var log = services.GetRequiredService<IEventLog>();
             var publisher = new EventPublisher(_objects!, log.GetTopic("data"), log.GetTopic("metadata"),
-                Domain.Domain.CreateDispatcher(),
+                Domain.Domain.CreateDispatcher(services.GetRequiredService<IDomainSignals>()),
                 new() { Cluster = new EventCluster(options.NodeId, services.GetRequiredService<ReplicationPresence>()) },
                 _capture);
             await publisher.StartAsync(_stopping.Token);
@@ -169,17 +169,28 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
     public ValueTask<ulong> CaptureInitializationCursorAsync(string database, CancellationToken cancellation) =>
         ValueTask.FromResult(0ul);
 
-    public async ValueTask DisposeAsync()
+    public Task StartAsync(CancellationToken cancellation) => Task.CompletedTask;
+
+    /// <summary>Stops the application while the EventLog and replication still run. Registered as a hosted service
+    /// after them, so it stops first: the container disposes singletons in reverse creation order, and this node is
+    /// created before the EventLog it reads, so waiting for its disposal would read from disposed storage.</summary>
+    public async Task StopAsync(CancellationToken cancellation)
     {
-        _stopping.Cancel();
+        await _stopping.CancelAsync();
         if (_publisher != null) await _publisher.DisposeAsync();
         if (_application != null)
             try { await _application; }
             catch (Exception) { /* logged by the application loop */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await StopAsync(CancellationToken.None);
         _objects?.Dispose();
         _db?.Dispose();
         if (_files != null) await _files.DisposeAsync();
         _cache.Dispose();
+        if (Canonical is IDisposable canonical) canonical.Dispose();
     }
 }
 

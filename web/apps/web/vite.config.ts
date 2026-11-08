@@ -11,7 +11,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    proxy: Object.fromEntries(["/api", "/auth", "/openapi", "/health"].map((path) => [path, server])),
+    proxy: Object.fromEntries(
+      ["/api", "/auth", "/openapi", "/health"].map((path) => [path, { target: server, ws: path === "/api" }]),
+    ),
   },
   build: { target: "es2022" },
 });

@@ -4,6 +4,7 @@ import { createEffect, createMemo, For, Show } from "solid-js";
 import { paths } from "../router";
 import { fetchMe, logout } from "../session";
 import Machines from "./Machines";
+import Sessions from "./Sessions";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -20,7 +21,7 @@ export default function Home() {
   return (
     <Show when={me()}>
       {(user) => (
-        <div class="max-w-3xl space-y-6">
+        <div class="mx-auto max-w-3xl space-y-6">
           <div class="flex items-center justify-between gap-4">
             <h1 class="text-2xl font-semibold">Hello {user().name}</h1>
             <button
@@ -33,6 +34,7 @@ export default function Home() {
               Sign out
             </button>
           </div>
+          <Sessions />
           <Machines />
           <section class="rounded-lg border border-line bg-panel">
             <h2 class="px-4 py-3 border-b border-line text-sm font-medium">People</h2>

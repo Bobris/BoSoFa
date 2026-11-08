@@ -23,6 +23,9 @@ importers:
         specifier: 2.0.0-rc.21
         version: 2.0.0-rc.21
     devDependencies:
+      '@solidjs/diagnostics':
+        specifier: 2.0.0-rc.21
+        version: 2.0.0-rc.21(@solidjs/web@2.0.0-rc.21(solid-js@2.0.0-rc.21))(solid-js@2.0.0-rc.21)
       '@solidjs/vite-plugin':
         specifier: 3.0.0-next.57
         version: 3.0.0-next.57(@solidjs/web@2.0.0-rc.21(solid-js@2.0.0-rc.21))(solid-js@2.0.0-rc.21)(vite@8.3.6(jiti@2.7.0))
@@ -235,6 +238,16 @@ packages:
 
   '@solidjs/compiler@2.0.0-rc.21':
     resolution: {integrity: sha512-nhI5oCRx+ArUxcJtnesRb7pArO5zhTd/hef2I+dBD10MYwrQNM7ftpDdNVv7fQh/dH5xvqAnpWN4tUhZavo4ng==}
+
+  '@solidjs/diagnostics@2.0.0-rc.21':
+    resolution: {integrity: sha512-7PYq4MyR17BzPHCRkaZNjEkXcSdAc3Kg5AsYD3lG8IFFlXsZlbU1jXTtWEC5qIURptt9h+eAQySxuTeSGJku3Q==}
+    peerDependencies:
+      '@solidjs/web': ^2.0.0-rc.21
+      solid-js: ^2.0.0-rc.21
+      vitest: '>=2.0.0'
+    peerDependenciesMeta:
+      vitest:
+        optional: true
 
   '@solidjs/router@2.0.0-next.44':
     resolution: {integrity: sha512-kFKhjqKrTckolJMqDzBFrj7RN7826jsg1S++2y0fVM6NKKC7V/5CMmoadvXXTmjXIC6CBvLgzU0kd9496IgX1g==}
@@ -859,6 +872,12 @@ snapshots:
       '@solidjs/compiler-linux-x64-gnu': 2.0.0-rc.21
       '@solidjs/compiler-wasm32-wasi': 2.0.0-rc.21
       '@solidjs/compiler-win32-x64-msvc': 2.0.0-rc.21
+
+  '@solidjs/diagnostics@2.0.0-rc.21(@solidjs/web@2.0.0-rc.21(solid-js@2.0.0-rc.21))(solid-js@2.0.0-rc.21)':
+    dependencies:
+      '@solidjs/signals': 2.0.0-rc.21
+      '@solidjs/web': 2.0.0-rc.21(solid-js@2.0.0-rc.21)
+      solid-js: 2.0.0-rc.21
 
   '@solidjs/router@2.0.0-next.44(@solidjs/web@2.0.0-rc.21(solid-js@2.0.0-rc.21))(solid-js@2.0.0-rc.21)':
     dependencies:

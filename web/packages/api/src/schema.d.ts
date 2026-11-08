@@ -514,13 +514,441 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateSessionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    after?: number | string;
+                };
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionItemDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{id}/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RuntimeRequestDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SendMessageRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{id}/interrupt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{id}/requests/{requestId}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                    requestId: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AnswerRuntimeRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AnswerRuntimeRequest: {
+            allow: boolean;
+            message: null | string;
+        };
         AuthProviders: {
             oidc: null | string;
             devLogin: boolean;
+        };
+        CreateSessionRequest: {
+            /** Format: uint64 */
+            machineId: number | string;
+            harness: string;
+            workingDirectory: string;
+            prompt: string;
+            permissionMode: null | string;
+            model: null | string;
         };
         DaemonTokenRequest: {
             /** Format: uint64 */
@@ -575,6 +1003,98 @@ export interface components {
         };
         /** @enum {unknown} */
         EnrollStatus: "Pending" | "Approved" | "Expired";
+        LiveClientMessage: components["schemas"]["LiveClientMessageLiveSubscribe"] | components["schemas"]["LiveClientMessageLiveUnsubscribe"];
+        LiveClientMessageLiveSubscribe: {
+            /** @enum {string} */
+            t?: "subscribe";
+            /** Format: uint64 */
+            sessionId: number | string;
+            /** Format: int64 */
+            afterSeq: number | string;
+        };
+        LiveClientMessageLiveUnsubscribe: {
+            /** @enum {string} */
+            t?: "unsubscribe";
+            /** Format: uint64 */
+            sessionId: number | string;
+        };
+        LiveServerMessage: components["schemas"]["LiveServerMessageLiveSessionUpdate"] | components["schemas"]["LiveServerMessageLiveDelta"] | components["schemas"]["LiveServerMessageLiveError"];
+        LiveServerMessageLiveDelta: {
+            /** @enum {string} */
+            t?: "delta";
+            /** Format: uint64 */
+            sessionId: number | string;
+            ref: string;
+            text: string;
+        };
+        LiveServerMessageLiveError: {
+            /** @enum {string} */
+            t?: "error";
+            /** Format: uint64 */
+            sessionId: number | string;
+            message: string;
+        };
+        LiveServerMessageLiveSessionUpdate: {
+            /** @enum {string} */
+            t?: "session";
+            session: {
+                /** Format: uint64 */
+                id: number | string;
+                /** Format: uint64 */
+                machineId: number | string;
+                machineName: string;
+                harness: string;
+                workingDirectory: string;
+                title: string;
+                /** @enum {unknown} */
+                status: "Starting" | "Running" | "WaitingForApproval" | "Idle" | "Stopped" | "Failed";
+                /** Format: uint64 */
+                createdById: number | string;
+                createdByName: string;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                updatedAt: string;
+                /** Format: int64 */
+                lastSeq: number | string;
+                model: null | string;
+                permissionMode: string;
+                /** Format: double */
+                costUsd: number | string;
+                canControl: boolean;
+            };
+            items: {
+                /** Format: int64 */
+                seq: number | string;
+                /** @enum {unknown} */
+                kind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice";
+                /** Format: date-time */
+                at: string;
+                text: string;
+                toolUseId: null | string;
+                toolName: null | string;
+                data: null | string;
+                isError: boolean;
+                ref: null | string;
+            }[];
+            requests: {
+                /** Format: uint64 */
+                id: number | string;
+                /** Format: uint64 */
+                sessionId: number | string;
+                toolName: string;
+                toolUseId: null | string;
+                input: string;
+                description: null | string;
+                /** @enum {unknown} */
+                status: "Pending" | "Allowed" | "Denied" | "Cancelled";
+                /** Format: date-time */
+                raisedAt: string;
+                answeredByName: null | string;
+                /** Format: date-time */
+                answeredAt: null | string;
+            }[];
+        };
         MachineDto: {
             /** Format: uint64 */
             id: number | string;
@@ -589,6 +1109,69 @@ export interface components {
             /** Format: date-time */
             connectedAt: null | string;
         };
+        RuntimeRequestDto: {
+            /** Format: uint64 */
+            id: number | string;
+            /** Format: uint64 */
+            sessionId: number | string;
+            toolName: string;
+            toolUseId: null | string;
+            input: string;
+            description: null | string;
+            status: components["schemas"]["RuntimeRequestStatus"];
+            /** Format: date-time */
+            raisedAt: string;
+            answeredByName: null | string;
+            /** Format: date-time */
+            answeredAt: null | string;
+        };
+        /** @enum {unknown} */
+        RuntimeRequestStatus: "Pending" | "Allowed" | "Denied" | "Cancelled";
+        SendMessageRequest: {
+            text: string;
+        };
+        SessionDto: {
+            /** Format: uint64 */
+            id: number | string;
+            /** Format: uint64 */
+            machineId: number | string;
+            machineName: string;
+            harness: string;
+            workingDirectory: string;
+            title: string;
+            status: components["schemas"]["SessionStatus"];
+            /** Format: uint64 */
+            createdById: number | string;
+            createdByName: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: int64 */
+            lastSeq: number | string;
+            model: null | string;
+            permissionMode: string;
+            /** Format: double */
+            costUsd: number | string;
+            canControl: boolean;
+        };
+        SessionItemDto: {
+            /** Format: int64 */
+            seq: number | string;
+            kind: components["schemas"]["SessionItemKind"];
+            /** Format: date-time */
+            at: string;
+            text: string;
+            toolUseId: null | string;
+            toolName: null | string;
+            data: null | string;
+            isError: boolean;
+            ref: null | string;
+        };
+        /** @enum {unknown} */
+        SessionItemKind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice";
+        /** @enum {unknown} */
+        SessionStatus: "Starting" | "Running" | "WaitingForApproval" | "Idle" | "Stopped" | "Failed";
         UserDto: {
             /** Format: uint64 */
             id: number | string;

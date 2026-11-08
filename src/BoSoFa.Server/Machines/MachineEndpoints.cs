@@ -3,6 +3,9 @@ using System.Security.Cryptography;
 using BoSoFa.Protocol;
 using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
+using BoSoFa.Server.Live;
+using BTDB.ODBLayer;
+using System.Text.Json;
 using BTDB.Replication.EventSourcing;
 using Microsoft.AspNetCore.Http.HttpResults;
 
@@ -143,9 +146,10 @@ public static class MachineEndpoints
             connection?.DaemonVersion ?? machine.DaemonVersion, connection != null, connection?.ConnectedAt);
     }
 
-    /// <summary>The daemon's WebSocket: hello/welcome, then keepalive. Commands and the outbox come with sessions.</summary>
-    static async Task ConnectAsync(HttpContext http, DaemonConnections connections, TimeProvider time,
-        ILoggerFactory loggers)
+    /// <summary>The daemon's WebSocket: hello/welcome, then every unacknowledged inbox command (and new ones as they
+    /// are issued), outbox batches with their acknowledgements, deltas, and keepalive.</summary>
+    static async Task ConnectAsync(HttpContext http, DaemonConnections connections, BtdbNode node, LiveHub hub,
+        TimeProvider time, ILoggerFactory loggers, IHostApplicationLifetime lifetime)
     {
         if (!http.WebSockets.IsWebSocketRequest)
         {
@@ -154,8 +158,12 @@ public static class MachineEndpoints
         }
         var machineId = http.User.MachineId()!.Value;
         var logger = loggers.CreateLogger("BoSoFa.Server.Daemon");
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using var socket = await http.WebSockets.AcceptWebSocketAsync();
-        var cancellation = http.RequestAborted;
+        // Kestrel does not abort upgraded connections on a graceful stop; without this the host waits its whole
+        // shutdown timeout. The daemon reconnects (to another pod in a cluster) and resends what is unacknowledged.
+        using var connectionScope = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, lifetime.ApplicationStopping);
+        var cancellation = connectionScope.Token;
         if (await DaemonSocket.ReceiveAsync(socket, cancellation) is not HelloMessage hello)
         {
             await socket.CloseAsync(WebSocketCloseStatus.ProtocolError, "Expected hello.", cancellation);
@@ -172,18 +180,87 @@ public static class MachineEndpoints
         connections.Add(connection);
         logger.LogInformation("Machine {MachineId} connected ({HostName}, bosofad {Version})", machineId, hello.HostName,
             hello.DaemonVersion);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        Task? commands = null;
         try
         {
-            await DaemonSocket.SendAsync(socket, new WelcomeMessage(machineId, Api.Version), cancellation);
+            await connection.SendAsync(new WelcomeMessage(machineId, Api.Version), cancellation);
+            commands = SendCommandsAsync(connection, publisher, stop.Token);
             while (await DaemonSocket.ReceiveAsync(socket, cancellation) is { } message)
-                if (message is PingMessage ping)
-                    await DaemonSocket.SendAsync(socket, new PongMessage(ping.Sequence), cancellation);
+                switch (message)
+                {
+                    case PingMessage ping:
+                        await connection.SendAsync(new PongMessage(ping.Sequence), cancellation);
+                        break;
+                    case CommandAckMessage ack:
+                        await publisher.PublishAsync(new MachineCommandsAcked { MachineId = machineId, CommandIds = [..ack.Ids] },
+                            cancellation);
+                        break;
+                    case OutboxMessage outbox:
+                        await connection.SendAsync(await StoreReportsAsync(publisher, machineId, outbox), cancellation);
+                        break;
+                    case DeltaMessage delta:
+                        if (SessionBelongsTo(publisher, delta.SessionId, machineId))
+                            hub.Delta(new LiveDelta(delta.SessionId, delta.Ref, delta.Text));
+                        break;
+                }
         }
         catch (Exception exception) when (exception is WebSocketException or OperationCanceledException) { }
         finally
         {
             connections.Remove(connection);
+            await stop.CancelAsync();
+            if (commands != null)
+                try { await commands; }
+                catch (Exception) { /* the connection is gone */ }
             logger.LogInformation("Machine {MachineId} disconnected", machineId);
         }
+    }
+
+    /// <summary>Sends inbox commands in ID order: all of them after connecting, then each new one once. The daemon
+    /// acknowledges what it applied; the rest is sent again on the next connection.</summary>
+    static async Task SendCommandsAsync(DaemonConnections.Connection connection, EventPublisher publisher,
+        CancellationToken cancellation)
+    {
+        ulong sent = 0;
+        while (true)
+        {
+            List<CommandMessage> pending;
+            using (publisher.StartQuery())
+                pending = Ambient.Relation<IMachineCommandTable>()
+                    .ListById(connection.MachineId, new AdvancedEnumeratorParam<ulong>(EnumerationOrder.Ascending, sent,
+                        KeyProposition.Excluded, 0, KeyProposition.Ignored))
+                    .Select(entry => new CommandMessage(entry.Id,
+                        JsonSerializer.Deserialize(entry.Command, ProtocolJsonContext.Default.MachineCommand)!))
+                    .ToList();
+            foreach (var command in pending)
+            {
+                await connection.SendAsync(command, cancellation);
+                sent = command.Id;
+            }
+            await connection.WaitForCommandsAsync(TimeSpan.FromSeconds(30), cancellation);
+        }
+    }
+
+    static async Task<OutboxAckMessage> StoreReportsAsync(EventPublisher publisher, ulong machineId, OutboxMessage outbox)
+    {
+        await publisher.PublishAsync(new DaemonReportsReceived
+        {
+            MachineId = machineId,
+            RecordsJson = JsonSerializer.Serialize(outbox.Records, ProtocolJsonContext.Default.OutboxRecordArray)
+        });
+        using var query = publisher.StartQuery();
+        var sessions = Ambient.Relation<ISessionTable>();
+        return new(outbox.Records.Select(record => record.SessionId).Distinct().Select(sessionId =>
+            new OutboxAck(sessionId, sessions.FindByIdOrDefault(sessionId) is { } session && session.MachineId == machineId
+                // A session the server does not know (or not of this machine) can never apply: acknowledge it all.
+                ? session.LastReportSeq
+                : outbox.Records.Where(record => record.SessionId == sessionId).Max(record => record.Seq))).ToArray());
+    }
+
+    static bool SessionBelongsTo(EventPublisher publisher, ulong sessionId, ulong machineId)
+    {
+        using var query = publisher.StartQuery();
+        return Ambient.Relation<ISessionTable>().FindByIdOrDefault(sessionId)?.MachineId == machineId;
     }
 }

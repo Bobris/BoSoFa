@@ -79,10 +79,21 @@ public sealed class UserSignedInHandler : IEventHandler<UserSignedIn, SignedInUs
 public static class Domain
 {
     /// <summary>Every relation of the server database; InitializeRelations registers them under leader authority.</summary>
-    public static readonly Type[] Relations = [typeof(IUserTable), typeof(IEnrollmentTable), typeof(IMachineTable)];
+    public static readonly Type[] Relations =
+    [
+        typeof(IUserTable), typeof(IEnrollmentTable), typeof(IMachineTable), typeof(ISessionTable),
+        typeof(ISessionItemTable), typeof(IRuntimeRequestTable), typeof(IMachineCommandTable)
+    ];
 
-    public static EventDispatcher CreateDispatcher() => new EventDispatcher()
+    public static EventDispatcher CreateDispatcher(IDomainSignals signals) => new EventDispatcher()
         .Register(new UserSignedInHandler())
         .Register(new EnrollmentStartedHandler())
-        .Register(new EnrollmentApprovedHandler());
+        .Register(new EnrollmentApprovedHandler())
+        .Register(new SessionCreatedHandler(signals))
+        .Register(new SessionMessageSentHandler(signals))
+        .Register(new SessionInterruptRequestedHandler(signals))
+        .Register(new SessionStopRequestedHandler(signals))
+        .Register(new RuntimeRequestAnsweredHandler(signals))
+        .Register(new MachineCommandsAckedHandler())
+        .Register(new DaemonReportsReceivedHandler(signals));
 }

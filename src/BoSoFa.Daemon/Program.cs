@@ -25,7 +25,8 @@ namespace BoSoFa.Daemon
             Usage: bosofad <command> [options]
 
               enroll --server <url> [--name <name>]   Join a BoSoFa server; a signed-in person approves the shown code.
-              run                                     Stay connected to the server (foreground).
+              run [--claude <path>]                   Stay connected to the server and run its sessions (foreground).
+                  [--replay-fixture <file>]           Also offer the replay harness, playing this recorded transcript.
               status [--server <url>]                 Check that the server answers and speaks this protocol version.
               version                                 Print the daemon version.
 
@@ -70,7 +71,8 @@ namespace BoSoFa.Daemon
                         return await EnrollAsync(store, new Uri(enrollServer),
                             options.GetValueOrDefault("name") ?? Environment.MachineName, output, error, cancellation);
                     case "run":
-                        return await RunLinkAsync(store, output, error, cancellation);
+                        return await RunLinkAsync(store, new(options.GetValueOrDefault("claude"),
+                            options.GetValueOrDefault("replay-fixture")), output, error, cancellation);
                     default:
                         error.WriteLine(Usage);
                         return 2;
@@ -131,8 +133,8 @@ namespace BoSoFa.Daemon
             }
         }
 
-        static async Task<int> RunLinkAsync(DaemonStore store, TextWriter output, TextWriter error,
-            CancellationToken cancellation)
+        static async Task<int> RunLinkAsync(DaemonStore store, Sessions.HarnessOptions harnesses, TextWriter output,
+            TextWriter error, CancellationToken cancellation)
         {
             if (store.LoadState() is not { } state)
             {
@@ -140,9 +142,11 @@ namespace BoSoFa.Daemon
                 return 2;
             }
             using var key = store.LoadOrCreateKey();
+            using var outbox = new Outbox(Path.Combine(store.Directory, "outbox"));
+            await using var host = new Sessions.SessionHost(store.Directory, outbox, harnesses, output);
             try
             {
-                await new DaemonLink(state, key, output).RunAsync(cancellation);
+                await new DaemonLink(state, key, output, outbox, host).RunAsync(cancellation);
                 return 0;
             }
             catch (UnauthorizedAccessException exception)

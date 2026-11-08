@@ -22,21 +22,21 @@ export default function Machines() {
         }
       >
         <ul class="divide-y divide-line">
-          <For each={machines()}>
+          <For each={machines()} keyed={(machine) => machine.id}>
             {(machine) => (
               <li class="px-4 py-2 flex items-center justify-between gap-3 text-sm">
                 <span class="flex items-center gap-2">
                   <span
-                    class={["inline-block size-2 rounded-full", machine.online ? "bg-green-500" : "bg-line"]}
-                    title={machine.online ? "Online" : "Offline"}
+                    class={["inline-block size-2 rounded-full", machine().online ? "bg-green-500" : "bg-line"]}
+                    title={machine().online ? "Online" : "Offline"}
                   />
-                  {machine.name}
+                  {machine().name}
                   <span class="text-muted">
-                    {machine.os} {machine.arch}
+                    {machine().os} {machine().arch}
                   </span>
                 </span>
                 <span class="text-xs text-muted">
-                  {machine.ownerName} · bosofad {shortVersion(machine.daemonVersion)}
+                  {machine().ownerName} · bosofad {shortVersion(machine().daemonVersion)}
                 </span>
               </li>
             )}

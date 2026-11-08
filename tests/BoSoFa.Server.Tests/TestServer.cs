@@ -15,6 +15,7 @@ sealed class TestServer : IAsyncDisposable
 
     public string DataDirectory { get; }
     public Uri BaseAddress { get; private set; } = null!;
+    bool _running;
 
     public static async Task<TestServer> StartAsync(string? dataDirectory = null)
     {
@@ -23,33 +24,42 @@ sealed class TestServer : IAsyncDisposable
         return server;
     }
 
-    async Task StartAppAsync()
+    /// <summary>Starts again on the same port after <see cref="StopAsync"/>, so daemons find it where they left it.</summary>
+    public async Task StartAppAsync()
     {
-        _app = ServerApp.Build(["--urls", "http://127.0.0.1:0", "--environment", "Development",
+        var urls = BaseAddress == null ? "http://127.0.0.1:0" : BaseAddress.GetLeftPart(UriPartial.Authority);
+        _app = ServerApp.Build(["--urls", urls, "--environment", "Development",
             "--BoSoFa:DataDirectory", DataDirectory, "--BoSoFa:DevLogin", "true", "--BoSoFa:FlushToDisk", "false",
             "--BoSoFa:WebRoot", Path.Combine(DataDirectory, "no-web-root")]);
         await _app.StartAsync();
         var address = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
         BaseAddress = new(address);
+        _running = true;
+    }
+
+    public async Task StopAsync()
+    {
+        _running = false;
+        await _app.StopAsync();
+        await _app.DisposeAsync();
     }
 
     public async Task RestartAsync()
     {
-        await _app.StopAsync();
-        await _app.DisposeAsync();
+        await StopAsync();
         await StartAppAsync();
     }
 
     /// <summary>A browser-like client: its own cookie jar, no redirects followed.</summary>
-    public HttpClient Client() => new(new HttpClientHandler { CookieContainer = new CookieContainer(), AllowAutoRedirect = false })
+    public HttpClient Client(CookieContainer? cookies = null) =>
+        new(new HttpClientHandler { CookieContainer = cookies ?? new CookieContainer(), AllowAutoRedirect = false })
     {
         BaseAddress = BaseAddress, Timeout = TimeSpan.FromSeconds(30)
     };
 
     public async ValueTask DisposeAsync()
     {
-        await _app.StopAsync();
-        await _app.DisposeAsync();
+        if (_running) await StopAsync();
         try { Directory.Delete(DataDirectory, true); }
         catch (IOException) { }
     }

@@ -20,7 +20,8 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
   `web/apps/web/dist`, which the development server also serves directly.
 - Daemon: `dotnet publish src/BoSoFa.Daemon -r osx-arm64 -c Release -o artifacts/daemon/osx-arm64`, then
   `bosofad enroll --server http://localhost:5080` (approve the code at /enroll) and `bosofad run`. Use `--data-dir` for a
-  throwaway identity; the default is the per-user data directory.
+  throwaway identity; the default is the per-user data directory. `run --replay-fixture tests/fixtures/claude/write-file.jsonl`
+  adds the "replay" harness, which plays a recorded Claude Code transcript without a model (see `ReplayTransport`).
 - API changed: `BOSOFA_UPDATE_CONTRACT=1 dotnet test tests/BoSoFa.Server.Tests --filter ContractTest`, then
   `pnpm --dir web gen:api`. CI fails when either `openapi.json` or `schema.d.ts` is stale.
 

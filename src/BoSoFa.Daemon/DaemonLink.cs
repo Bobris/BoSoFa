@@ -1,15 +1,23 @@
 using System.Net.WebSockets;
 using System.Security.Cryptography;
+using System.Text.Json;
+using System.Threading.Channels;
+using BoSoFa.Daemon.Sessions;
 using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon;
 
 /// <summary>Keeps one WebSocket to the server: token, hello, keepalive, and reconnecting with backoff while the server
-/// is away. Session commands and the outbox will run over this link.</summary>
-public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log)
+/// is away. Over it go the server's commands (applied by the <see cref="SessionHost"/>, then acknowledged), the
+/// outbox (sent in order, forgotten once acknowledged, sent again after a reconnect) and live deltas.</summary>
+public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Outbox? outbox = null, SessionHost? host = null)
 {
     public static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(15);
     static readonly TimeSpan MaximumBackoff = TimeSpan.FromSeconds(30);
+    const int BatchCount = 64;
+    const int BatchBytes = 256 * 1024;
+
+    bool _welcomed;
 
     /// <summary>Set after each welcome; for tests and status output.</summary>
     public event Action<WelcomeMessage>? Connected;
@@ -19,10 +27,10 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log)
         var backoff = TimeSpan.FromSeconds(1);
         while (!cancellation.IsCancellationRequested)
         {
+            _welcomed = false;
             try
             {
                 await ConnectOnceAsync(cancellation);
-                backoff = TimeSpan.FromSeconds(1);
                 log.WriteLine("Disconnected from the server.");
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
@@ -35,8 +43,9 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log)
             }
             catch (Exception exception) when (exception is HttpRequestException or WebSocketException or IOException)
             {
-                log.WriteLine($"Server unreachable ({exception.Message}); retrying in {backoff.TotalSeconds:0} s.");
+                log.WriteLine($"Server unreachable ({exception.Message}); retrying in {(_welcomed ? 1 : backoff.TotalSeconds):0} s.");
             }
+            if (_welcomed) backoff = TimeSpan.FromSeconds(1); // a working connection dropped: retry soon
             try { await Task.Delay(backoff, cancellation); }
             catch (OperationCanceledException) { return; }
             backoff = TimeSpan.FromTicks(Math.Min(backoff.Ticks * 2, MaximumBackoff.Ticks));
@@ -56,28 +65,116 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log)
         if (await DaemonSocket.ReceiveAsync(socket, cancellation) is not WelcomeMessage welcome)
             throw new WebSocketException(WebSocketError.Faulted,
                 socket.CloseStatusDescription ?? "The server did not welcome this daemon.");
+        _welcomed = true;
         log.WriteLine($"Connected to {state.Server} as machine {welcome.MachineId} (server {welcome.ServerVersion}).");
+        await using var connection = new Connection(socket, outbox, host, log, cancellation);
         Connected?.Invoke(welcome);
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-        var pinging = PingAsync(socket, stop.Token);
-        try
-        {
-            while (await DaemonSocket.ReceiveAsync(socket, cancellation) is not null) { }
-        }
-        finally
-        {
-            await stop.CancelAsync();
-            try { await pinging; }
-            catch (Exception) { /* the receive loop reports the failure */ }
-        }
+        while (await DaemonSocket.ReceiveAsync(socket, cancellation) is { } message)
+            switch (message)
+            {
+                case CommandMessage command:
+                    connection.Commands.Writer.TryWrite(command);
+                    break;
+                case OutboxAckMessage ack:
+                    outbox?.Ack(ack.Acks);
+                    break;
+            }
     }
 
-    static async Task PingAsync(WebSocket socket, CancellationToken cancellation)
+    /// <summary>The workers of one connection. All sends go through one lock: WebSocket sends must not overlap.</summary>
+    sealed class Connection : IAsyncDisposable
     {
-        for (long sequence = 1; ; sequence++)
+        readonly WebSocket _socket;
+        readonly Outbox? _outbox;
+        readonly SessionHost? _host;
+        readonly TextWriter _log;
+        readonly SemaphoreSlim _send = new(1);
+        readonly SemaphoreSlim _wake = new(0);
+        readonly Channel<DeltaMessage> _deltas = Channel.CreateBounded<DeltaMessage>(
+            new BoundedChannelOptions(1000) { FullMode = BoundedChannelFullMode.DropOldest });
+        readonly CancellationTokenSource _stop;
+        readonly Task[] _workers;
+
+        public Channel<CommandMessage> Commands { get; } = Channel.CreateUnbounded<CommandMessage>();
+
+        public Connection(WebSocket socket, Outbox? outbox, SessionHost? host, TextWriter log, CancellationToken cancellation)
         {
-            await Task.Delay(PingInterval, cancellation);
-            await DaemonSocket.SendAsync(socket, new PingMessage(sequence), cancellation);
+            _socket = socket;
+            _outbox = outbox;
+            _host = host;
+            _log = log;
+            _stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            if (outbox != null) outbox.Appended += Wake;
+            if (host != null)
+                host.DeltaSink = delta =>
+                {
+                    _deltas.Writer.TryWrite(delta);
+                    Wake();
+                };
+            _workers = [PingAsync(_stop.Token), SendOutboxAsync(_stop.Token), ApplyCommandsAsync(_stop.Token)];
+        }
+
+        void Wake()
+        {
+            if (_wake.CurrentCount == 0) _wake.Release();
+        }
+
+        async Task SendAsync(DaemonMessage message, CancellationToken cancellation)
+        {
+            await _send.WaitAsync(cancellation);
+            try { await DaemonSocket.SendAsync(_socket, message, cancellation); }
+            finally { _send.Release(); }
+        }
+
+        async Task PingAsync(CancellationToken cancellation)
+        {
+            for (long sequence = 1; ; sequence++)
+            {
+                await Task.Delay(PingInterval, cancellation);
+                await SendAsync(new PingMessage(sequence), cancellation);
+            }
+        }
+
+        /// <summary>Everything unacknowledged first, then each new record once, in order; deltas in between.</summary>
+        async Task SendOutboxAsync(CancellationToken cancellation)
+        {
+            long sent = 0;
+            while (true)
+            {
+                while (_deltas.Reader.TryRead(out var delta)) await SendAsync(delta, cancellation);
+                if (_outbox?.After(sent, BatchCount, BatchBytes) is { Count: > 0 } batch)
+                {
+                    await SendAsync(new OutboxMessage(batch.Select(entry => entry.Record).ToArray()), cancellation);
+                    sent = batch[^1].Position;
+                    continue;
+                }
+                await _wake.WaitAsync(TimeSpan.FromSeconds(30), cancellation);
+            }
+        }
+
+        async Task ApplyCommandsAsync(CancellationToken cancellation)
+        {
+            await foreach (var command in Commands.Reader.ReadAllAsync(cancellation))
+            {
+                if (_host == null) continue; // a link without sessions (tests) leaves commands in the inbox
+                try { await _host.ApplyAsync(command.Id, command.Command); }
+                catch (Exception exception) when (exception is IOException or InvalidOperationException or JsonException)
+                {
+                    _log.WriteLine($"Command {command.Id} failed: {exception.Message}");
+                }
+                await SendAsync(new CommandAckMessage([command.Id]), cancellation);
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_outbox != null) _outbox.Appended -= Wake;
+            if (_host != null) _host.DeltaSink = null;
+            await _stop.CancelAsync();
+            foreach (var worker in _workers)
+                try { await worker; }
+                catch (Exception) { /* the receive loop reports the failure */ }
+            _stop.Dispose();
         }
     }
 }

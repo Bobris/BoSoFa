@@ -224,15 +224,76 @@ interface IHarnessAdapter {
   - The daemon installs into `harnesses/<id>/<version>/` and keeps the previous version for rollback.
   - npm-only agents get a daemon-managed portable Node runtime, itself a catalog entry.
   - Machines report their inventory. Admins pin versions per channel.
-- **Credentials:**
-  - Either the user signs in to the harness once on the machine (through a BoSoFa terminal, inside the profile's config folder),
-  - or an admin attaches an API-key secret to a profile. Secrets are encrypted to the machine's public key (ECIES), so the server stores only ciphertext per machine.
+- **Credentials:** see §5.4.1.
 - **Workspaces:**
   - A project is a repo URL. A workspace is `(machine, path)`.
   - A session can run in place or in a new worktree on a `bosofa/<slug>` branch.
   - Git is driven through the `git` CLI.
   - Checkpoints go into hidden refs, and diffs are computed from checkpoints.
 - **Replay adapter:** it plays recorded JSONL fixtures and is used by all server and UI tests.
+
+### 5.4.1 Harness accounts and credentials
+
+A **harness account** is one sign-in to a provider (a Claude subscription, a ChatGPT plan, an API key). It belongs to one person, and a session picks one. Subscriptions are personal: an account is used only for sessions its owner creates, on machines its owner controls. It is never shared with the team; team billing uses API keys that an admin adds.
+
+**Claude Code: `claude setup-token`, stored on the server.** Checked against Claude Code 2.1.317:
+
+- What the token is:
+  - It is an OAuth token (`sk-ant-oat…`) valid for **one year** (`expires_in` 31536000) with only the `user:inference` scope.
+  - The CLI uses it from `CLAUDE_CODE_OAUTH_TOKEN`, with no keychain and no refresh.
+  - Inference-only means no Remote Control and no Claude in Chrome, neither of which BoSoFa needs.
+  - Because nothing refreshes or rotates it, one copy can serve every machine of its owner at once. That makes it the right shape for central storage.
+- How it is made:
+  - `setup-token` is a terminal UI. It opens the system browser to `claude.ai/oauth/authorize`, takes the callback on `localhost` (or shows a URL and asks for a pasted code), then prints the token once.
+  - Managed policy can forbid it (`allowedProviders`, forced login method); the CLI then exits with a message.
+  - Only the hidden `auth login --gateway-json` has a machine-readable mode, and it covers the enterprise gateway only.
+- **Desktop flow (M6), "Add Claude account":**
+  1. The desktop asks its local daemon (over the control socket) to run the official `claude setup-token` in a pseudo-terminal. It runs with a fresh, empty `CLAUDE_CONFIG_DIR` and the clean environment of §5.4, so the user's own login is untouched.
+  2. The CLI opens the browser on this same machine, so the `localhost` callback just works. If the CLI prints "Browser didn't open", the desktop opens the URL itself.
+  3. The daemon strips ANSI codes and matches `sk-ant-oat\d+-[A-Za-z0-9_-]+`. Optionally it reads the account email and plan with `claude auth status --json` under the token (to verify in a spike). It then sends the token to the server over TLS with the desktop's bearer token, wipes it locally, and never shows it to the user.
+  4. We drive the official CLI instead of copying its OAuth client: BoSoFa does not pose as Claude Code's OAuth app, and policy checks and future changes stay the CLI's business.
+- **Web fallback (no desktop):** the daemon of any of the user's machines runs `setup-token` in a pseudo-terminal, and the UI shows the sign-in URL. The browser is elsewhere, so the `localhost` callback fails and the CLI asks for the code shown on the callback page; the UI relays the pasted code into the terminal. The paste path needs a spike.
+- Expiry: the server records `expiresAt`, the UI warns 30 and 7 days ahead, and renewing means running the flow again. A 401 in a session marks the account as rejected.
+- **Pasting a token** made elsewhere is also accepted.
+
+**Codex: the CLI's own device-code sign-in, one per machine (decided).** Checked against Codex CLI 0.167 and CodeAlta:
+
+- **CodeAlta's `codex` provider** runs its own OAuth against `auth.openai.com`:
+  - Dynamic agent-client registration (`client_id=dynamic_agent_client`, then an issued client ID per installation), PKCE with a random loopback port, `resource=https://api.openai.com/v1`.
+  - Scopes `openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`, plus an `ext_agent_host_id`. The account comes from the ID token's `chatgpt_account_id`.
+  - Refresh tokens rotate (`refresh_token_reused` is fatal), so exactly one party may refresh.
+  - It then calls the OpenAI API directly with its own agent loop. **These tokens do not feed the `codex` CLI.** The app-server's host-supplied token login (`chatgptAuthTokens` with `account/chatgptAuthTokens/refresh`) is marked "[UNSTABLE] FOR OPENAI INTERNAL USE ONLY - DO NOT USE" and wants Codex's own scopes. BoSoFa does not build on it.
+- **Chosen: the CLI's own sign-in, one per machine.**
+  - The Codex adapter calls `account/login/start` with `chatgptDeviceCode`. The UI shows the code and URL, the user approves in any browser, and `account/login/completed` arrives. This is what CodeAlta's `codex-cli` plugin does.
+  - Tokens stay in the profile's `CODEX_HOME/auth.json` on that machine. Set `cli_auth_credentials_store = "file"` in the generated `config.toml`, so a background service never depends on the keychain. Codex refreshes them itself, and the server only records which machines are signed in (`account/read`).
+  - It is supported and works for headless and cloud machines. The cost is one approval per machine.
+- **Not chosen: CodeAlta-style OAuth, held centrally.**
+  - The desktop runs the PKCE flow (BoSoFa registers as its own agent host). The server keeps the rotating refresh token and refreshes it under a lock, and daemons lease only short-lived access tokens.
+  - This gives "sign in once, use everywhere", but it only fits a harness BoSoFa writes itself on the OpenAI Responses API, as CodeAlta has. Revisit it only if BoSoFa ever gets such a native harness.
+- An OpenAI API key, added by an admin as a team account, is the alternative to a personal sign-in.
+
+**Server storage and delivery** (both providers, API keys too):
+
+- **Encryption is .NET Data Protection, nothing else.**
+  - The server protects each secret with an `IDataProtector` (purpose `BoSoFa.HarnessAccount.v1`, with the account id as sub-purpose, so one account's ciphertext cannot be swapped in for another's).
+  - The ciphertext is stored like any other data: in the account's event and its `HarnessAccount` row.
+  - Events and rows otherwise carry only metadata: id, owner, provider, kind, label, account email, plan, `expiresAt`, status.
+- **Only the Data Protection key ring comes from outside** (§4.4): on AKS it is persisted in Blob and wrapped by a Key Vault key; on a single node it is the files under `data/keys`. There is no per-secret store and no Key Vault secret per account.
+- **What this implies:**
+  - The ciphertext stays in the event log, which is kept forever. Deleting an account removes the row, but not the old event.
+  - So the key ring is what keeps old secrets unreadable. Protect it like the database itself.
+  - Never delete expired keys from the ring: Data Protection rotates keys (every 90 days by default) but needs the old ones to decrypt older secrets.
+  - Renewing a token writes a new ciphertext under the current key.
+  - This replaces §5.4's earlier "ECIES ciphertext per machine" storage: a token added before a machine was enrolled could not be pre-encrypted for it.
+- **Delivery is just in time:**
+  - `StartSessionCommand` names the account, not the secret. The daemon asks `POST /api/daemon/v1/accounts/{id}/lease` for that session.
+  - The server checks that the session runs on this machine, was created by the account's owner, and is not stopped.
+  - It then unprotects the value and returns it over the daemon's authenticated TLS connection. There is no extra transport encryption and no second machine key.
+- **Use on the daemon:**
+  - The daemon keeps the value in memory and passes it only in the child's environment (`CLAUDE_CODE_OAUTH_TOKEN`; `ANTHROPIC_API_KEY` explicitly removed). It never writes it to disk.
+  - Each account gets its own `CLAUDE_CONFIG_DIR`, so nothing lands in the keychain.
+  - A deleted or rejected account stops new sessions, and running ones can be stopped from the account page. BoSoFa cannot revoke a token at the provider.
+- **Audit:** each lease is audited (who, which session, which machine), and the account page shows recent use.
 
 ### 5.5 MCP and skills
 
@@ -341,10 +402,10 @@ interface IHarnessAdapter {
 | **M0 Foundations and spikes** (2 wk) | Repo skeleton, CI (build, AOT-warning gate, contract-staleness check), single-node server with BTDB genesis, dev login, SPA shell served. Spikes: ① BTDB event volume (1M `SessionItemsAppended`, latency, disk/Blob growth), ② Solid 2 UI kit choice, ③ NeoAstra hello with the Solid SPA and remote `connect-src`, ④ Claude stream-json + control protocol from an AOT C# process. | The UI shows "hello <user>" from a BTDB-backed endpoint. Spike notes are written in `docs/spikes/`. |
 | **M1 First session end to end** | Daemon: enroll (device code), WebSocket, outbox, ClaudeCode adapter in place (no worktree), runtime requests. Server: sessions, items, live hub, inbox. UI: machines list, session view, composer, approvals. Replay adapter + fixtures. | Start Claude Code on my laptop from the browser, approve a tool, see the streamed answer, kill the server mid-run, and see the session catch up. |
 | **M2 Multi-node early** | docker-compose with 3 nodes + Azurite, Azure storages, internal live relay, peer port, presence ownership, failover test in CI. | The M1 scenario passes while the leader pod is killed. |
-| **M3 More harnesses and git** | Codex app-server and ACP adapters, the harness install/update catalog with pinned hashes, worktrees, checkpoints, diffs, steer/queue/interrupt. | The same project runs on Claude, Codex and Gemini with diffs per run. |
+| **M3 More harnesses and git** | Harness accounts (§5.4.1): secrets encrypted with Data Protection, account leases, pasted Claude tokens and API keys, Codex device-code sign-in per machine. Codex app-server and ACP adapters, the harness install/update catalog with pinned hashes, worktrees, checkpoints, diffs, steer/queue/interrupt. | The same project runs on Claude, Codex and Gemini with diffs per run. |
 | **M4 MCP, skills, files, terminals** | BoSoFa MCP endpoint, managed MCP catalog + profiles, skill bundles, file upload/download + browser, attach/observe PTY terminals. | A profile pushes a new skill and an MCP server to a machine and a session uses them. |
 | **M5 Operations** | Service install on all 3 OSes, launcher + signed self-update + rollout channels, long-poll fallback, API tokens, audit UI. | Install on Windows/macOS/Linux, roll out a new daemon version remotely, roll back a broken one automatically. |
-| **M6 Desktop** | NeoAstra app, desktop auth flow, LocalDaemon RPC (install/enroll this machine), notifications, deep links. | Fresh machine: install the desktop, click "enable this machine", and run a session. |
+| **M6 Desktop** | NeoAstra app, desktop auth flow, LocalDaemon RPC (install/enroll this machine), "Add Claude account" through `claude setup-token`, notifications, deep links. | Fresh machine: install the desktop, click "enable this machine", and run a session. |
 | **M7 AKS production** | Helm chart, workload identity, Key Vault Data Protection, private-CA TLS for peers, ingress tuning (no buffering, WebSocket idle timeouts), OpenTelemetry, backups. | Staging cluster, 3 replicas, a rolling upgrade with an `ApplicationGeneration` bump. |
 | **M8 Cloud machines** | Provisioner interface + one implementation, ephemeral machines, label scheduling. | "Run on any linux machine" starts a pod and cleans up after it. |
 
@@ -369,6 +430,29 @@ M0 is done: the server shows "Hello <user>" from the BTDB-backed `/api/v1/me`, a
   - The stream-json protocol and the control protocol work from an AOT process: permissions, partial text, resume, interrupt and in-process MCP.
   - The adapter must always pass `--permission-mode` and start `claude` from a clean environment.
 
+### M1 outcomes (2026-11-08)
+
+M1 is done. With real Claude Code (`haiku`) on this laptop: a session started from the browser, a Write was approved, the answer streamed, and the server was stopped during a 20 s Bash call. The turn finished into the daemon's outbox, and once the server was back the transcript was complete (seq 1–18, no gaps or duplicates). `SessionTest` replays the same scenario deterministically on the replay harness.
+
+- **Wire:**
+  - Daemon WebSocket, protocol version 2: `command`/`commandAck` (the durable inbox) and `outbox`/`outboxAck` (records with a gapless seq per session). Deltas are ephemeral.
+  - UI WebSocket `/api/v1/live`: `subscribe{sessionId, afterSeq}`. The server answers with `session` (summary, missing items, pending requests) and `delta`. Its schemas are in `openapi.json` too.
+- **Server:**
+  - Relations `Session`, `SessionItem` (`SessionId, Seq`), `RuntimeRequest`, and `MachineCommandEntry` (the inbox).
+  - Daemon reports arrive as one `DaemonReportsReceived` event per batch, holding the protocol JSON. Records at or below `Session.LastReportSeq` are skipped, so a resend is harmless.
+  - Post-commit signals wake the daemon connection (new commands) and the live hub. The hub pulls from each subscriber's cursor, so a lost signal costs latency, not data.
+  - Only the machine's owner controls a session; everyone sees it.
+- **Daemon:**
+  - `Outbox`: JSON-line segments, fsync per append, and `acked.json` written before any segment is deleted, so seqs never repeat.
+  - `SessionHost`: applies commands idempotently, with a 7-day journal. Session state lives in `sessions/<id>.json`. A turn cut short by a daemon restart is reported, and the next message resumes with `--resume`.
+  - `ClaudeSession`: one long-lived `claude -p` per session. It translates the stream into items, approvals and run ends, takes per-turn cost from `model_usage_since_last_result`, and gives deltas a `messageId:blockIndex` ref that matches the final item.
+- **Learned along the way:**
+  - Kestrel does not abort upgraded WebSockets on a graceful stop, so both socket loops also stop on `ApplicationStopping`. Before this, every shutdown with a connected daemon took the full 30 s timeout.
+  - `FileSystemLeaderStorage` keeps the leader lease in memory, shared by the instances of one process, so a new process never waits for it. Storages registered with DI as ready-made instances are never disposed, though, and a host restarted in the same process (tests) waited out the old 15 s lease. They are now registered through factories, so the container disposes them with the host. `BtdbNode` is also a hosted service registered after BTDB's, so the application stops before the EventLog and its storage are disposed (it is created before them, so the container would dispose it last).
+  - After a connection that worked drops, the daemon reconnects after 1 s instead of keeping the grown backoff.
+  - `@solidjs/diagnostics` was missing from M0, so the dev diagnostics bridge never loaded. With it installed, polled lists need `keyed` and live updates need `reconcile`; the console is now clean.
+- **Left for later:** inline payloads are cut at 16 KiB until blobs arrive (M4); `bypassPermissions`/`acceptEdits` are passed through as is; there is no interrupt for queued messages and no per-profile `CLAUDE_CONFIG_DIR` yet (M3); the sessions list still polls (`subscribe{shell}` comes later).
+
 ## 10. Risks
 
 | Risk | Mitigation |
@@ -386,7 +470,7 @@ M0 is done: the server shows "Hello <user>" from the BTDB-backed `/api/v1/me`, a
 1. Hosting the server: AKS only, or also a plain VM or container with single-node file storage for small installs? File storages are single-process, so that would be a "one pod forever" mode.
 2. Should session transcripts be visible to every member, or only to the creator + machine owner + people explicitly shared?
 3. Who may enroll a machine? Any member (it becomes their own machine), or admins only?
-4. Harness credentials: per-user subscriptions signed in on each machine, team API keys pushed as secrets, or both?
+4. Harness credentials: proposed in §5.4.1 (personal subscription accounts plus admin API keys). Codex uses the CLI's device-code sign-in per machine (decided 2026-11-08). Still open: whether a web-only install needs the `setup-token` paste fallback before M6.
 5. Does the desktop need to show the local daemon's sessions while the server is unreachable (read-only from the outbox), or is "server required" acceptable?
 6. Do we need a git forge integration (PR per session, auto-settle on merge) in v1, and for which forge (GitHub, Azure DevOps)?
 7. Names: `bosofad` for the daemon binary and `BoSoFa.*` for the projects. Keep them?
