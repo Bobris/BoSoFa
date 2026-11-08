@@ -416,6 +416,9 @@ public sealed class DaemonReportsReceivedHandler(IDomainSignals signals) : IEven
                     ToolUseId = approval.ToolUseId, Input = approval.Input, Description = approval.Description,
                     Status = RuntimeRequestStatus.Pending, RaisedAt = approval.At
                 });
+                // The daemon reports its status separately, possibly in a later batch: a pending approval already
+                // means the turn waits, so readers never see the request beside a running session.
+                session.Status = SessionStatus.WaitingForApproval;
                 break;
             case ApprovalClosedReport closed:
                 var all = Ambient.Relation<IRuntimeRequestTable>();
