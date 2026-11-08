@@ -10,6 +10,12 @@ namespace BoSoFa.Protocol;
 [JsonDerivedType(typeof(FileReadRequest), "fileRead")]
 [JsonDerivedType(typeof(FileFetchRequest), "fileFetch")]
 [JsonDerivedType(typeof(FileStoreRequest), "fileStore")]
+[JsonDerivedType(typeof(TerminalOpenRequest), "terminalOpen")]
+[JsonDerivedType(typeof(TerminalListRequest), "terminalList")]
+[JsonDerivedType(typeof(TerminalAttachRequest), "terminalAttach")]
+[JsonDerivedType(typeof(TerminalInputRequest), "terminalInput")]
+[JsonDerivedType(typeof(TerminalResizeRequest), "terminalResize")]
+[JsonDerivedType(typeof(TerminalCloseRequest), "terminalClose")]
 public abstract record MachineRpc;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "k")]
@@ -19,6 +25,10 @@ public abstract record MachineRpc;
 [JsonDerivedType(typeof(FileTextResult), "fileText")]
 [JsonDerivedType(typeof(FileFetchResult), "fileFetch")]
 [JsonDerivedType(typeof(FileStoreResult), "fileStore")]
+[JsonDerivedType(typeof(RpcDone), "done")]
+[JsonDerivedType(typeof(TerminalOpenResult), "terminalOpen")]
+[JsonDerivedType(typeof(TerminalListResult), "terminalList")]
+[JsonDerivedType(typeof(TerminalAttachResult), "terminalAttach")]
 public abstract record MachineRpcResult;
 
 /// <summary>Why a call did not work, for people to read.</summary>

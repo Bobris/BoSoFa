@@ -12,7 +12,7 @@ using BTDB.Replication.EventSourcing;
 namespace BoSoFa.Server.Live;
 
 /// <summary>
-/// Ephemeral deltas between nodes (plan §4.2). Only the node holding a daemon's WebSocket receives its deltas. Another
+/// Ephemeral deltas and terminal output between nodes (plan §4.2). Only the node holding a daemon's WebSocket receives them. Another
 /// node whose live clients watch one of that machine's sessions opens one streaming request to the owner,
 /// <c>GET /internal/live/machines/{id}</c> on the peer port, and fans what arrives out to its own subscribers. Deltas
 /// lost while switching owners are not recovered; the final items come through the event log anyway.
@@ -29,7 +29,7 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
     readonly LiveHub _hub = hub;
     readonly BtdbNode _node = node;
     readonly ILogger _logger = logger;
-    readonly ConcurrentDictionary<ulong, ConcurrentDictionary<Channel<LiveDelta>, byte>> _outgoing = new();
+    readonly ConcurrentDictionary<ulong, ConcurrentDictionary<Channel<LiveServerMessage>, byte>> _outgoing = new();
     readonly ConcurrentDictionary<ulong, Follower> _following = new();
     readonly CancellationTokenSource _stopping = new();
 
@@ -37,10 +37,10 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
     string NodeId => options.Cluster?.NodeId ?? "single-node";
 
     /// <summary>Owner side: a delta of a daemon connected here, for every node that follows this machine.</summary>
-    public void Publish(ulong machineId, LiveDelta delta)
+    public void Publish(ulong machineId, LiveServerMessage message)
     {
         if (_outgoing.TryGetValue(machineId, out var streams))
-            foreach (var stream in streams.Keys) stream.Writer.TryWrite(delta);
+            foreach (var stream in streams.Keys) stream.Writer.TryWrite(message);
     }
 
     /// <summary>Owner side: the internal endpoint. Streams this machine's deltas as JSON lines until the caller leaves.</summary>
@@ -51,7 +51,7 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
             http.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }
-        var channel = Channel.CreateBounded<LiveDelta>(new BoundedChannelOptions(1000)
+        var channel = Channel.CreateBounded<LiveServerMessage>(new BoundedChannelOptions(1000)
         {
             FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true
         });
@@ -62,10 +62,10 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
         {
             http.Response.ContentType = "application/x-ndjson";
             await http.Response.StartAsync(stop.Token);
-            await foreach (var delta in channel.Reader.ReadAllAsync(stop.Token))
+            await foreach (var message in channel.Reader.ReadAllAsync(stop.Token))
             {
                 await http.Response.Body.WriteAsync(
-                    JsonSerializer.SerializeToUtf8Bytes<LiveServerMessage>(delta, ProtocolJsonContext.Default.LiveServerMessage),
+                    JsonSerializer.SerializeToUtf8Bytes(message, ProtocolJsonContext.Default.LiveServerMessage),
                     stop.Token);
                 await http.Response.Body.WriteAsync("\n"u8.ToArray(), stop.Token);
                 await http.Response.Body.FlushAsync(stop.Token);
@@ -218,9 +218,19 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
             response.EnsureSuccessStatusCode();
             using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(cancellation));
             while (await reader.ReadLineAsync(cancellation) is { } line)
-                if (line.Length > 0 &&
-                    JsonSerializer.Deserialize(line, ProtocolJsonContext.Default.LiveServerMessage) is LiveDelta delta)
-                    _relay._hub.Delta(delta);
+                if (line.Length > 0)
+                    switch (JsonSerializer.Deserialize(line, ProtocolJsonContext.Default.LiveServerMessage))
+                    {
+                        case LiveDelta delta:
+                            _relay._hub.Delta(delta);
+                            break;
+                        case LiveTerminalOutput output:
+                            _relay._hub.Terminal(_machineId, output.TerminalId, output);
+                            break;
+                        case LiveTerminalExited exited:
+                            _relay._hub.Terminal(_machineId, exited.TerminalId, exited);
+                            break;
+                    }
         }
     }
 }

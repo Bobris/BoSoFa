@@ -270,6 +270,16 @@ public static class MachineEndpoints
                     case RpcResponseMessage response:
                         connection.CompleteCall(response);
                         break;
+                    case TerminalOutputMessage output:
+                        var liveOutput = new LiveTerminalOutput(output.TerminalId, output.Offset, output.Data);
+                        hub.Terminal(machineId, output.TerminalId, liveOutput);
+                        relay.Publish(machineId, liveOutput);
+                        break;
+                    case TerminalExitedMessage exited:
+                        var liveExited = new LiveTerminalExited(exited.TerminalId, exited.ExitCode, null);
+                        hub.Terminal(machineId, exited.TerminalId, liveExited);
+                        relay.Publish(machineId, liveExited);
+                        break;
                     case DeltaMessage delta:
                         if (SessionBelongsTo(publisher, delta.SessionId, machineId))
                         {

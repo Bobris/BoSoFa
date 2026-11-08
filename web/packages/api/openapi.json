@@ -805,6 +805,163 @@
         }
       }
     },
+    "/api/v1/machines/{id}/terminals": {
+      "get": {
+        "tags": [
+          "FileEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminalListResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "FileEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminalOpenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminalOpenResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{id}/terminals/{terminalId}": {
+      "delete": {
+        "tags": [
+          "FileEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          },
+          {
+            "name": "terminalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RpcDone"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sessions": {
       "get": {
         "tags": [
@@ -2337,13 +2494,29 @@
           },
           {
             "$ref": "#/components/schemas/LiveClientMessageLiveUnsubscribe"
+          },
+          {
+            "$ref": "#/components/schemas/LiveClientMessageLiveTerminalSubscribe"
+          },
+          {
+            "$ref": "#/components/schemas/LiveClientMessageLiveTerminalUnsubscribe"
+          },
+          {
+            "$ref": "#/components/schemas/LiveClientMessageLiveTerminalInput"
+          },
+          {
+            "$ref": "#/components/schemas/LiveClientMessageLiveTerminalResize"
           }
         ],
         "discriminator": {
           "propertyName": "t",
           "mapping": {
             "subscribe": "#/components/schemas/LiveClientMessageLiveSubscribe",
-            "unsubscribe": "#/components/schemas/LiveClientMessageLiveUnsubscribe"
+            "unsubscribe": "#/components/schemas/LiveClientMessageLiveUnsubscribe",
+            "terminalSubscribe": "#/components/schemas/LiveClientMessageLiveTerminalSubscribe",
+            "terminalUnsubscribe": "#/components/schemas/LiveClientMessageLiveTerminalUnsubscribe",
+            "terminalInput": "#/components/schemas/LiveClientMessageLiveTerminalInput",
+            "terminalResize": "#/components/schemas/LiveClientMessageLiveTerminalResize"
           }
         }
       },
@@ -2374,6 +2547,101 @@
               "string"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "LiveClientMessageLiveTerminalInput": {
+        "required": [
+          "terminalId",
+          "data"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "terminalInput"
+            ],
+            "type": "string"
+          },
+          "terminalId": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string"
+          }
+        }
+      },
+      "LiveClientMessageLiveTerminalResize": {
+        "required": [
+          "terminalId",
+          "cols",
+          "rows"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "terminalResize"
+            ],
+            "type": "string"
+          },
+          "terminalId": {
+            "type": "string"
+          },
+          "cols": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rows": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "LiveClientMessageLiveTerminalSubscribe": {
+        "required": [
+          "machineId",
+          "terminalId"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "terminalSubscribe"
+            ],
+            "type": "string"
+          },
+          "machineId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "terminalId": {
+            "type": "string"
+          }
+        }
+      },
+      "LiveClientMessageLiveTerminalUnsubscribe": {
+        "required": [
+          "terminalId"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "terminalUnsubscribe"
+            ],
+            "type": "string"
+          },
+          "terminalId": {
+            "type": "string"
           }
         }
       },
@@ -2412,6 +2680,15 @@
           },
           {
             "$ref": "#/components/schemas/LiveServerMessageLiveError"
+          },
+          {
+            "$ref": "#/components/schemas/LiveServerMessageLiveTerminalSnapshot"
+          },
+          {
+            "$ref": "#/components/schemas/LiveServerMessageLiveTerminalOutput"
+          },
+          {
+            "$ref": "#/components/schemas/LiveServerMessageLiveTerminalExited"
           }
         ],
         "discriminator": {
@@ -2419,7 +2696,10 @@
           "mapping": {
             "session": "#/components/schemas/LiveServerMessageLiveSessionUpdate",
             "delta": "#/components/schemas/LiveServerMessageLiveDelta",
-            "error": "#/components/schemas/LiveServerMessageLiveError"
+            "error": "#/components/schemas/LiveServerMessageLiveError",
+            "terminalSnapshot": "#/components/schemas/LiveServerMessageLiveTerminalSnapshot",
+            "terminalOutput": "#/components/schemas/LiveServerMessageLiveTerminalOutput",
+            "terminalExited": "#/components/schemas/LiveServerMessageLiveTerminalExited"
           }
         }
       },
@@ -2783,6 +3063,111 @@
           }
         }
       },
+      "LiveServerMessageLiveTerminalExited": {
+        "required": [
+          "terminalId",
+          "exitCode",
+          "message"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "terminalExited"
+            ],
+            "type": "string"
+          },
+          "terminalId": {
+            "type": "string"
+          },
+          "exitCode": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "LiveServerMessageLiveTerminalOutput": {
+        "required": [
+          "terminalId",
+          "offset",
+          "data"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "terminalOutput"
+            ],
+            "type": "string"
+          },
+          "terminalId": {
+            "type": "string"
+          },
+          "offset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "data": {
+            "type": "string"
+          }
+        }
+      },
+      "LiveServerMessageLiveTerminalSnapshot": {
+        "required": [
+          "terminalId",
+          "endOffset",
+          "data",
+          "exited",
+          "exitCode"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "terminalSnapshot"
+            ],
+            "type": "string"
+          },
+          "terminalId": {
+            "type": "string"
+          },
+          "endOffset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "data": {
+            "type": "string"
+          },
+          "exited": {
+            "type": "boolean"
+          },
+          "exitCode": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "MachineDto": {
         "required": [
           "id",
@@ -3097,6 +3482,9 @@
             "type": "string"
           }
         }
+      },
+      "RpcDone": {
+        "type": "object"
       },
       "RuntimeRequestDto": {
         "required": [
@@ -3474,6 +3862,101 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "TerminalDto": {
+        "required": [
+          "id",
+          "shell",
+          "workingDirectory",
+          "startedAt",
+          "exited",
+          "exitCode"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "shell": {
+            "type": "string"
+          },
+          "workingDirectory": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "exited": {
+            "type": "boolean"
+          },
+          "exitCode": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "TerminalListResult": {
+        "required": [
+          "terminals"
+        ],
+        "type": "object",
+        "properties": {
+          "terminals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TerminalDto"
+            }
+          }
+        }
+      },
+      "TerminalOpenRequest": {
+        "required": [
+          "workingDirectory",
+          "cols",
+          "rows"
+        ],
+        "type": "object",
+        "properties": {
+          "workingDirectory": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cols": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rows": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "TerminalOpenResult": {
+        "required": [
+          "terminal"
+        ],
+        "type": "object",
+        "properties": {
+          "terminal": {
+            "$ref": "#/components/schemas/TerminalDto"
           }
         }
       },

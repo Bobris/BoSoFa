@@ -17,6 +17,8 @@ namespace BoSoFa.Protocol;
 [JsonDerivedType(typeof(InventoryMessage), "inventory")]
 [JsonDerivedType(typeof(RpcRequestMessage), "rpc")]
 [JsonDerivedType(typeof(RpcResponseMessage), "rpcResult")]
+[JsonDerivedType(typeof(TerminalOutputMessage), "terminalOutput")]
+[JsonDerivedType(typeof(TerminalExitedMessage), "terminalExited")]
 public abstract record DaemonMessage;
 
 /// <summary>First message of the daemon after connecting.</summary>
@@ -55,6 +57,11 @@ public sealed record InventoryMessage(InstalledHarness[] Harnesses) : DaemonMess
 public sealed record RpcRequestMessage(ulong Id, MachineRpc Request) : DaemonMessage;
 
 public sealed record RpcResponseMessage(ulong Id, MachineRpcResult Result) : DaemonMessage;
+
+/// <summary>Daemon → server, ephemeral: bytes (base64) of a terminal, starting at byte <c>Offset</c> of its whole output.</summary>
+public sealed record TerminalOutputMessage(string TerminalId, long Offset, string Data) : DaemonMessage;
+
+public sealed record TerminalExitedMessage(string TerminalId, int ExitCode) : DaemonMessage;
 
 public sealed record OutboxRecord(ulong SessionId, long Seq, SessionReport Report);
 

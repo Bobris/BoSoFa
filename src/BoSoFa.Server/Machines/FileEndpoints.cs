@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace BoSoFa.Server.Machines;
 
-/// <summary>The file browser of a machine (plan §5.6). Needs the right to control that machine.</summary>
+/// <summary>A machine's file browser (plan §5.6) and terminals. Both need the right to control that machine.</summary>
 public static class FileEndpoints
 {
     public static void MapFileEndpoints(this WebApplication app)
@@ -17,7 +17,21 @@ public static class FileEndpoints
         files.MapGet("/text", ReadAsync);
         files.MapPost("/fetch", FetchAsync);
         files.MapPost("/store", StoreAsync);
+        var terminals = app.MapGroup("/api/v1/machines/{id}/terminals").RequireAuthorization();
+        terminals.MapGet("", ListTerminalsAsync);
+        terminals.MapPost("", OpenTerminalAsync);
+        terminals.MapDelete("/{terminalId}", CloseTerminalAsync);
     }
+
+    static Task<Results<Ok<TerminalListResult>, NotFound, ForbidHttpResult, BadRequest<string>>> ListTerminalsAsync(ulong id, BtdbNode node,
+        MachineRpcClient rpc, HttpContext http) => CallAsync<TerminalListResult>(id, new TerminalListRequest(), node, rpc, http);
+
+    static Task<Results<Ok<TerminalOpenResult>, NotFound, ForbidHttpResult, BadRequest<string>>> OpenTerminalAsync(ulong id,
+        TerminalOpenRequest request, BtdbNode node, MachineRpcClient rpc, HttpContext http) =>
+        CallAsync<TerminalOpenResult>(id, request, node, rpc, http);
+
+    static Task<Results<Ok<RpcDone>, NotFound, ForbidHttpResult, BadRequest<string>>> CloseTerminalAsync(ulong id, string terminalId,
+        BtdbNode node, MachineRpcClient rpc, HttpContext http) => CallAsync<RpcDone>(id, new TerminalCloseRequest(terminalId), node, rpc, http);
 
     static Task<Results<Ok<FileRootsResult>, NotFound, ForbidHttpResult, BadRequest<string>>> RootsAsync(ulong id, BtdbNode node,
         MachineRpcClient rpc, HttpContext http) => CallAsync<FileRootsResult>(id, new FileRootsRequest(), node, rpc, http);

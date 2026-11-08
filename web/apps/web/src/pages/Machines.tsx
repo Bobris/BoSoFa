@@ -1,5 +1,6 @@
 import { api, type Machine } from "@bosofa/api";
 import { createMemo, For, onSettled, refresh, Show } from "solid-js";
+import { paths } from "../router";
 import { shortVersion } from "../version";
 
 /** Machines of the whole team, refreshed every few seconds until the live hub (M1) pushes presence. */
@@ -31,7 +32,7 @@ export default function Machines() {
                     title={machine().online ? "Online" : "Offline"}
                   />
                   <Show when={machine().canControl} fallback={machine().name}>
-                    <a class="text-accent hover:underline" href={`/machines/${machine().id}`}>
+                    <a class="text-accent hover:underline" href={paths.machines(Number(machine().id))()}>
                       {machine().name}
                     </a>
                   </Show>

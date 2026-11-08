@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using BoSoFa.Daemon.Harnesses;
+using BoSoFa.Daemon.Terminals;
 using BoSoFa.Daemon.Harnesses.Acp;
 using BoSoFa.Daemon.Harnesses.Claude;
 using BoSoFa.Daemon.Harnesses.Codex;
@@ -197,6 +198,9 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
 
     readonly string[] _configuredRoots;
 
+    /// <summary>The terminals of this machine.</summary>
+    public TerminalHost Terminals { get; } = new();
+
     /// <summary>The file browser and transfers of this machine.</summary>
     public MachineFiles Files { get; }
 
@@ -355,6 +359,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await Mcp.DisposeAsync();
+        await Terminals.DisposeAsync();
         IHarnessSession[] sessions;
         lock (_sessions) sessions = _sessions.Values.ToArray();
         await Task.WhenAll(sessions.Select(session => session.DisposeAsync().AsTask()));

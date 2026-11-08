@@ -1,6 +1,10 @@
 using System.Runtime.InteropServices;
 using System.Reflection;
 using BoSoFa.Daemon;
+using BoSoFa.Daemon.Terminals;
+
+// Before anything else of the runtime is set up: this process is about to become a terminal's shell.
+if (args is [UnixPty.HelperCommand, _, _, ..]) return UnixPty.Exec(args);
 
 // Ctrl+C and service managers (SIGTERM from systemd and launchd, the Windows console close) stop the daemon gracefully.
 using var stop = new CancellationTokenSource();

@@ -32,8 +32,16 @@ public sealed class LiveHub
         foreach (var subscriber in _subscribers.Keys) subscriber.Delta(delta);
     }
 
+    public void Terminal(ulong machineId, string terminalId, LiveServerMessage message)
+    {
+        foreach (var subscriber in _subscribers.Keys) subscriber.Terminal(machineId, terminalId, message);
+    }
+
     public sealed class Subscriber(ulong userId)
     {
+        readonly ConcurrentDictionary<string, ulong> _terminals = new();
+        readonly Channel<LiveServerMessage> _terminalMessages = Channel.CreateBounded<LiveServerMessage>(
+            new BoundedChannelOptions(2000) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
         readonly ConcurrentDictionary<ulong, long> _cursors = new();
         readonly ConcurrentDictionary<ulong, byte> _dirty = new();
         readonly Channel<LiveDelta> _deltas = Channel.CreateBounded<LiveDelta>(
@@ -63,6 +71,27 @@ public sealed class LiveHub
             _deltas.Writer.TryWrite(delta);
             Wake();
         }
+
+        public void WatchTerminal(ulong machineId, string terminalId) => _terminals[terminalId] = machineId;
+
+        public void UnwatchTerminal(string terminalId) => _terminals.TryRemove(terminalId, out _);
+
+        /// <summary>The machine of a terminal this connection watches.</summary>
+        public ulong? MachineOfTerminal(string terminalId) => _terminals.TryGetValue(terminalId, out var machineId) ? machineId : null;
+
+        public void Terminal(ulong machineId, string terminalId, LiveServerMessage message)
+        {
+            if (_terminals.TryGetValue(terminalId, out var watched) && watched == machineId) Enqueue(message);
+        }
+
+        /// <summary>For this connection only: the answer to its own subscribe.</summary>
+        public void Enqueue(LiveServerMessage message)
+        {
+            _terminalMessages.Writer.TryWrite(message);
+            Wake();
+        }
+
+        public bool TryTakeTerminalMessage(out LiveServerMessage message) => _terminalMessages.Reader.TryRead(out message!);
 
         void Wake()
         {

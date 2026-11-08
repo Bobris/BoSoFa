@@ -4,6 +4,7 @@ using BoSoFa.Protocol;
 using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Live;
+using BoSoFa.Server.Machines;
 using BTDB.ODBLayer;
 using BTDB.Replication.EventSourcing;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -151,7 +152,7 @@ public static class SessionEndpoints
 
     /// <summary>The UI's live connection: subscribe to sessions, receive their missing items and pending requests
     /// whenever they change, plus ephemeral deltas.</summary>
-    static async Task LiveAsync(HttpContext http, BtdbNode node, LiveHub hub, LiveRelay relay,
+    static async Task LiveAsync(HttpContext http, BtdbNode node, LiveHub hub, LiveRelay relay, MachineRpcClient rpc,
         IHostApplicationLifetime lifetime)
     {
         if (!http.WebSockets.IsWebSocketRequest)
@@ -167,6 +168,7 @@ public static class SessionEndpoints
         var sending = SendLiveAsync(socket, publisher, subscriber, stop.Token);
         // Deltas of a session reach this node only while it follows the session's machine (LiveRelay).
         var relays = new Dictionary<ulong, IDisposable>();
+        var terminalRelays = new Dictionary<string, IDisposable>();
         try
         {
             while (await ReceiveAsync(socket, stop.Token) is { } message)
@@ -186,12 +188,45 @@ public static class SessionEndpoints
                         subscriber.Unsubscribe(unsubscribe.SessionId);
                         if (relays.Remove(unsubscribe.SessionId, out var lease)) lease.Dispose();
                         break;
+                    case LiveTerminalSubscribe watch:
+                        bool allowed;
+                        using (publisher.StartQuery())
+                            allowed = Ambient.Relation<IMachineTable>().FindByIdOrDefault(watch.MachineId) is { } machineToWatch &&
+                                      MachineAccess.CanControl(subscriber.UserId, machineToWatch);
+                        if (!allowed)
+                        {
+                            subscriber.Enqueue(new LiveTerminalExited(watch.TerminalId, null, "You cannot reach this machine."));
+                            break;
+                        }
+                        // Watching first: output produced during the attach is not lost, the client drops what it has twice.
+                        subscriber.WatchTerminal(watch.MachineId, watch.TerminalId);
+                        if (!terminalRelays.ContainsKey(watch.TerminalId)) terminalRelays[watch.TerminalId] = relay.Follow(watch.MachineId);
+                        subscriber.Enqueue(await rpc.CallAsync(watch.MachineId, new TerminalAttachRequest(watch.TerminalId), stop.Token) switch
+                        {
+                            TerminalAttachResult attached => new LiveTerminalSnapshot(watch.TerminalId, attached.EndOffset, attached.Data,
+                                attached.Exited, attached.ExitCode),
+                            RpcFailure failure => new LiveTerminalExited(watch.TerminalId, null, failure.Message),
+                            _ => new LiveTerminalExited(watch.TerminalId, null, "The daemon gave an unexpected answer.")
+                        });
+                        break;
+                    case LiveTerminalUnsubscribe unwatch:
+                        subscriber.UnwatchTerminal(unwatch.TerminalId);
+                        if (terminalRelays.Remove(unwatch.TerminalId, out var terminalLease)) terminalLease.Dispose();
+                        break;
+                    case LiveTerminalInput input:
+                        if (subscriber.MachineOfTerminal(input.TerminalId) is { } inputMachine)
+                            await rpc.CallAsync(inputMachine, new TerminalInputRequest(input.TerminalId, input.Data), stop.Token);
+                        break;
+                    case LiveTerminalResize resize:
+                        if (subscriber.MachineOfTerminal(resize.TerminalId) is { } resizeMachine)
+                            await rpc.CallAsync(resizeMachine, new TerminalResizeRequest(resize.TerminalId, resize.Cols, resize.Rows), stop.Token);
+                        break;
                 }
         }
         catch (Exception exception) when (exception is WebSocketException or OperationCanceledException or JsonException) { }
         finally
         {
-            foreach (var lease in relays.Values) lease.Dispose();
+            foreach (var lease in relays.Values.Concat(terminalRelays.Values)) lease.Dispose();
             hub.Leave(subscriber);
             await stop.CancelAsync();
             try { await sending; }
@@ -227,6 +262,7 @@ public static class SessionEndpoints
                 subscriber.Advance(sessionId, lastSeq, more);
             }
             while (subscriber.TryTakeDelta(out var delta)) await SendAsync(socket, delta, cancellation);
+            while (subscriber.TryTakeTerminalMessage(out var terminal)) await SendAsync(socket, terminal, cancellation);
         }
     }
 

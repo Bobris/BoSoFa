@@ -1,5 +1,6 @@
 import { api, type FileEntry } from "@bosofa/api";
 import { useParams } from "@solidjs/router";
+import Terminals from "../components/Terminals";
 import { createMemo, createSignal, For, refresh, Show } from "solid-js";
 
 type Listing = { path: string | null; parent: string | null; entries: FileEntry[]; truncated: boolean; error?: string };
@@ -24,7 +25,7 @@ function saveAs(sha256: string, name: string) {
 }
 
 /** Browses the folders a machine shares, with a text preview, download and upload. */
-function Files(props: { machineId: number }) {
+function Files(props: { machineId: number; onTerminalHere: (directory: string) => void }) {
   const id = () => ({ path: { id: props.machineId } });
   const [path, setPath] = createSignal<string | null>(null);
   const [opened, setOpened] = createSignal<FileEntry | null>(null);
@@ -109,10 +110,15 @@ function Files(props: { machineId: number }) {
       <div class="px-4 py-3 border-b border-line flex items-center justify-between gap-3">
         <h2 class="text-sm font-medium truncate">{listing().path ?? "Files"}</h2>
         <Show when={listing().path !== null}>
-          <label class="text-xs text-accent cursor-pointer shrink-0">
-            Upload here
-            <input type="file" class="hidden" onChange={upload} />
-          </label>
+          <span class="flex gap-3 text-xs shrink-0">
+            <button class="text-accent hover:underline" onClick={() => props.onTerminalHere(listing().path!)}>
+              Terminal here
+            </button>
+            <label class="text-accent cursor-pointer hover:underline">
+              Upload here
+              <input type="file" class="hidden" onChange={upload} />
+            </label>
+          </span>
         </Show>
       </div>
       <Show when={notice()}>
@@ -170,6 +176,7 @@ function Files(props: { machineId: number }) {
 export default function MachinePage() {
   const params = useParams<{ id: string }>();
   const machineId = () => Number(params.id);
+  let open: (directory?: string) => void = () => {};
   const machine = createMemo(async () => {
     const id = machineId();
     return ((await api.GET("/api/v1/machines")).data ?? []).find((candidate) => candidate.id === id);
@@ -178,7 +185,8 @@ export default function MachinePage() {
   return (
     <div class="space-y-4">
       <h1 class="text-lg font-medium">{machine()?.name ?? "Machine"}</h1>
-      <Files machineId={machineId()} />
+      <Files machineId={machineId()} onTerminalHere={(directory) => open(directory)} />
+      <Terminals machineId={machineId()} ref={(controls) => (open = controls.open)} />
     </div>
   );
 }

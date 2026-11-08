@@ -109,6 +109,7 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
             _stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             if (outbox != null) outbox.Appended += Wake;
             if (host != null) host.Installer.Changed += SendInventory;
+            if (host != null) host.Terminals.Sink = message => SendAsync(message, _stop.Token);
             if (host != null)
                 host.DeltaSink = delta =>
                 {
@@ -119,16 +120,18 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
             SendInventory();
         }
 
-        /// <summary>On its own task: a large transfer must not hold up the commands behind it.</summary>
+        /// <summary>Terminal calls take effect here, in arrival order. The rest runs on its own task: a large transfer
+        /// must not hold up what comes behind it.</summary>
         public void Serve(RpcRequestMessage call)
         {
+            var terminal = call.Request is TerminalRpc request && _host != null ? _host.Terminals.Handle(request) : null;
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    var result = _host != null
+                    var result = terminal ?? (_host != null
                         ? await _host.Files.HandleAsync(call.Request, _stop.Token)
-                        : new RpcFailure("This daemon has no file access.");
+                        : new RpcFailure("This daemon cannot do that."));
                     await SendAsync(new RpcResponseMessage(call.Id, result), _stop.Token);
                 }
                 catch (Exception exception) when (exception is WebSocketException or OperationCanceledException or
@@ -204,6 +207,7 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
         {
             if (_outbox != null) _outbox.Appended -= Wake;
             if (_host != null) _host.Installer.Changed -= SendInventory;
+            if (_host != null) _host.Terminals.Sink = null;
             if (_host != null) _host.DeltaSink = null;
             await _stop.CancelAsync();
             foreach (var worker in _workers)

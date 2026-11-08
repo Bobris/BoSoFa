@@ -1011,6 +1011,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/machines/{id}/terminals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TerminalListResult"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TerminalOpenRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TerminalOpenResult"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/machines/{id}/terminals/{terminalId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                    terminalId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RpcDone"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions": {
         parameters: {
             query?: never;
@@ -2108,7 +2256,7 @@ export interface components {
             harness: string;
             version: string;
         };
-        LiveClientMessage: components["schemas"]["LiveClientMessageLiveSubscribe"] | components["schemas"]["LiveClientMessageLiveUnsubscribe"];
+        LiveClientMessage: components["schemas"]["LiveClientMessageLiveSubscribe"] | components["schemas"]["LiveClientMessageLiveUnsubscribe"] | components["schemas"]["LiveClientMessageLiveTerminalSubscribe"] | components["schemas"]["LiveClientMessageLiveTerminalUnsubscribe"] | components["schemas"]["LiveClientMessageLiveTerminalInput"] | components["schemas"]["LiveClientMessageLiveTerminalResize"];
         LiveClientMessageLiveSubscribe: {
             /** @enum {string} */
             t?: "subscribe";
@@ -2117,13 +2265,40 @@ export interface components {
             /** Format: int64 */
             afterSeq: number | string;
         };
+        LiveClientMessageLiveTerminalInput: {
+            /** @enum {string} */
+            t?: "terminalInput";
+            terminalId: string;
+            data: string;
+        };
+        LiveClientMessageLiveTerminalResize: {
+            /** @enum {string} */
+            t?: "terminalResize";
+            terminalId: string;
+            /** Format: int32 */
+            cols: number | string;
+            /** Format: int32 */
+            rows: number | string;
+        };
+        LiveClientMessageLiveTerminalSubscribe: {
+            /** @enum {string} */
+            t?: "terminalSubscribe";
+            /** Format: uint64 */
+            machineId: number | string;
+            terminalId: string;
+        };
+        LiveClientMessageLiveTerminalUnsubscribe: {
+            /** @enum {string} */
+            t?: "terminalUnsubscribe";
+            terminalId: string;
+        };
         LiveClientMessageLiveUnsubscribe: {
             /** @enum {string} */
             t?: "unsubscribe";
             /** Format: uint64 */
             sessionId: number | string;
         };
-        LiveServerMessage: components["schemas"]["LiveServerMessageLiveSessionUpdate"] | components["schemas"]["LiveServerMessageLiveDelta"] | components["schemas"]["LiveServerMessageLiveError"];
+        LiveServerMessage: components["schemas"]["LiveServerMessageLiveSessionUpdate"] | components["schemas"]["LiveServerMessageLiveDelta"] | components["schemas"]["LiveServerMessageLiveError"] | components["schemas"]["LiveServerMessageLiveTerminalSnapshot"] | components["schemas"]["LiveServerMessageLiveTerminalOutput"] | components["schemas"]["LiveServerMessageLiveTerminalExited"];
         LiveServerMessageLiveDelta: {
             /** @enum {string} */
             t?: "delta";
@@ -2205,6 +2380,33 @@ export interface components {
                 answeredAt: null | string;
             }[];
         };
+        LiveServerMessageLiveTerminalExited: {
+            /** @enum {string} */
+            t?: "terminalExited";
+            terminalId: string;
+            /** Format: int32 */
+            exitCode: null | number | string;
+            message: null | string;
+        };
+        LiveServerMessageLiveTerminalOutput: {
+            /** @enum {string} */
+            t?: "terminalOutput";
+            terminalId: string;
+            /** Format: int64 */
+            offset: number | string;
+            data: string;
+        };
+        LiveServerMessageLiveTerminalSnapshot: {
+            /** @enum {string} */
+            t?: "terminalSnapshot";
+            terminalId: string;
+            /** Format: int64 */
+            endOffset: number | string;
+            data: string;
+            exited: boolean;
+            /** Format: int32 */
+            exitCode: null | number | string;
+        };
         MachineDto: {
             /** Format: uint64 */
             id: number | string;
@@ -2275,6 +2477,7 @@ export interface components {
             version: string;
             sha256: string;
         };
+        RpcDone: Record<string, never>;
         RuntimeRequestDto: {
             /** Format: uint64 */
             id: number | string;
@@ -2359,6 +2562,29 @@ export interface components {
         SkillRef: {
             name: string;
             version: string;
+        };
+        TerminalDto: {
+            id: string;
+            shell: string;
+            workingDirectory: string;
+            /** Format: date-time */
+            startedAt: string;
+            exited: boolean;
+            /** Format: int32 */
+            exitCode: null | number | string;
+        };
+        TerminalListResult: {
+            terminals: components["schemas"]["TerminalDto"][];
+        };
+        TerminalOpenRequest: {
+            workingDirectory: null | string;
+            /** Format: int32 */
+            cols: number | string;
+            /** Format: int32 */
+            rows: number | string;
+        };
+        TerminalOpenResult: {
+            terminal: components["schemas"]["TerminalDto"];
         };
         UserDto: {
             /** Format: uint64 */

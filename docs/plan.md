@@ -554,7 +554,7 @@ Done when: a profile pushes a new skill and an MCP server to a machine and a ses
    - The daemon writes each harness's native config: `--mcp-config` and a per-session plugin folder for Claude Code, `config` and `$CODEX_HOME/skills` for Codex, `session/new.mcpServers` for ACP.
 3. **BoSoFa MCP endpoint.** *Done, run on real Claude Code:* one loopback HTTP listener in the daemon, a path and a bearer per session, added to every harness's MCP config: `bosofa_notify_user`, `bosofa_ask_user` (shown as an approval; the answer goes back to the model), `bosofa_upload_file` (working directory only, asks for approval, the session shows a download link).
 4. **Files.** *Done, in the browser too:* list, text preview, download and upload under the allowed roots (`bosofad run --roots` plus the sessions' working directories). These are calls answered at once through the node holding the daemon, not durable commands: an offline machine fails the call instead of writing a file hours later. Glob uploads and a registered workspace list wait for projects.
-5. **Terminals.** PTY sessions on the machine, attached and observed from the browser.
+5. **Terminals.** *Done, tried in the browser on the published daemon (macOS; Windows ConPTY is covered by the CI test):* the shell lives on the machine with 256 KB of history. xterm.js attaches, several people can watch, and a byte offset on the output shows every byte once across reconnects. Output always streams to the server, even with nobody watching.
 
 ## 10. Risks
 
