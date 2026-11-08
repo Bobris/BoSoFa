@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Runs a local BoSoFa cluster: Azurite, server nodes in their own processes and a front door.</Description>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>bosofa-devcluster</AssemblyName>
+    <RootNamespace>BoSoFa.DevCluster</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Builds the server next to this tool; nodes run as `dotnet bosofa-server.dll`. -->
+    <ProjectReference Include="../../src/BoSoFa.Server/BoSoFa.Server.csproj" />
+  </ItemGroup>
+</Project>

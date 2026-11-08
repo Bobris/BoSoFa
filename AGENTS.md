@@ -9,7 +9,8 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 - `src/BoSoFa.Server.Domain`: BTDB event-sourced domain (events, deterministic handlers, relations).
 - `src/BoSoFa.Server`: ASP.NET Core Minimal API host (`bosofa-server`), auth, BTDB node, serves the SPA.
 - `src/BoSoFa.Daemon`: `bosofad`, the per-machine daemon, published with Native AOT.
-- `tests/`: xUnit. `BoSoFa.Architecture.Tests` enforces project boundaries.
+- `tools/BoSoFa.DevCluster`: runs a local cluster (Azurite, node processes, front door); the cluster tests use its classes.
+- `tests/`: xUnit. `BoSoFa.Architecture.Tests` enforces project boundaries. The cluster and failover tests need Azurite.
 - `web/`: pnpm workspace. `apps/web` is the SolidJS 2 SPA, `packages/api` the generated API client.
 
 ## Commands
@@ -22,6 +23,9 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
   `bosofad enroll --server http://localhost:5080` (approve the code at /enroll) and `bosofad run`. Use `--data-dir` for a
   throwaway identity; the default is the per-user data directory. `run --replay-fixture tests/fixtures/claude/write-file.jsonl`
   adds the "replay" harness, which plays a recorded Claude Code transcript without a model (see `ReplayTransport`).
+- Cluster for development: `dotnet run --project tools/BoSoFa.DevCluster` starts Azurite (`npm install --global
+  azurite`), three nodes as separate processes and a front door on http://localhost:5080 (data in `data/cluster`).
+  Type `kill 1` / `start 1` to try failover. The SPA dev server and daemons point at port 5080 as usual.
 - API changed: `BOSOFA_UPDATE_CONTRACT=1 dotnet test tests/BoSoFa.Server.Tests --filter ContractTest`, then
   `pnpm --dir web gen:api`. CI fails when either `openapi.json` or `schema.d.ts` is stale.
 

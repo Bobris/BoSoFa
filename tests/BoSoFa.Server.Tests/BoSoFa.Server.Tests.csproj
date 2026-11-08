@@ -10,6 +10,7 @@
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <ProjectReference Include="../../src/BoSoFa.Server/BoSoFa.Server.csproj" />
     <ProjectReference Include="../../src/BoSoFa.Daemon/BoSoFa.Daemon.csproj" />
+    <ProjectReference Include="../../tools/BoSoFa.DevCluster/BoSoFa.DevCluster.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../fixtures/**" LinkBase="fixtures" CopyToOutputDirectory="PreserveNewest" />

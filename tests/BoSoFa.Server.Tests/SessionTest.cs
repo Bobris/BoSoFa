@@ -37,17 +37,17 @@ public class SessionTest(ITestOutputHelper output)
     }
 
     /// <summary>Enrolls a machine for the signed-in client through the API, as <c>bosofad enroll</c> does.</summary>
-    internal static async Task<DaemonState> EnrollAsync(TestServer server, HttpClient owner, string dataDirectory)
+    internal static async Task<DaemonState> EnrollAsync(Uri server, HttpClient owner, string dataDirectory)
     {
         var store = new DaemonStore(dataDirectory);
         using var key = store.LoadOrCreateKey();
-        using var daemon = server.Client();
+        using var daemon = new HttpClient { BaseAddress = server, Timeout = TimeSpan.FromSeconds(30) };
         var started = await (await daemon.PostAsJsonAsync("/api/daemon/v1/enroll/start", new EnrollStartRequest("replay-box",
             "linux", "x64", Cli.Version, DaemonStore.PublicKey(key)))).Content.ReadFromJsonAsync<EnrollStartResponse>();
         (await owner.PostAsync($"/api/v1/enrollments/{started!.UserCode}/approve", null)).EnsureSuccessStatusCode();
         var poll = await (await daemon.PostAsJsonAsync("/api/daemon/v1/enroll/poll", new EnrollPollRequest(started.EnrollmentId)))
             .Content.ReadFromJsonAsync<EnrollPollResponse>();
-        var state = new DaemonState(server.BaseAddress, poll!.MachineId!.Value);
+        var state = new DaemonState(server, poll!.MachineId!.Value);
         store.SaveState(state);
         return state;
     }
@@ -64,7 +64,7 @@ public class SessionTest(ITestOutputHelper output)
         using var boris = server.Client(cookies);
         (await boris.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("boris@example.com", null))).EnsureSuccessStatusCode();
         var dataDirectory = Path.Combine(server.DataDirectory, "daemon");
-        var state = await EnrollAsync(server, boris, dataDirectory);
+        var state = await EnrollAsync(server.BaseAddress, boris, dataDirectory);
         var work = Directory.CreateDirectory(Path.Combine(server.DataDirectory, "work")).FullName;
 
         using var key = new DaemonStore(dataDirectory).LoadOrCreateKey();

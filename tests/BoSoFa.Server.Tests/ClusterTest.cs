@@ -155,7 +155,7 @@ public class ClusterTest(Azurite azurite, ITestOutputHelper output) : IClassFixt
             using var onSecond = second.Client(cookies);
 
             var daemonDirectory = Path.Combine(root, "daemon");
-            var state = await SessionTest.EnrollAsync(first, boris, daemonDirectory);
+            var state = await SessionTest.EnrollAsync(first.BaseAddress, boris, daemonDirectory);
             var work = Directory.CreateDirectory(Path.Combine(root, "work")).FullName;
             using var key = new BoSoFa.Daemon.DaemonStore(daemonDirectory).LoadOrCreateKey();
             using var outbox = new BoSoFa.Daemon.Outbox(Path.Combine(daemonDirectory, "outbox"));

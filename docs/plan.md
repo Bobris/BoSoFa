@@ -479,9 +479,24 @@ Done when: the M1 scenario passes while the leader node is killed. The nodes run
    - `ClusterTest` runs a replay session with the daemon on the leader and the browser on the follower.
    - A UI on node B that follows a session whose daemon is on node A gets A's deltas through one internal streaming request: `GET /internal/live/machines/{id}` on the peer port.
    - Persisted items already reach every node through the event log.
-5. **Local cluster and failover test.**
+5. **Local cluster and failover test.** *Done:*
+   - `FailoverTest` runs three node processes on Azurite behind a TCP front door, approves a tool, and kills the leader (which also holds the daemon and owns the EventLog topics) mid-turn. The daemon reconnects through the front door, and the session catches up with no gaps or duplicates about 4 s later. A second turn then runs on the survivors.
+   - `tools/BoSoFa.DevCluster` runs the same setup for development (`kill <n>`, `start <n>`).
    - A script starts Azurite and three nodes behind a small round-robin proxy, for development.
    - A CI test runs the replay scenario across three node processes, kills the leader mid-turn, and checks that the daemon reconnects through the proxy and the session catches up with no gaps or duplicates.
+
+### M2 outcomes (2026-11-08)
+
+M2 is done. The M1 scenario passes while the leader node is killed: `FailoverTest` checks it in CI, and the session catches up about 4 s after the kill. The steps above say what each part does. Findings:
+
+- **Every node runs the application.**
+  - BTDB 36.4.0 added `ObjectDB.TryInitializeRelationsWithoutWriting`, so a follower starts only when its restored history holds its schema.
+  - A follower that restored too early restarts on `SchemaDetached`. A node that restores while a new cluster's genesis is being published restarts once too, so local runs need a supervisor (the dev cluster restarts such nodes).
+- **Shutdown and storage.**
+  - BTDB master (`acfe5472`, unreleased) fixes a 10 s wait on every follower shutdown: an `EventCluster` withdrawal waited for a presence exchange after `ApplicationStopping` had already stopped replication.
+  - Azure leases must be 15–60 s, so a crashed leader's replication lease is taken over only after at least 15 s. Writes don't wait for it, because they go through the EventLog, whose topics move to a new owner sooner.
+  - Only the Data Protection key ring and storage access come from configuration. Workload identity replaces the connection string in M7.
+- **Not done yet:** the long-poll fallback (M5) and the `subscribe{shell}` live channel. A rolling upgrade with a schema change (an `ApplicationGeneration` bump) is first exercised in M7.
 
 ## 10. Risks
 

@@ -4,14 +4,34 @@
     {
       "name": "server",
       "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "src/BoSoFa.Server", "--launch-profile", "bosofa-server"],
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "src/BoSoFa.Server",
+        "--launch-profile",
+        "bosofa-server"
+      ],
       "port": 5080
     },
     {
       "name": "web-dev",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "web", "dev"],
+      "runtimeArgs": [
+        "--dir",
+        "web",
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "cluster",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "tools/BoSoFa.DevCluster"
+      ],
+      "port": 5080
     }
   ]
 }
