@@ -246,7 +246,7 @@ public static class MachineEndpoints
                     .ListById(connection.MachineId, new AdvancedEnumeratorParam<ulong>(EnumerationOrder.Ascending, sent,
                         KeyProposition.Excluded, 0, KeyProposition.Ignored))
                     .Select(entry => new CommandMessage(entry.Id,
-                        JsonSerializer.Deserialize(entry.Command, ProtocolJsonContext.Default.MachineCommand)!))
+                        JsonSerializer.Deserialize(entry.Command, ProtocolJsonContext.Default.MachineCommand)!, entry.IssuedAt))
                     .ToList();
             foreach (var command in pending)
             {

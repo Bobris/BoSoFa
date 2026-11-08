@@ -114,7 +114,7 @@ public sealed class Outbox : IDisposable
                 if (entry.Position <= position) continue;
                 bytes += EstimatedSize(entry.Record);
                 if (result.Count > 0 && (result.Count >= maximumCount || bytes > maximumBytes)) break;
-                result.Add(entry);
+                result.Add(entry with { Record = entry.Record with { Acked = _acked.GetValueOrDefault(entry.Record.SessionId) } });
             }
             return result;
         }
@@ -154,6 +154,13 @@ public sealed class Outbox : IDisposable
         }
     }
 
+    /// <summary>Drops what is still waiting for a session the server no longer has. Seqs keep counting, so they never
+    /// repeat.</summary>
+    public void Retire(ulong sessionId)
+    {
+        lock (_lock) Ack([new(sessionId, _last.GetValueOrDefault(sessionId))]);
+    }
+
     public void Dispose()
     {
         lock (_lock)
@@ -165,5 +172,5 @@ public sealed class Outbox : IDisposable
 }
 
 [JsonSerializable(typeof(Dictionary<ulong, long>))]
-[JsonSerializable(typeof(Dictionary<ulong, DateTime>))]
+[JsonSerializable(typeof(Dictionary<string, DateTime>))]
 internal sealed partial class OutboxJsonContext : JsonSerializerContext;

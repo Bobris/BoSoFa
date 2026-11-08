@@ -34,8 +34,9 @@ public sealed record PingMessage(long Sequence) : DaemonMessage;
 public sealed record PongMessage(long Sequence) : DaemonMessage;
 
 /// <summary>Server → daemon: a durable command from the machine's inbox. It is sent again after every reconnect until
-/// the daemon acknowledges it, so handling must be idempotent per <c>Id</c>.</summary>
-public sealed record CommandMessage(ulong Id, MachineCommand Command) : DaemonMessage;
+/// the daemon acknowledges it, so handling must be idempotent. A server restored from a backup allocates IDs again, so
+/// a command is identified by <c>Id</c> together with <c>IssuedAt</c>.</summary>
+public sealed record CommandMessage(ulong Id, MachineCommand Command, DateTime IssuedAt) : DaemonMessage;
 
 /// <summary>Daemon → server: these commands were applied; the server drops them from the inbox.</summary>
 public sealed record CommandAckMessage(ulong[] Ids) : DaemonMessage;
@@ -63,7 +64,9 @@ public sealed record TerminalOutputMessage(string TerminalId, long Offset, strin
 
 public sealed record TerminalExitedMessage(string TerminalId, int ExitCode) : DaemonMessage;
 
-public sealed record OutboxRecord(ulong SessionId, long Seq, SessionReport Report);
+/// <param name="Acked">When sent, the highest seq of this session the server had acknowledged. A server missing seqs
+/// below that lost them to a restore from a backup, and a gap above it is only a resend still on its way.</param>
+public sealed record OutboxRecord(ulong SessionId, long Seq, SessionReport Report, long Acked = 0);
 
 public sealed record OutboxAck(ulong SessionId, long Seq);
 

@@ -408,6 +408,15 @@ public sealed class DaemonReportsReceivedHandler(IDomainSignals signals) : IEven
                 if (session == null || session.MachineId != ev.MachineId) continue;
                 changed[session.Id] = session;
             }
+            // The daemon was told these seqs were stored and they are not: this server was restored from a backup, and
+            // waiting for them would freeze the session. (A session with no reports yet is a new one with a reused ID.)
+            if (record.Seq > session.LastReportSeq + 1 && record.Acked > session.LastReportSeq)
+            {
+                if (session.LastReportSeq > 0)
+                    Sessions.AppendItem(session, SessionItemKind.Notice, ev.When,
+                        "Part of this session was lost when the server was restored from a backup.");
+                session.LastReportSeq = record.Seq - 1;
+            }
             // In order and exactly once: duplicates from a resend are dropped, and so is anything after a gap,
             // which the daemon sends again because it is not acknowledged.
             if (record.Seq != session.LastReportSeq + 1) continue;

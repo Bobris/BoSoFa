@@ -586,7 +586,7 @@ Done when: 3 replicas run on a real AKS cluster over workload identity, and a ro
 3. **OpenTelemetry.** *Done, tested against a fake collector:* traces, metrics and logs over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; meter `BoSoFa.Server` adds connected daemons, leadership and applied events.
 4. **Image and chart.** *Done:* `deploy/Dockerfile` and `deploy/helm/bosofa` (StatefulSet, headless Service, one HTTP port, NetworkPolicy, optional Ingress). The runbook is [deploy-aks.md](deploy-aks.md). CI lints the chart and builds the image.
 5. **Staging.** *Done:* 3 replicas on AKS 1.36 behind internal ingress-nginx, a real daemon and sessions through the ingress, forwarded calls between pods, and a rolling upgrade from generation 1 to 2 with a schema change that kept the data. BTDB 36.5.2 limits peer connection attempts; before that, writes stalled over 2.5 minutes when the leading pod went away, and now they pause about 35 seconds. Caddy itself has not been tried.
-6. **Backups.** *Done, restore run on staging:* Azure point-in-time restore of the container returned the cluster to the chosen moment. Open: daemons drop commands whose IDs were reused after a restore (see the runbook).
+6. **Backups.** *Done, restore run on staging:* Azure point-in-time restore of the container returned the cluster to the chosen moment. Daemons keep working with a restored server: a command is identified by ID and issue time, and a report gap below what the server had acknowledged counts as lost history (`RestoreTest`).
 
 ## 10. Risks
 

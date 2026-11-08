@@ -240,7 +240,7 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
             await foreach (var command in Commands.Reader.ReadAllAsync(cancellation))
             {
                 if (_host == null) continue; // a link without sessions (tests) leaves commands in the inbox
-                try { await _host.ApplyAsync(command.Id, command.Command); }
+                try { await _host.ApplyAsync(command.Id, command.IssuedAt, command.Command); }
                 catch (Exception exception) when (exception is IOException or InvalidOperationException or JsonException)
                 {
                     _log.WriteLine($"Command {command.Id} failed: {exception.Message}");

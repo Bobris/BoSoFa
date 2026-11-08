@@ -106,9 +106,11 @@ Everything written after that time is gone, including machines enrolled and sess
 
 On staging a restore of a very small container took 37 minutes, so plan for a long outage whatever the size.
 
-### Known limit: daemons drop new commands after a restore
+### Daemons after a restore
 
-After a restore the server hands out IDs again that daemons have already seen, and a daemon discards a command whose ID is in its journal. On staging, new sessions stayed in `Starting` until the IDs passed the highest one from before the restore. Everything else was intact, and daemons reconnected by themselves.
+Daemons reconnect by themselves and keep working, even though the restored server hands out IDs they have already seen. A command counts as a duplicate only with the same ID and issue time.
+
+A session that existed at the restore point carries on, and its transcript gets a notice that part of it was lost. A session started after that moment no longer exists on the server. If the server later gives its ID to a new session, the daemon ends the old one and leaves any worktree in place.
 
 ## Telemetry
 

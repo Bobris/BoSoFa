@@ -39,6 +39,9 @@ public sealed class SessionState
 
     /// <summary>The session has a profile; its MCP servers and skills are fetched at each launch.</summary>
     public bool HasProfile { get; set; }
+
+    /// <summary>When the server issued this session's start; tells it from a later session with the same ID.</summary>
+    public DateTime StartIssuedAt { get; set; }
 }
 
 /// <summary>Fetches a harness account's secret for a session, just in time (plan §5.4.1).</summary>
@@ -234,9 +237,9 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     public HarnessInstaller Installer { get; }
 
     /// <summary>Applies one command. True when it was new (the caller acknowledges both cases).</summary>
-    public async Task<bool> ApplyAsync(ulong commandId, MachineCommand command)
+    public async Task<bool> ApplyAsync(ulong commandId, DateTime issuedAt, MachineCommand command)
     {
-        if (_journal.Contains(commandId)) return false;
+        if (_journal.Contains(commandId, issuedAt)) return false;
         if (command is UpdateDaemonCommand update)
         {
             // In the background: fetching the binary can take minutes, and other commands must not wait for it.
@@ -249,14 +252,14 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                     _log.WriteLine($"Update to {update.Version} failed: {exception.Message}");
                 }
             });
-            _journal.Add(commandId);
+            _journal.Add(commandId, issuedAt);
             return true;
         }
         if (command is InstallHarnessCommand install)
         {
             // In the background: a download can take minutes, and other commands must not wait for it.
             _ = Task.Run(() => Installer.InstallAsync(install, CancellationToken.None));
-            _journal.Add(commandId);
+            _journal.Add(commandId, issuedAt);
             return true;
         }
         IHarnessSession? session;
@@ -264,10 +267,11 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         switch (command)
         {
             case StartSessionCommand start:
-                if (session != null) break; // started before; the journal was lost
+                if (session?.State.StartIssuedAt == issuedAt) break; // started before; the journal was lost
+                if (session != null) await RetireAsync(session);
                 var state = new SessionState
                 {
-                    SessionId = start.SessionId, Harness = start.Harness, WorkingDirectory = start.WorkingDirectory,
+                    SessionId = start.SessionId, StartIssuedAt = issuedAt, Harness = start.Harness, WorkingDirectory = start.WorkingDirectory,
                     PermissionMode = start.PermissionMode, Model = start.Model, Status = SessionStatus.Starting,
                     AccountId = start.AccountId, HasProfile = start.HasProfile
                 };
@@ -293,8 +297,20 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                 if (session != null) await session.StopAsync();
                 break;
         }
-        _journal.Add(commandId);
+        _journal.Add(commandId, issuedAt);
         return true;
+    }
+
+    /// <summary>The server was restored from a backup and gave this session's ID to another one, so this session no longer
+    /// exists there.</summary>
+    async Task RetireAsync(IHarnessSession session)
+    {
+        var id = session.State.SessionId;
+        lock (_sessions) _sessions.Remove(id);
+        Mcp.CancelQuestions(id);
+        await session.DisposeAsync();
+        _outbox.Retire(id);
+        _log.WriteLine($"Session {id}: ended, because the restored server gave its ID to a new session.");
     }
 
     public void Report(ulong sessionId, SessionReport report)
@@ -317,6 +333,11 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         var repository = new GitWorkspace(state.WorkingDirectory);
         var path = Path.Combine(_dataDirectory, "worktrees", $"session-{state.SessionId}");
         var branch = GitWorkspace.BranchName(state.SessionId, prompt);
+        if (Directory.Exists(path)) // the ID was reused after a restore; the old worktree may hold someone's work
+        {
+            path += $"-{state.StartIssuedAt.Ticks}";
+            branch += $"-{state.StartIssuedAt.Ticks}";
+        }
         var error = !Directory.Exists(state.WorkingDirectory)
             ? $"The working directory {state.WorkingDirectory} does not exist on this machine."
             : !repository.IsRepository
@@ -397,24 +418,26 @@ sealed class CommandJournal(string path)
 {
     static readonly TimeSpan Retention = TimeSpan.FromDays(7);
 
-    readonly Dictionary<ulong, DateTime> _applied = File.Exists(path)
-        ? JsonSerializer.Deserialize(File.ReadAllText(path), OutboxJsonContext.Default.DictionaryUInt64DateTime) ?? []
+    readonly Dictionary<string, DateTime> _applied = File.Exists(path)
+        ? JsonSerializer.Deserialize(File.ReadAllText(path), OutboxJsonContext.Default.DictionaryStringDateTime) ?? []
         : [];
 
-    public bool Contains(ulong id)
+    static string Key(ulong id, DateTime issuedAt) => $"{id}@{issuedAt.Ticks}";
+
+    public bool Contains(ulong id, DateTime issuedAt)
     {
-        lock (_applied) return _applied.ContainsKey(id);
+        lock (_applied) return _applied.ContainsKey(Key(id, issuedAt));
     }
 
-    public void Add(ulong id)
+    public void Add(ulong id, DateTime issuedAt)
     {
         lock (_applied)
         {
             var now = DateTime.UtcNow;
-            _applied[id] = now;
+            _applied[Key(id, issuedAt)] = now;
             foreach (var old in _applied.Where(entry => now - entry.Value > Retention).Select(entry => entry.Key).ToList())
                 _applied.Remove(old);
-            File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(_applied, OutboxJsonContext.Default.DictionaryUInt64DateTime));
+            File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(_applied, OutboxJsonContext.Default.DictionaryStringDateTime));
             File.Move(path + ".tmp", path, true);
         }
     }
