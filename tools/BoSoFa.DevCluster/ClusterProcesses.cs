@@ -18,19 +18,19 @@ public sealed class NodeProcess : IAsyncDisposable
     bool _stopped;
 
     /// <param name="root">Each node keeps its data and log below it.</param>
-    /// <param name="mainPort">The port for clients; 0 picks a free one (so does <paramref name="peerPort"/>).</param>
-    public NodeProcess(string root, string nodeId, string azure, string container, int mainPort = 0, int peerPort = 0,
+    /// <param name="mainPort">The port for clients and peers alike; 0 picks a free one.</param>
+    public NodeProcess(string root, string nodeId, string azure, string container, int mainPort = 0,
         string environment = "Development")
     {
         NodeId = nodeId;
         MainUrl = new($"http://127.0.0.1:{(mainPort == 0 ? FreePort() : mainPort)}");
-        PeerUrl = $"http://127.0.0.1:{(peerPort == 0 ? FreePort() : peerPort)}";
+        PeerUrl = MainUrl.GetLeftPart(UriPartial.Authority);
         var data = Path.Combine(root, nodeId);
         Directory.CreateDirectory(data);
         _log = Path.Combine(root, nodeId + ".log");
         _arguments =
         [
-            ServerDll, "--urls", $"{MainUrl.GetLeftPart(UriPartial.Authority)};{PeerUrl}", "--environment", environment,
+            ServerDll, "--urls", PeerUrl, "--environment", environment,
             "--BoSoFa:DataDirectory", data, "--BoSoFa:DevLogin", "true", "--BoSoFa:FlushToDisk", "false",
             "--BoSoFa:WebRoot", Path.Combine(data, "no-web-root"), "--BoSoFa:Cluster:NodeId", nodeId,
             "--BoSoFa:Cluster:PeerUrl", PeerUrl, "--BoSoFa:Cluster:PeerKey", "test-peer-key",

@@ -30,6 +30,7 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 - Desktop: `pnpm --dir web build`, then `dotnet run --project src/BoSoFa.Desktop`. RPC changed: build it and commit `web/apps/desktop/neoastra/neoastra.ts`.
 - Service and updates: `bosofad install --dry-run` prints the service definition; `bosofad doctor` checks a machine. Releases are signed with
   `bosofad release-keygen` / `release-publish`; a build needs `-p:BoSoFaReleasePublicKey=<key>` to accept them.
+- AKS: `deploy/helm/bosofa` and `deploy/Dockerfile`; the runbook is [docs/deploy-aks.md](docs/deploy-aks.md). A change to persisted relations raises `Domain.ApplicationGeneration`.
 - API changed: `BOSOFA_UPDATE_CONTRACT=1 dotnet test tests/BoSoFa.Server.Tests --filter ContractTest`, then
   `pnpm --dir web gen:api`. CI fails when either `openapi.json` or `schema.d.ts` is stale.
 

@@ -40,7 +40,7 @@ public sealed class ClusterOptions
     /// <summary>This node's identity, unique and stable across restarts (a StatefulSet pod name).</summary>
     public string NodeId { get; set; } = "";
 
-    /// <summary>This node's peer origin as other nodes reach it, on its own port (HTTP only on loopback).</summary>
+    /// <summary>This node's origin as other nodes reach it, on the port it serves everything on (HTTP only on loopback).</summary>
     public string PeerUrl { get; set; } = "";
 
     /// <summary>Bearer key shared by the nodes for EventLog requests between them.</summary>

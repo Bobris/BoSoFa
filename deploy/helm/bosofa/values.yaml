@@ -1,0 +1,57 @@
+image:
+  repository: ""   # required
+  tag: ""          # defaults to the chart's appVersion
+  pullPolicy: IfNotPresent
+
+replicas: 3
+devLogin: false    # lets anyone sign in without a password; never on a reachable cluster
+
+# A Secret in the release's namespace with the key "peer-key" (shared bearer key of the nodes) and, with OIDC,
+# "oidc-client-secret".
+secretName: ""     # required
+
+azure:
+  serviceUri: ""   # required: https://<account>.blob.core.windows.net
+  container: bosofa
+  keyVaultKey: ""  # https://<vault>.vault.azure.net/keys/<name>; empty leaves the key ring unwrapped
+  clientId: ""     # required: the managed identity federated with this ServiceAccount
+
+oidc:
+  authority: ""
+  clientId: ""
+  displayName: Single sign-on
+
+# Pods serve plain HTTP on one port, for clients and for each other. A reverse proxy (Caddy, an ingress controller)
+# terminates TLS and must add X-Forwarded-For and X-Forwarded-Proto. Either enable this Ingress or point your proxy at
+# the Service on port 80.
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tlsSecretName: ""
+  # Sessions stream over WebSockets and long polls, and files go through the server. Defaults are for ingress-nginx
+  # and its AKS application routing; other controllers need their own equivalents.
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+
+networkPolicy:
+  enabled: true
+  # Namespaces of the reverse proxy; only it and the other nodes may reach the pods.
+  ingressNamespaces: [app-routing-system]
+
+otel:
+  endpoint: ""     # OTLP collector, for example http://otel-collector.monitoring:4318
+  protocol: http/protobuf
+
+terminationGracePeriodSeconds: 60
+cacheSizeLimit: 10Gi
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { memory: 2Gi }
+nodeSelector: {}
+tolerations: []
+extraEnv: []

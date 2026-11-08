@@ -14,17 +14,14 @@ namespace BoSoFa.Server.Live;
 /// <summary>
 /// Ephemeral deltas and terminal output between nodes (plan §4.2). Only the node holding a daemon's WebSocket receives them. Another
 /// node whose live clients watch one of that machine's sessions opens one streaming request to the owner,
-/// <c>GET /internal/live/machines/{id}</c> on the peer port, and fans what arrives out to its own subscribers. Deltas
+/// <c>GET /internal/live/machines/{id}</c> with the peer key, and fans what arrives out to its own subscribers. Deltas
 /// lost while switching owners are not recovered; the final items come through the event log anyway.
 /// </summary>
 public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options, ILogger<LiveRelay> logger)
     : IAsyncDisposable
 {
     public const string PathPrefix = "/internal/live/machines/";
-    static readonly HttpClient Http = new(new SocketsHttpHandler { PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1) })
-    {
-        Timeout = Timeout.InfiniteTimeSpan
-    };
+    static readonly HttpClient Http = PeerHttp.CreateClient();
 
     readonly LiveHub _hub = hub;
     readonly BtdbNode _node = node;

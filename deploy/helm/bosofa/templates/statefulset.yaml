@@ -1,0 +1,129 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "bosofa.name" . }}
+  labels: {{- include "bosofa.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "bosofa.peers" . }}
+  replicas: {{ .Values.replicas }}
+  # Nodes elect a leader among themselves; starting them one by one only delays that.
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels: {{- include "bosofa.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bosofa.labels" . | nindent 8 }}
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: {{ include "bosofa.name" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1654
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {{- include "bosofa.selector" . | nindent 14 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: server
+          image: "{{ required "image.repository is required" .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: BoSoFa__DataDirectory
+              value: /data
+            - name: BoSoFa__WebRoot
+              value: /app/wwwroot
+            - name: BoSoFa__TrustForwardedHeaders
+              value: "true"
+            - name: BoSoFa__DevLogin
+              value: {{ .Values.devLogin | quote }}
+            - name: BoSoFa__Cluster__NodeId
+              value: $(POD_NAME)
+            - name: BoSoFa__Cluster__PeerUrl
+              value: http://$(POD_NAME).{{ include "bosofa.peers" . }}.{{ .Release.Namespace }}.svc.cluster.local:8080
+            - name: BoSoFa__Cluster__PeerKey
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "secretName is required" .Values.secretName }}
+                  key: peer-key
+            - name: BoSoFa__Cluster__Azure__ServiceUri
+              value: {{ required "azure.serviceUri is required" .Values.azure.serviceUri | quote }}
+            - name: BoSoFa__Cluster__Azure__Container
+              value: {{ .Values.azure.container | quote }}
+            {{- with .Values.azure.keyVaultKey }}
+            - name: BoSoFa__Cluster__Azure__KeyVaultKey
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.oidc.authority }}
+            - name: BoSoFa__Oidc__Authority
+              value: {{ .Values.oidc.authority | quote }}
+            - name: BoSoFa__Oidc__ClientId
+              value: {{ required "oidc.clientId is required" .Values.oidc.clientId | quote }}
+            - name: BoSoFa__Oidc__DisplayName
+              value: {{ .Values.oidc.displayName | quote }}
+            - name: BoSoFa__Oidc__ClientSecret
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: oidc-client-secret
+            {{- end }}
+            {{- if .Values.otel.endpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: {{ .Values.otel.protocol | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # Kestrel starts listening after the database is restored, which takes as long as the history is big.
+          startupProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 5
+            failureThreshold: 180
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            periodSeconds: 3
+            timeoutSeconds: 3
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5  # lets the ingress stop routing here before connections are refused
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        # Blob storage is the source of truth; /data is a cache rebuilt on restart.
+        - name: data
+          emptyDir:
+            sizeLimit: {{ .Values.cacheSizeLimit }}
+        - name: tmp
+          emptyDir: {}

@@ -21,11 +21,10 @@ namespace BoSoFa.Server;
 public static class ServerApp
 {
     /// <summary>Single-node mode on local file-system storage, or a cluster node (<see cref="ServerOptions.Cluster"/>)
-    /// with peer endpoints on their own port. Storage is chosen by <see cref="NodeStorage"/>.</summary>
+    /// with peer endpoints on the same port as everything else. Storage is chosen by <see cref="NodeStorage"/>.</summary>
     public static WebApplication Build(string[] args, Action<WebApplicationBuilder>? configure = null)
     {
         var builder = WebApplication.CreateSlimBuilder(args);
-        builder.WebHost.UseKestrelHttpsConfiguration(); // the slim builder leaves out HTTPS endpoints from configuration
         configure?.Invoke(builder);
         var options = builder.Configuration.GetSection("BoSoFa").Get<ServerOptions>() ?? new ServerOptions();
         var data = Path.GetFullPath(options.DataDirectory, builder.Environment.ContentRootPath);
@@ -110,8 +109,8 @@ public static class ServerApp
         var app = builder.Build();
         app.Services.GetRequiredService<BtdbNode>().Attach(app.Services);
 
+        if (cluster != null) app.UsePeerRoutesOnlyFromPeers(); // before the forwarded headers are consumed
         if (options.TrustForwardedHeaders) app.UseForwardedHeaders();
-        if (cluster != null) app.UsePeerRoutesOnlyOnPeerPort(new Uri(cluster.PeerUrl).Port);
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
         app.UseCors(); // before authentication: a preflight carries no credentials
         app.UseAuthentication();
@@ -134,27 +133,26 @@ public static class ServerApp
         app.MapBlobEndpoints();
         if (cluster != null)
         {
-            // Peers reach each other on a separate port that the ingress never exposes.
-            var peerHost = $"*:{new Uri(cluster.PeerUrl).Port}";
-            app.MapBTDBReplication().RequireHost(peerHost);
-            app.MapBTDBEventLog().RequireHost(peerHost);
+            // Peers use the same port as everyone else; UsePeerRoutesOnlyFromPeers keeps proxied clients off these routes.
+            app.MapBTDBReplication();
+            app.MapBTDBEventLog();
             app.MapGet(LiveRelay.PathPrefix + "{machineId}",
-                (HttpContext http, ulong machineId, LiveRelay relay) => relay.ServeAsync(http, machineId)).RequireHost(peerHost);
+                (HttpContext http, ulong machineId, LiveRelay relay) => relay.ServeAsync(http, machineId));
             app.MapPost(MachineRpcClient.PathPrefix + "{machineId}/rpc",
-                (HttpContext http, ulong machineId, MachineRpcClient rpc) => rpc.ServeAsync(http, machineId)).RequireHost(peerHost);
+                (HttpContext http, ulong machineId, MachineRpcClient rpc) => rpc.ServeAsync(http, machineId));
             app.MapMethods(PollEndpoints.PeerPrefix + "{machineId}/{connection}/{action}", ["GET", "POST"],
                 (HttpContext http, ulong machineId, string connection, string action, PollEndpoints endpoints) =>
-                    endpoints.ServePeerAsync(http, machineId, connection, action)).RequireHost(peerHost);
+                    endpoints.ServePeerAsync(http, machineId, connection, action));
         }
         app.MapSpa(Path.GetFullPath(options.WebRoot, builder.Environment.ContentRootPath));
         return app;
     }
 
-    /// <summary><c>RequireHost</c> trusts the Host header, which a client of the public port chooses. The connection's
-    /// local port is the real boundary.</summary>
-    static void UsePeerRoutesOnlyOnPeerPort(this WebApplication app, int peerPort) => app.Use((http, next) =>
+    /// <summary>Nodes call each other directly, so a request that went through the ingress is never a peer's: the proxy
+    /// always adds X-Forwarded-For and a client cannot remove it. The peer key stays the actual authentication.</summary>
+    static void UsePeerRoutesOnlyFromPeers(this WebApplication app) => app.Use((http, next) =>
     {
-        if (http.Connection.LocalPort == peerPort ||
+        if (!http.Request.Headers.ContainsKey("X-Forwarded-For") ||
             !(http.Request.Path.StartsWithSegments("/internal") || http.Request.Path.StartsWithSegments("/_btdb")))
             return next(http);
         http.Response.StatusCode = StatusCodes.Status404NotFound;

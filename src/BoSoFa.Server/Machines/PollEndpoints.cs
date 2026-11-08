@@ -10,13 +10,13 @@ namespace BoSoFa.Server.Machines;
 
 /// <summary>
 /// The long-poll transport (plan §5.3). A channel lives on the node that opened it. Without sticky load balancing any
-/// request can land on another node, which forwards it on the peer port to the node named by the machine's presence.
+/// request can land on another node, which forwards it to the node named by the machine's presence.
 /// </summary>
 public sealed class PollEndpoints(LongPollChannels channels, DaemonPump pump, LiveRelay relay, BtdbNode node, TimeProvider time,
     IHostApplicationLifetime lifetime, ILogger<PollEndpoints> logger) : BackgroundService
 {
     public const string PeerPrefix = "/internal/poll/";
-    static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
+    static readonly HttpClient Http = PeerHttp.CreateClient();
 
     public async Task OpenAsync(HttpContext http)
     {

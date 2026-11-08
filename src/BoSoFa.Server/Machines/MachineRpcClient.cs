@@ -11,7 +11,7 @@ public sealed class MachineRpcClient(DaemonConnections connections, LiveRelay re
 {
     public const string PathPrefix = "/internal/machines/";
     static readonly RpcFailure Offline = new("The machine is offline.");
-    static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
+    static readonly HttpClient Http = PeerHttp.CreateClient();
 
     /// <summary>Transfers move whole files through the blob store; everything else should be instant.</summary>
     static TimeSpan TimeoutOf(MachineRpc request) =>

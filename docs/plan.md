@@ -109,7 +109,7 @@ Boundary rules, enforced by an architecture test:
 
 - The same binary runs in two modes:
   - **Single node (dev):** `AddBTDBReplicationSingleNode` + `AddBTDBEventLogSingleNode` with the `FileSystem*` storages under `./data`. No peer endpoints.
-  - **Cluster (AKS):** `AddBTDBReplication` + `AddBTDBEventLog` with `AzureLeaderStorage`, `AzureReplicationStorage` and `AzureEventLogStorage`, plus `MapBTDBReplication()` / `MapBTDBEventLog()`. Map these on a **separate internal port** with `RequireHost`, so ingress never exposes them.
+  - **Cluster (AKS):** `AddBTDBReplication` + `AddBTDBEventLog` with `AzureLeaderStorage`, `AzureReplicationStorage` and `AzureEventLogStorage`, plus `MapBTDBReplication()` / `MapBTDBEventLog()` on the one port the server listens on. Pods serve plain HTTP; a reverse proxy terminates TLS.
 - Run as a StatefulSet with a headless Service (`publishNotReadyAddresses: true`) for stable peer DNS. Blob is the source of truth and `/data` is a cache (`emptyDir`, or a small PVC for warm restarts). Use workload identity for Blob.
 - Domain state lives in **one `EventPublisher`** (a data topic plus a metadata topic). Handlers are `IEventHandler<TEvent[,TResult]>` with a synchronous `Validate` and a deterministic `Consume` that writes relations via `Ambient.Relation<T>()`, using `ev.When` and never the clock.
 - Commands go through `PublishAndWaitAsync`, which gives read-your-writes on the pod that publishes. Any pod may publish, because the event log forwards to the topic owner, so writes never need routing to a leader.
@@ -406,7 +406,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
 | **M4 MCP, skills, files, terminals** | BoSoFa MCP endpoint, managed MCP catalog + profiles, skill bundles, file upload/download + browser, attach/observe PTY terminals. | A profile pushes a new skill and an MCP server to a machine and a session uses them. |
 | **M5 Operations** | Service install on all 3 OSes, launcher + signed self-update + rollout channels, long-poll fallback, API tokens, audit UI. | Install on Windows/macOS/Linux, roll out a new daemon version remotely, roll back a broken one automatically. |
 | **M6 Desktop** | NeoAstra app, desktop auth flow, LocalDaemon RPC (install/enroll this machine), "Add Claude account" through `claude setup-token`, notifications, deep links. | Fresh machine: install the desktop, click "enable this machine", and run a session. |
-| **M7 AKS production** | Helm chart, workload identity, Key Vault Data Protection, private-CA TLS for peers, ingress tuning (no buffering, WebSocket idle timeouts), OpenTelemetry, backups. | Staging cluster, 3 replicas, a rolling upgrade with an `ApplicationGeneration` bump. |
+| **M7 AKS production** | Helm chart, workload identity, Key Vault Data Protection, one plain HTTP port behind a TLS-terminating reverse proxy (no buffering, WebSocket idle timeouts), OpenTelemetry, backups. | Staging cluster, 3 replicas, a rolling upgrade with an `ApplicationGeneration` bump. |
 | **M8 Cloud machines** | Provisioner interface + one implementation, ephemeral machines, label scheduling. | "Run on any linux machine" starts a pod and cleans up after it. |
 
 ### M0 outcomes (2026-11-08)
@@ -464,7 +464,7 @@ Done when: the M1 scenario passes while the leader node is killed. The nodes run
    - Leader-only work runs under `ReplicationLeadership.RunWhileLeaderAsync`.
 2. **Cluster configuration.** *Done:* `BoSoFa:Cluster:Azure` (connection string, container) puts the leader document, EventLog, database files and Data Protection key ring in one Blob container (`NodeStorage`). `ClusterTest` runs on shared files and on a private Azurite, which CI installs. Workload identity instead of a connection string comes in M7. A stopping follower waited 10 s for a presence exchange that could no longer happen; this is fixed in BTDB master and will be adopted with the next patch release.
    - `BoSoFa:Cluster` selects `AddBTDBReplication` + `AddBTDBEventLog` with `AzureLeaderStorage`, `AzureReplicationStorage` and `AzureEventLogStorage` (Azurite locally). A blob client without SDK retries handles authority.
-   - The peer endpoints (`MapBTDBReplication`, `MapBTDBEventLog`) go on a separate internal port with `RequireHost`.
+   - The peer endpoints (`MapBTDBReplication`, `MapBTDBEventLog`) share the main port (changed in M7).
    - The Data Protection key ring moves to Blob, so cookies and daemon tokens work on every node.
 3. **Presence.** *Done:*
    - `MachinePresence` (one row per machine: node, connection id, daemon version) answers "online" on every node.
@@ -474,7 +474,7 @@ Done when: the M1 scenario passes while the leader node is killed. The nodes run
    - A daemon's connection is recorded as data: `MachineConnected` and `MachineDisconnected` carry the node and a connection id. Every node can then answer "online", and send a command to the right place.
    - The leader drops connections of nodes that left `ReplicationPresence`.
 4. **Live relay.** *Done:*
-   - `LiveRelay`: the node holding a daemon streams that machine's deltas as JSON lines on `/internal/live/machines/{id}` (peer port, peer key).
+   - `LiveRelay`: the node holding a daemon streams that machine's deltas as JSON lines on `/internal/live/machines/{id}` (peer key).
    - A node whose live clients watch one of the machine's sessions follows the owner found through `MachinePresence.PeerUrl`, and switches when presence changes.
    - `ClusterTest` runs a replay session with the daemon on the leader and the browser on the follower.
    - A UI on node B that follows a session whose daemon is on node A gets A's deltas through one internal streaming request: `GET /internal/live/machines/{id}` on the peer port.
@@ -581,12 +581,12 @@ Done when: on a fresh machine, install the desktop, click "enable this machine",
 
 Done when: 3 replicas run on a real AKS cluster over workload identity, and a rolling upgrade with an `ApplicationGeneration` bump keeps the data. M6's step 5 (packaging and desktop touches) is postponed until after M7.
 
-1. **Server production settings.** *Done, tested:* `/health/live` and a `/health/ready` that waits for the event loop, forwarded headers behind the ingress (`BoSoFa:TrustForwardedHeaders`), peer routes refused on the public port whatever the Host header says, HTTPS endpoints from `Kestrel:Endpoints`. BTDB's peer clients cannot take a custom CA, so a private CA reaches them through the container's trust store (`SSL_CERT_DIR`).
-2. **Azure identity.** *Written, needs the staging run:* `BoSoFa:Cluster:Azure:ServiceUri` reaches Blob through workload identity and `KeyVaultKey` wraps the Data Protection key ring.
+1. **Server production settings.** *Done, tested:* `/health/live` and a `/health/ready` that waits for the event loop, forwarded headers behind the proxy (`BoSoFa:TrustForwardedHeaders`), and one port for clients and peers, plain HTTP, with TLS at a reverse proxy. Peer routes refuse any request carrying `X-Forwarded-For`. This needs a BTDB release that allows HTTP peer endpoints.
+2. **Azure identity.** *Done, run on AKS:* `BoSoFa:Cluster:Azure:ServiceUri` reaches Blob through workload identity, and `KeyVaultKey` wraps the Data Protection key ring (checked in the stored `keys.xml`).
 3. **OpenTelemetry.** *Done, tested against a fake collector:* traces, metrics and logs over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; meter `BoSoFa.Server` adds connected daemons, leadership and applied events.
-4. **Image and chart.** Container image, Helm chart (StatefulSet, headless Service, peer TLS, ingress tuned for WebSockets and streaming).
-5. **Staging.** A dedicated AKS cluster, 3 replicas, a rolling upgrade with a generation bump.
-6. **Backups.** A copy of the Blob container, and a tested restore.
+4. **Image and chart.** *Done:* `deploy/Dockerfile` and `deploy/helm/bosofa` (StatefulSet, headless Service, one HTTP port, NetworkPolicy, optional Ingress). The runbook is [deploy-aks.md](deploy-aks.md). CI lints the chart and builds the image.
+5. **Staging.** *Done, on a BTDB build patched to allow HTTP peers, not yet released:* 3 replicas on AKS 1.36 behind internal ingress-nginx, a real daemon and sessions through the ingress, forwarded calls between pods, and a rolling upgrade from generation 1 to 2 with a schema change that kept the data. Open: writes stall about 2.5 minutes when the leading pod goes away, because BTDB's peer clients have no connect timeout. Caddy itself has not been tried.
+6. **Backups.** *Done, restore run on staging:* Azure point-in-time restore of the container returned the cluster to the chosen moment. Open: daemons drop commands whose IDs were reused after a restore (see the runbook).
 
 ## 10. Risks
 

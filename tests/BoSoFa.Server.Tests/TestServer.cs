@@ -22,7 +22,6 @@ sealed class TestServer : IAsyncDisposable
     }
 
     public string DataDirectory { get; }
-    public int PeerPort => _peerUrl!.Port;
     public Uri BaseAddress { get; private set; } = null!;
     public BoSoFa.Server.Btdb.BtdbNode Node => _app.Services.GetRequiredService<BoSoFa.Server.Btdb.BtdbNode>();
     bool _running;
@@ -63,16 +62,12 @@ sealed class TestServer : IAsyncDisposable
     /// <summary>Starts again on the same port after <see cref="StopAsync"/>, so daemons find it where they left it.</summary>
     public async Task StartAppAsync()
     {
-        var main = BaseAddress == null ? "http://127.0.0.1:0" : BaseAddress.GetLeftPart(UriPartial.Authority);
-        var urls = _peerUrl == null ? main : $"{main};{_peerUrl.GetLeftPart(UriPartial.Authority)}";
+        var urls = BaseAddress?.GetLeftPart(UriPartial.Authority) ?? _peerUrl?.GetLeftPart(UriPartial.Authority) ?? "http://127.0.0.1:0";
         _app = ServerApp.Build(["--urls", urls, "--environment", "Development",
             "--BoSoFa:DataDirectory", DataDirectory, "--BoSoFa:DevLogin", "true", "--BoSoFa:FlushToDisk", "false",
             "--BoSoFa:WebRoot", Path.Combine(DataDirectory, "no-web-root"), .._extraArgs]);
         await _app.StartAsync();
-        var peerAuthority = _peerUrl?.GetLeftPart(UriPartial.Authority);
-        var address = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses
-            .First(a => peerAuthority == null || !a.StartsWith(peerAuthority, StringComparison.Ordinal));
-        BaseAddress = new(address);
+        BaseAddress = new(_app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First());
         _running = true;
     }
 

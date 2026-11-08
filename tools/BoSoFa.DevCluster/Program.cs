@@ -25,10 +25,9 @@ try
 {
     for (var n = 1; n <= nodes; n++)
     {
-        var node = new NodeProcess(dataDirectory, $"node-{n}", azurite.ConnectionString, "bosofa", port + 100 + n,
-            port + 200 + n);
+        var node = new NodeProcess(dataDirectory, $"node-{n}", azurite.ConnectionString, "bosofa", port + 100 + n);
         cluster.Add(node);
-        Console.WriteLine($"{node.NodeId}: {node.MainUrl} (peer {node.PeerUrl}), log {Path.Combine(dataDirectory, node.NodeId + ".log")}");
+        Console.WriteLine($"{node.NodeId}: {node.MainUrl}, log {Path.Combine(dataDirectory, node.NodeId + ".log")}");
         // The first node of a new cluster publishes its genesis; others restoring before that restart once.
         if (n == 1) await Task.Delay(TimeSpan.FromSeconds(3));
     }

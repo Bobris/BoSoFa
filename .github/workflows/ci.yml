@@ -28,6 +28,18 @@ jobs:
       # A hung test fails after 3 minutes and is named in the log.
       - run: dotnet test BoSoFa.slnx -c Release --no-build --blame-hang-timeout 3m --blame-hang-dump-type none --logger "console;verbosity=normal"
 
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Helm chart renders
+        run: |
+          helm lint deploy/helm/bosofa --strict \
+            --set image.repository=r,secretName=s,azure.serviceUri=https://a.blob.core.windows.net,azure.clientId=c \
+            --set ingress.enabled=true,ingress.host=h
+      - name: Server image builds
+        run: docker build -f deploy/Dockerfile -t bosofa-server:ci .
+
   daemon-aot:
     strategy:
       fail-fast: false

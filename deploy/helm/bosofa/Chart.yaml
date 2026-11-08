@@ -1,0 +1,7 @@
+apiVersion: v2
+name: bosofa
+description: BoSoFa server as a replicated StatefulSet over Azure Blob storage
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.33.0-0"

@@ -1,8 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using BoSoFa.Protocol;
 using Xunit;
 
@@ -44,50 +42,20 @@ public class ProductionHostingTest
         Assert.Contains("secure", await CookieAsync("--BoSoFa:TrustForwardedHeaders", "true"));
     }
 
-    [Fact]
-    public async Task PeerRoutesIgnoreAPeerPortInTheHostHeaderOnThePublicPort()
+    [Theory]
+    [InlineData("/internal/machines/1/rpc")]
+    [InlineData("/_btdb/replication")]
+    public async Task PeerRoutesShareThePortButNotWithProxiedClients(string path)
     {
-        var root = TempDirectory();
-        await using var node = await TestServer.StartClusterNodeAsync(root, "node-1");
+        await using var node = await TestServer.StartClusterNodeAsync(TempDirectory(), "node-1");
         await node.Node.Ready;
         using var client = node.Client();
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/machines/1/rpc");
-        request.Headers.Host = $"localhost:{node.PeerPort}";
-        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(request)).StatusCode);
 
-        using var peer = new HttpClient { BaseAddress = new($"http://127.0.0.1:{node.PeerPort}") };
-        Assert.Equal(HttpStatusCode.Unauthorized, (await peer.PostAsync("/internal/machines/1/rpc", null)).StatusCode);
-    }
-
-    [Fact]
-    public async Task AnEndpointFromConfigurationServesHttps()
-    {
-        var directory = TempDirectory();
-        Directory.CreateDirectory(directory);
-        using var key = RSA.Create(2048);
-        var certificateRequest = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        using var certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
-        var certificatePath = Path.Combine(directory, "tls.crt");
-        var keyPath = Path.Combine(directory, "tls.key");
-        await File.WriteAllTextAsync(certificatePath, certificate.ExportCertificatePem());
-        await File.WriteAllTextAsync(keyPath, key.ExportPkcs8PrivateKeyPem());
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-
-        await using var server = await TestServer.StartAsync(extraArgs:
-        [
-            "--Kestrel:Endpoints:Peer:Url", $"https://127.0.0.1:{port}",
-            "--Kestrel:Endpoints:Peer:Certificate:Path", certificatePath,
-            "--Kestrel:Endpoints:Peer:Certificate:KeyPath", keyPath
-        ]);
-        using var handler = new HttpClientHandler
-        {
-            ServerCertificateCustomValidationCallback = (_, presented, _, _) => presented!.Thumbprint == certificate.Thumbprint
-        };
-        using var client = new HttpClient(handler);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"https://127.0.0.1:{port}/health/live")).StatusCode);
+        // A peer calls directly and still needs the key; through the ingress the route does not exist.
+        Assert.NotEqual(HttpStatusCode.NotFound, (await client.PostAsync(path, null)).StatusCode);
+        using var proxied = new HttpRequestMessage(HttpMethod.Post, path);
+        proxied.Headers.Add("X-Forwarded-For", "203.0.113.9");
+        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(proxied)).StatusCode);
     }
 
     [Theory]
