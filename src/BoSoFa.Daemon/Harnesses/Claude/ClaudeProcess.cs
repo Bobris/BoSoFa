@@ -42,15 +42,6 @@ public interface IClaudeTransport : IAsyncDisposable
 /// </summary>
 public sealed class ClaudeProcess : IClaudeTransport
 {
-    /// <summary>Variables passed through from the daemon; everything else is dropped. API keys are not passed: `-p`
-    /// would bill a key it finds silently, so keys come with account profiles (plan §5.4).</summary>
-    static readonly string[] PassThrough =
-    [
-        "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "PATH", "LANG", "LC_ALL", "TERM",
-        "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SystemRoot", "SystemDrive", "ComSpec", "PATHEXT", "TEMP", "TMP",
-        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "CLAUDE_CONFIG_DIR", "ANTHROPIC_BASE_URL"
-    ];
-
     readonly Process _process;
     readonly Stream _stdin;
     readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -108,9 +99,9 @@ public sealed class ClaudeProcess : IClaudeTransport
         };
         foreach (var argument in Arguments(launch)) start.ArgumentList.Add(argument);
         start.Environment.Clear();
-        foreach (var name in PassThrough)
-            if (Environment.GetEnvironmentVariable(name) is { } value)
-                start.Environment[name] = value;
+        // API keys are not passed: `-p` would bill a key it finds silently, so keys come with harness accounts.
+        foreach (var (name, value) in HarnessEnvironment.Clean("CLAUDE_CONFIG_DIR", "ANTHROPIC_BASE_URL"))
+            start.Environment[name] = value;
         start.Environment["CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"] = "1";
         start.Environment["CLAUDE_CODE_STARTUP_FAILURE_RESULTS"] = "1";
         start.Environment["CLAUDE_AGENT_SDK_CLIENT_APP"] = $"bosofa/{Cli.Version}";
@@ -122,14 +113,9 @@ public sealed class ClaudeProcess : IClaudeTransport
     /// <summary>The configured executable, else <c>claude</c> on the PATH or in the native installer's folder.</summary>
     public static string? FindExecutable(string? configured)
     {
-        if (configured != null) return File.Exists(configured) ? Path.GetFullPath(configured) : null;
-        var names = OperatingSystem.IsWindows() ? new[] { "claude.exe" } : ["claude"];
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var directories = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
-            .Append(Path.Combine(home, ".local", "bin")).Append(Path.Combine(home, ".claude", "local"));
-        return directories.Where(directory => directory.Length > 0)
-            .SelectMany(directory => names.Select(name => Path.Combine(directory, name)))
-            .FirstOrDefault(File.Exists);
+        return HarnessEnvironment.FindExecutable(configured, OperatingSystem.IsWindows() ? ["claude.exe"] : ["claude"],
+            Path.Combine(home, ".local", "bin"), Path.Combine(home, ".claude", "local"));
     }
 
     async Task SendAsync<T>(T value, JsonTypeInfo<T> typeInfo)

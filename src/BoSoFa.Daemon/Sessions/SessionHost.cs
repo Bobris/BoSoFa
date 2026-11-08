@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BoSoFa.Daemon.Harnesses;
 using BoSoFa.Daemon.Harnesses.Claude;
+using BoSoFa.Daemon.Harnesses.Codex;
 using BoSoFa.Protocol;
 using HarnessNames = BoSoFa.Protocol.Harnesses;
 
@@ -35,7 +37,7 @@ public interface IAccountLeaser
 }
 
 public sealed record HarnessOptions(string? ClaudeExecutable = null, string? ReplayFixture = null,
-    IAccountLeaser? Accounts = null);
+    IAccountLeaser? Accounts = null, string? CodexExecutable = null);
 
 /// <summary>
 /// Applies the server's commands to the sessions of this machine. Commands are idempotent per ID (the journal), and
@@ -58,7 +60,8 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
 
     public SessionHost(string dataDirectory, Outbox outbox, HarnessOptions options, TextWriter log)
     {
-        _dataDirectory = dataDirectory;
+        // Absolute: harnesses run in the session's working directory, so a relative profile path would point nowhere.
+        _dataDirectory = Path.GetFullPath(dataDirectory);
         _directory = Path.Combine(dataDirectory, "sessions");
         Directory.CreateDirectory(_directory);
         _outbox = outbox;
@@ -82,7 +85,40 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     }
 
     /// <summary>The harness implementation of a session; Claude Code and its replay share the Claude adapter.</summary>
-    IHarnessSession Create(SessionState state) => new ClaudeSession(state, this, Launch(state), _log);
+    IHarnessSession Create(SessionState state) => state.Harness == HarnessNames.Codex
+        ? new CodexSession(state, this, () => LaunchCodexAsync(state), _log)
+        : new ClaudeSession(state, this, Launch(state), _log);
+
+    /// <summary>A profile folder per account (or one for the machine's own sign-in), never the user's ~/.codex. Tokens
+    /// are kept in a file there, so a background service does not depend on the keychain.</summary>
+    async Task<CodexLaunch> LaunchCodexAsync(SessionState state)
+    {
+        var executable = HarnessEnvironment.FindExecutable(_options.CodexExecutable,
+                             OperatingSystem.IsWindows() ? ["codex.exe"] : ["codex"], "/opt/homebrew/bin", "/usr/local/bin") ??
+                         throw new FileNotFoundException("The codex executable was not found on this machine.");
+        string? apiKey = null;
+        if (state.AccountId is { } accountId)
+        {
+            if (_options.Accounts is not { } accounts) throw new InvalidOperationException("This daemon cannot lease harness accounts.");
+            apiKey = (await accounts.LeaseAsync(accountId, state.SessionId, CancellationToken.None)).Secret;
+        }
+        var home = Path.Combine(_dataDirectory, "profiles", state.AccountId is { } id ? $"account-{id}" : "machine", "codex");
+        Directory.CreateDirectory(home);
+        await File.WriteAllTextAsync(Path.Combine(home, "config.toml"), CodexConfig);
+        var environment = HarnessEnvironment.Clean();
+        environment["CODEX_HOME"] = home;
+        return new(JsonRpcProcess.Start(executable, ["app-server"], state.WorkingDirectory,
+            environment, includeVersion: false), apiKey);
+    }
+
+    const string CodexConfig = """
+        cli_auth_credentials_store = "file"
+        mcp_oauth_credentials_store = "file"
+        check_for_update_on_startup = false
+        analytics = { enabled = false }
+        feedback = { enabled = false }
+
+        """;
 
     Func<ClaudeLaunch, Task<IClaudeTransport>> Launch(SessionState state) => state.Harness switch
     {

@@ -118,6 +118,7 @@ export default function NewSession() {
               <span class="text-sm text-muted">Harness</span>
               <select class={field} value={harness()} onChange={(event) => setHarness(event.currentTarget.value)}>
                 <option value="claude">Claude Code</option>
+                <option value="codex">Codex</option>
                 <option value="replay">Replay (recorded transcript)</option>
               </select>
             </label>

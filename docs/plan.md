@@ -512,7 +512,11 @@ Done when: the same project runs on Claude, Codex and Gemini, with diffs per run
    - `AccountTest` checks that the plain secret appears nowhere in the server's files.
    - A `HarnessAccount` relation (§5.4.1) with secrets encrypted by Data Protection, and the lease endpoint for daemons.
    - Pasted Claude tokens and API keys from the UI, injected only into the child's environment, with a per-account `CLAUDE_CONFIG_DIR`.
-3. **Codex adapter.**
+3. **Codex adapter.** *Done, except a full turn on the real CLI, which needs a person to sign in:*
+   - `CodexSession` drives `codex app-server` (no `--session-source` flag on the released CLI, no `jsonrpc` field).
+   - Native `turn/steer`; queued messages are held until `turn/completed`.
+   - Signing in shows a device code in the transcript and the session continues afterwards.
+   - `CodexSessionTest` plays the protocol against a fake server. The AOT daemon with Codex 0.167 was checked up to the device code.
    - `codex app-server` over stdio JSON-RPC (`thread/*`, `turn/start|steer|interrupt`, approvals), with types generated from `codex app-server generate-json-schema`.
    - Per-profile `CODEX_HOME` with `cli_auth_credentials_store = "file"`, and device-code sign-in started from the UI.
 4. **ACP adapter.** ACP JSON-RPC over stdio, verified with OpenCode; Gemini CLI uses the same adapter.

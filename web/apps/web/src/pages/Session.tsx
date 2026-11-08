@@ -32,6 +32,19 @@ function runSummary(item: SessionItem): string {
   return parts.join(" · ");
 }
 
+/** A device-code sign-in notice carries its link and code as data. */
+function signIn(item: SessionItem): { verificationUrl: string; userCode: string } | undefined {
+  try {
+    const data = JSON.parse(item.data ?? "null") as { verificationUrl?: string; userCode?: string } | null;
+    // Only ever an https link: the data comes from the daemon.
+    if (data?.verificationUrl?.startsWith("https://") && data.userCode)
+      return { verificationUrl: data.verificationUrl, userCode: data.userCode };
+  } catch {
+    /* an ordinary notice */
+  }
+  return undefined;
+}
+
 function Item(props: { item: SessionItem }) {
   return (
     <Switch>
@@ -71,6 +84,19 @@ function Item(props: { item: SessionItem }) {
       </Match>
       <Match when={props.item.kind === "RunEnded"}>
         <p class={["text-xs", props.item.isError ? "text-red-600" : "text-muted"]}>{runSummary(props.item)}</p>
+      </Match>
+      <Match when={props.item.kind === "Notice" && signIn(props.item)}>
+        {(login) => (
+          <div class="rounded-lg border border-amber-500/50 bg-amber-500/5 p-3 text-sm">
+            <p>Sign in to Codex on this machine. The session continues afterwards.</p>
+            <p class="mt-2">
+              <a class="text-accent underline" href={login().verificationUrl} target="_blank" rel="noreferrer">
+                {login().verificationUrl}
+              </a>{" "}
+              and enter <code class="font-mono font-semibold">{login().userCode}</code>
+            </p>
+          </div>
+        )}
       </Match>
       <Match when={props.item.kind === "Notice"}>
         <p class={["text-sm", props.item.isError ? "text-red-600" : "text-muted"]}>{props.item.text}</p>
