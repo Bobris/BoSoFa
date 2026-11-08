@@ -473,7 +473,10 @@ Done when: the M1 scenario passes while the leader node is killed. The nodes run
    - Gotcha: a node that restores while a new cluster's genesis is still being published is asked to restart, so local multi-node runs need a supervisor (step 5).
    - A daemon's connection is recorded as data: `MachineConnected` and `MachineDisconnected` carry the node and a connection id. Every node can then answer "online", and send a command to the right place.
    - The leader drops connections of nodes that left `ReplicationPresence`.
-4. **Live relay.**
+4. **Live relay.** *Done:*
+   - `LiveRelay`: the node holding a daemon streams that machine's deltas as JSON lines on `/internal/live/machines/{id}` (peer port, peer key).
+   - A node whose live clients watch one of the machine's sessions follows the owner found through `MachinePresence.PeerUrl`, and switches when presence changes.
+   - `ClusterTest` runs a replay session with the daemon on the leader and the browser on the follower.
    - A UI on node B that follows a session whose daemon is on node A gets A's deltas through one internal streaming request: `GET /internal/live/machines/{id}` on the peer port.
    - Persisted items already reach every node through the event log.
 5. **Local cluster and failover test.**

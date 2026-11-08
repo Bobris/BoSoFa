@@ -133,7 +133,8 @@ public static class SessionEndpoints
 
     /// <summary>The UI's live connection: subscribe to sessions, receive their missing items and pending requests
     /// whenever they change, plus ephemeral deltas.</summary>
-    static async Task LiveAsync(HttpContext http, BtdbNode node, LiveHub hub, IHostApplicationLifetime lifetime)
+    static async Task LiveAsync(HttpContext http, BtdbNode node, LiveHub hub, LiveRelay relay,
+        IHostApplicationLifetime lifetime)
     {
         if (!http.WebSockets.IsWebSocketRequest)
         {
@@ -146,18 +147,33 @@ public static class SessionEndpoints
         // Upgraded connections end with the host (see MachineEndpoints.ConnectAsync); clients reconnect with a cursor.
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, lifetime.ApplicationStopping);
         var sending = SendLiveAsync(socket, publisher, subscriber, stop.Token);
+        // Deltas of a session reach this node only while it follows the session's machine (LiveRelay).
+        var relays = new Dictionary<ulong, IDisposable>();
         try
         {
             while (await ReceiveAsync(socket, stop.Token) is { } message)
                 switch (message)
                 {
-                    case LiveSubscribe subscribe: subscriber.Subscribe(subscribe.SessionId, subscribe.AfterSeq); break;
-                    case LiveUnsubscribe unsubscribe: subscriber.Unsubscribe(unsubscribe.SessionId); break;
+                    case LiveSubscribe subscribe:
+                        if (!relays.ContainsKey(subscribe.SessionId))
+                        {
+                            ulong? machineId;
+                            using (publisher.StartQuery())
+                                machineId = Ambient.Relation<ISessionTable>().FindByIdOrDefault(subscribe.SessionId)?.MachineId;
+                            if (machineId is { } machine) relays[subscribe.SessionId] = relay.Follow(machine);
+                        }
+                        subscriber.Subscribe(subscribe.SessionId, subscribe.AfterSeq);
+                        break;
+                    case LiveUnsubscribe unsubscribe:
+                        subscriber.Unsubscribe(unsubscribe.SessionId);
+                        if (relays.Remove(unsubscribe.SessionId, out var lease)) lease.Dispose();
+                        break;
                 }
         }
         catch (Exception exception) when (exception is WebSocketException or OperationCanceledException or JsonException) { }
         finally
         {
+            foreach (var lease in relays.Values) lease.Dispose();
             hub.Leave(subscriber);
             await stop.CancelAsync();
             try { await sending; }

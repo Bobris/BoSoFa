@@ -156,6 +156,9 @@ public class MachinePresence
     /// <summary>Unique per connection, so a late disconnect of an older connection removes nothing.</summary>
     public string ConnectionId { get; set; } = "";
 
+    /// <summary>Where other nodes reach the holding node for its live deltas; empty in single-node mode.</summary>
+    public string PeerUrl { get; set; } = "";
+
     public string DaemonVersion { get; set; } = "";
     public string HostName { get; set; } = "";
     public DateTime ConnectedAt { get; set; }
@@ -173,6 +176,7 @@ public class MachineConnected : PureEvent
     public ulong MachineId { get; set; }
     public string NodeId { get; set; } = "";
     public string ConnectionId { get; set; } = "";
+    public string PeerUrl { get; set; } = "";
     public string DaemonVersion { get; set; } = "";
     public string HostName { get; set; } = "";
 }
@@ -203,7 +207,7 @@ public sealed class MachineConnectedHandler(IDomainSignals signals) : IEventHand
         if (Ambient.Relation<IMachineTable>().FindByIdOrDefault(ev.MachineId) == null) return;
         Ambient.Relation<IMachinePresenceTable>().Upsert(new()
         {
-            MachineId = ev.MachineId, NodeId = ev.NodeId, ConnectionId = ev.ConnectionId,
+            MachineId = ev.MachineId, NodeId = ev.NodeId, ConnectionId = ev.ConnectionId, PeerUrl = ev.PeerUrl,
             DaemonVersion = ev.DaemonVersion, HostName = ev.HostName, ConnectedAt = ev.When
         });
         var (machineId, connectionId) = (ev.MachineId, ev.ConnectionId);

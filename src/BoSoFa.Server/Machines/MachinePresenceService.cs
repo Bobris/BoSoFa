@@ -21,6 +21,9 @@ public sealed class MachinePresenceService(BtdbNode node, BtdbNodeOptions option
 
     public string NodeId => options.NodeId;
 
+    /// <summary>This node's peer URL as other nodes reach it; empty in single-node mode.</summary>
+    public string PeerUrl => Uri.TryCreate(options.Endpoint, UriKind.Absolute, out _) ? options.Endpoint : "";
+
     protected override async Task ExecuteAsync(CancellationToken stopping)
     {
         try

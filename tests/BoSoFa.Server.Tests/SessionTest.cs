@@ -11,6 +11,11 @@ using Xunit.Abstractions;
 
 namespace BoSoFa.Server.Tests;
 
+/// <summary>Shares the replay transport's static signals with <see cref="ClusterTest"/>, so they never run in parallel.</summary>
+[CollectionDefinition("Replay")]
+public sealed class ReplayCollection;
+
+[Collection("Replay")]
 public class SessionTest(ITestOutputHelper output)
 {
     readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
@@ -18,7 +23,7 @@ public class SessionTest(ITestOutputHelper output)
     void Step(string name) => output.WriteLine($"{_clock.Elapsed.TotalSeconds,6:0.0} s  {name}");
 
     static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
-    static readonly string Fixture = Path.Combine(AppContext.BaseDirectory, "fixtures", "claude", "write-file.jsonl");
+    internal static readonly string Fixture = Path.Combine(AppContext.BaseDirectory, "fixtures", "claude", "write-file.jsonl");
 
     static async Task<T> Eventually<T>(Func<Task<T>> probe, Func<T, bool> done)
     {
@@ -32,7 +37,7 @@ public class SessionTest(ITestOutputHelper output)
     }
 
     /// <summary>Enrolls a machine for the signed-in client through the API, as <c>bosofad enroll</c> does.</summary>
-    static async Task<DaemonState> EnrollAsync(TestServer server, HttpClient owner, string dataDirectory)
+    internal static async Task<DaemonState> EnrollAsync(TestServer server, HttpClient owner, string dataDirectory)
     {
         var store = new DaemonStore(dataDirectory);
         using var key = store.LoadOrCreateKey();
@@ -161,7 +166,7 @@ public class SessionTest(ITestOutputHelper output)
         catch (Exception) { /* aborted */ }
     }
 
-    static async Task ListenAsync(WebSocket socket, ConcurrentQueue<LiveServerMessage> messages)
+    internal static async Task ListenAsync(WebSocket socket, ConcurrentQueue<LiveServerMessage> messages)
     {
         var buffer = new byte[1024 * 1024];
         while (true)

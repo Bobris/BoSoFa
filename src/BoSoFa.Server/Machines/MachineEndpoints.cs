@@ -149,7 +149,7 @@ public static class MachineEndpoints
     /// <summary>The daemon's WebSocket: hello/welcome, then every unacknowledged inbox command (and new ones as they
     /// are issued), outbox batches with their acknowledgements, deltas, and keepalive.</summary>
     static async Task ConnectAsync(HttpContext http, DaemonConnections connections, BtdbNode node, LiveHub hub,
-        MachinePresenceService presence, TimeProvider time, ILoggerFactory loggers, IHostApplicationLifetime lifetime)
+        MachinePresenceService presence, LiveRelay relay, TimeProvider time, ILoggerFactory loggers, IHostApplicationLifetime lifetime)
     {
         if (!http.WebSockets.IsWebSocketRequest)
         {
@@ -182,7 +182,7 @@ public static class MachineEndpoints
         // Recorded as data, so every node knows the machine is online here; a newer connection elsewhere closes this one.
         await publisher.PublishAsync(new MachineConnected
         {
-            MachineId = machineId, NodeId = presence.NodeId, ConnectionId = connection.ConnectionId,
+            MachineId = machineId, NodeId = presence.NodeId, ConnectionId = connection.ConnectionId, PeerUrl = presence.PeerUrl,
             DaemonVersion = hello.DaemonVersion, HostName = hello.HostName
         }, cancellation);
         connection.Registered = true;
@@ -209,7 +209,11 @@ public static class MachineEndpoints
                         break;
                     case DeltaMessage delta:
                         if (SessionBelongsTo(publisher, delta.SessionId, machineId))
-                            hub.Delta(new LiveDelta(delta.SessionId, delta.Ref, delta.Text));
+                        {
+                            var live = new LiveDelta(delta.SessionId, delta.Ref, delta.Text);
+                            hub.Delta(live);
+                            relay.Publish(machineId, live); // to nodes whose clients watch this machine's sessions
+                        }
                         break;
                 }
         }

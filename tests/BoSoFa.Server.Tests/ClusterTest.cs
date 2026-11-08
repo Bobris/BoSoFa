@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace BoSoFa.Server.Tests;
 
 /// <summary>Several nodes in one process (plan M2), over shared file-system storage or Azurite.</summary>
+[Collection("Replay")]
 public class ClusterTest(Azurite azurite, ITestOutputHelper output) : IClassFixture<Azurite>
 {
     readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
@@ -131,6 +132,76 @@ public class ClusterTest(Azurite azurite, ITestOutputHelper output) : IClassFixt
         }
         finally
         {
+            try { Directory.Delete(root, true); }
+            catch (IOException) { }
+        }
+    }
+
+    /// <summary>The daemon holds its WebSocket on the leader; a browser follows the session on the follower and still
+    /// sees streamed text (relayed between nodes), the approval, and the final items.</summary>
+    [Fact]
+    public async Task LiveDeltasReachAClientOnAnotherNode()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "bosofa-cluster-" + Guid.NewGuid().ToString("N"));
+        BoSoFa.Daemon.Harnesses.Claude.ReplayTransport.SignalTimeoutOverride = TimeSpan.Zero; // no pause after the tool
+        try
+        {
+            await using var first = await TestServer.StartClusterNodeAsync(root, "node-1");
+            var cookies = new CookieContainer();
+            using var boris = first.Client(cookies);
+            (await boris.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("boris@example.com", "Boris")))
+                .EnsureSuccessStatusCode();
+            await using var second = await TestServer.StartClusterNodeAsync(root, "node-2");
+            using var onSecond = second.Client(cookies);
+
+            var daemonDirectory = Path.Combine(root, "daemon");
+            var state = await SessionTest.EnrollAsync(first, boris, daemonDirectory);
+            var work = Directory.CreateDirectory(Path.Combine(root, "work")).FullName;
+            using var key = new BoSoFa.Daemon.DaemonStore(daemonDirectory).LoadOrCreateKey();
+            using var outbox = new BoSoFa.Daemon.Outbox(Path.Combine(daemonDirectory, "outbox"));
+            await using var host = new BoSoFa.Daemon.Sessions.SessionHost(daemonDirectory, outbox,
+                new(ReplayFixture: SessionTest.Fixture), TextWriter.Null);
+            using var stop = new CancellationTokenSource();
+            var running = new BoSoFa.Daemon.DaemonLink(state, key, TextWriter.Null, outbox, host).RunAsync(stop.Token);
+            await Eventually(() => onSecond.GetFromJsonAsync<MachineDto[]>("/api/v1/machines")!, m => m!.Single().Online);
+            Step("daemon connected to the leader");
+
+            var session = (await (await onSecond.PostAsJsonAsync("/api/v1/sessions",
+                new CreateSessionRequest(state.MachineId, Harnesses.Replay, work, "Create hello.txt", null, null)))
+                .Content.ReadFromJsonAsync<SessionDto>())!;
+            var live = new System.Collections.Concurrent.ConcurrentQueue<LiveServerMessage>();
+            using var socket = new System.Net.WebSockets.ClientWebSocket();
+            socket.Options.Cookies = cookies;
+            await socket.ConnectAsync(new UriBuilder(second.BaseAddress) { Scheme = "ws", Path = LiveSocket.Path }.Uri, default);
+            await socket.SendAsync(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes<LiveClientMessage>(
+                    new LiveSubscribe(session.Id, 0), ProtocolJsonContext.Default.LiveClientMessage),
+                System.Net.WebSockets.WebSocketMessageType.Text, true, default);
+            var listening = SessionTest.ListenAsync(socket, live);
+
+            var waiting = await Eventually(() => Task.FromResult(live.ToArray()),
+                messages => messages.OfType<LiveSessionUpdate>().Any(update => update.Requests.Length == 1));
+            Assert.Contains(waiting, message => message is LiveDelta { Ref: "msg_01Replay:0" });
+            Step("deltas and the approval reached the follower's client");
+
+            var request = waiting.OfType<LiveSessionUpdate>().Last(update => update.Requests.Length == 1).Requests[0];
+            (await onSecond.PostAsJsonAsync($"/api/v1/sessions/{session.Id}/requests/{request.Id}/answer",
+                new AnswerRuntimeRequest(true, null))).EnsureSuccessStatusCode();
+            var done = await Eventually(() => Task.FromResult(live.ToArray()), messages => messages.OfType<LiveSessionUpdate>()
+                .SelectMany(update => update.Items).Any(item => item.Kind == SessionItemKind.RunEnded));
+            var items = done.OfType<LiveSessionUpdate>().SelectMany(update => update.Items).ToList();
+            Assert.Equal(Enumerable.Range(1, items.Count).Select(seq => (long)seq), items.Select(item => item.Seq));
+            Assert.Contains(done, message => message is LiveDelta { Ref: "msg_02Replay:0" });
+            Step("the turn finished, streamed on the follower");
+
+            await stop.CancelAsync();
+            await running.WaitAsync(Timeout);
+            socket.Abort();
+            try { await listening; }
+            catch (Exception) { /* aborted */ }
+        }
+        finally
+        {
+            BoSoFa.Daemon.Harnesses.Claude.ReplayTransport.SignalTimeoutOverride = null;
             try { Directory.Delete(root, true); }
             catch (IOException) { }
         }

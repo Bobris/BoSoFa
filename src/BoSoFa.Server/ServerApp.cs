@@ -47,6 +47,7 @@ public static class ServerApp
         builder.Services.AddSingleton<DaemonTokens>();
         builder.Services.AddSingleton<DaemonConnections>();
         builder.Services.AddSingleton<LiveHub>();
+        builder.Services.AddSingleton<LiveRelay>();
         builder.Services.AddSingleton<IDomainSignals, DomainSignals>();
 
         // BTDB: one replicated database plus the EventLog (see NodeStorage).
@@ -97,6 +98,8 @@ public static class ServerApp
             var peerHost = $"*:{new Uri(cluster.PeerUrl).Port}";
             app.MapBTDBReplication().RequireHost(peerHost);
             app.MapBTDBEventLog().RequireHost(peerHost);
+            app.MapGet(LiveRelay.PathPrefix + "{machineId}",
+                (HttpContext http, ulong machineId, LiveRelay relay) => relay.ServeAsync(http, machineId)).RequireHost(peerHost);
         }
         app.MapSpa(Path.GetFullPath(options.WebRoot, builder.Environment.ContentRootPath));
         return app;
