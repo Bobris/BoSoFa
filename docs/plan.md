@@ -498,6 +498,27 @@ M2 is done. The M1 scenario passes while the leader node is killed: `FailoverTes
   - Only the Data Protection key ring and storage access come from configuration. Workload identity replaces the connection string in M7.
 - **Not done yet:** the long-poll fallback (M5) and the `subscribe{shell}` live channel. A rolling upgrade with a schema change (an `ApplicationGeneration` bump) is first exercised in M7.
 
+### M3 steps
+
+Done when: the same project runs on Claude, Codex and Gemini, with diffs per run. Locally installed: Claude Code 2.1.317, Codex 0.167 and OpenCode (ACP). Gemini comes through the catalog (step 6).
+
+1. **Harness abstraction in the daemon.**
+   - `IHarnessSession` (send with `Queue` or `Steer`, interrupt, answer, stop) behind a factory per harness. `ClaudeSession` becomes the first implementation.
+   - `SendMessageCommand` gains the dispatch mode. Steering a running Claude turn means interrupting it, then sending.
+2. **Harness accounts.**
+   - A `HarnessAccount` relation (§5.4.1) with secrets encrypted by Data Protection, and the lease endpoint for daemons.
+   - Pasted Claude tokens and API keys from the UI, injected only into the child's environment, with a per-account `CLAUDE_CONFIG_DIR`.
+3. **Codex adapter.**
+   - `codex app-server` over stdio JSON-RPC (`thread/*`, `turn/start|steer|interrupt`, approvals), with types generated from `codex app-server generate-json-schema`.
+   - Per-profile `CODEX_HOME` with `cli_auth_credentials_store = "file"`, and device-code sign-in started from the UI.
+4. **ACP adapter.** ACP JSON-RPC over stdio, verified with OpenCode; Gemini CLI uses the same adapter.
+5. **Git: worktrees, checkpoints, diffs.**
+   - A session runs in place or in a `bosofa/<slug>` worktree.
+   - A hidden-ref checkpoint is taken before and after each run, and the run's diff is stored and shown per run.
+6. **Install catalog.**
+   - `HarnessRelease` entries with per-RID artifacts and SHA-256 hashes. The daemon installs into `harnesses/<id>/<version>/` and reports its inventory.
+   - Gemini and Codex are installed through it.
+
 ## 10. Risks
 
 | Risk | Mitigation |
