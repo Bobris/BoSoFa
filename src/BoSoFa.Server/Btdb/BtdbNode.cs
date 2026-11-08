@@ -10,10 +10,10 @@ namespace BoSoFa.Server.Btdb;
 /// <summary>
 /// The server's replicated database "main": restored (or created empty) from canonical storage, then driven by one
 /// <see cref="EventPublisher"/> over the EventLog topics "data" and "metadata". Every node runs that application and
-/// consumes every event into its own database; the leader also publishes it. A node starts the application once its
-/// restored history holds this build's schema. Only the leader writes the schema (genesis or upgrade) in
-/// <see cref="PrepareSchemaAsync"/>; a follower restored without it waits, and restarts to restore it when the leader
-/// publishes it (<see cref="SchemaDetached"/>). Schema changes need a new application generation (plan §8).
+/// consumes every event into its own database; the leader also publishes it. A follower initializes this build's
+/// schema itself and starts the application. If that writes anything, BTDB detaches its database from comparison and
+/// requests a restart once the leader published the schema, or lets a node of a newer generation take over and publish
+/// it. Schema changes need a new application generation (plan §8).
 /// </summary>
 public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, IHostApplicationLifetime lifetime)
     : IReplicationNodeHost, IHostedService, IAsyncDisposable
@@ -101,9 +101,9 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
             services.GetRequiredService<IReplicationScheduler>(), options.CheckpointInterval, options.DeletionDelay, _objects);
     }
 
-    /// <summary>Registers this build's relations. Only the leader may write them (genesis or a schema upgrade, in
-    /// <see cref="PrepareSchemaAsync"/>); any other node may only find them already in its restored history, because
-    /// its database must change exactly as the leader's does.</summary>
+    /// <summary>Registers this build's relations. A leader writes them under its authority in
+    /// <see cref="PrepareSchemaAsync"/> and a follower may write them too (BTDB then detaches it); a node still
+    /// activating only checks its history, because it is about to write them with authority.</summary>
     async Task<bool> EnsureSchemaAsync(bool mayWrite, CancellationToken cancellation)
     {
         await _schema.WaitAsync(cancellation);
@@ -118,16 +118,13 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
         finally { _schema.Release(); }
     }
 
-    /// <summary>A restored node (follower, or a leader still activating) runs the application as soon as its history
-    /// holds this build's schema: every node consumes the same events into its own database.</summary>
-    async Task StartIfSchemaPresentAsync()
+    /// <summary>A restored node runs the application as soon as it has this build's schema: every node consumes the
+    /// same events into its own database.</summary>
+    async Task StartWithSchemaAsync(bool mayWrite)
     {
         try
         {
-            if (await EnsureSchemaAsync(false, _stopping.Token)) StartApplication();
-            else
-                logger.LogInformation(
-                    "The restored database lacks this build's schema; the application starts once a leader writes it");
+            if (await EnsureSchemaAsync(mayWrite, _stopping.Token)) StartApplication();
         }
         catch (OperationCanceledException) when (_stopping.IsCancellationRequested) { }
         catch (Exception error)
@@ -196,13 +193,9 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
         Role = role;
         if (role is ReplicationNodeRole.Follower or ReplicationNodeRole.Activating or ReplicationNodeRole.Leader &&
             Volatile.Read(ref _started) == 0)
-            _ = StartIfSchemaPresentAsync();
+            _ = StartWithSchemaAsync(role == ReplicationNodeRole.Follower);
     }
 
-    /// <summary>The leader published a schema this node's history lacks (genesis or an upgrade after it restored).
-    /// Its database can no longer follow, so the process restarts and restores the published schema.</summary>
-    public void SchemaDetached(string database) =>
-        RequestRestart($"The leader published a newer schema of {database}; restoring it.");
     public void DatabaseRemoved(string database) { }
 
     public ValueTask<ulong> CaptureInitializationCursorAsync(string database, CancellationToken cancellation) =>

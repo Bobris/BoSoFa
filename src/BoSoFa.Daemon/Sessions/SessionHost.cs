@@ -112,7 +112,6 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     {
         HarnessNames.Codex => new CodexSession(state, this, () => LaunchCodexAsync(state), _log),
         HarnessNames.OpenCode => new AcpSession(state, this, () => LaunchAcp(state, "opencode", ["acp"]), _log),
-        HarnessNames.Gemini => new AcpSession(state, this, () => LaunchAcp(state, "gemini", ["--experimental-acp"]), _log),
         _ => new ClaudeSession(state, this, Launch(state), _log)
     };
 

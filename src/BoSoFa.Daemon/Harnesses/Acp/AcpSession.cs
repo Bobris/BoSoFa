@@ -14,7 +14,7 @@ namespace BoSoFa.Daemon.Harnesses.Acp;
 public sealed record AcpLaunch(JsonRpcProcess Rpc, JsonArray McpServers);
 
 /// <summary>
-/// One BoSoFa session on an Agent Client Protocol agent (OpenCode, Gemini CLI): JSON-RPC 2.0 over stdio, one long
+/// One BoSoFa session on an Agent Client Protocol agent (OpenCode today): JSON-RPC 2.0 over stdio, one long
 /// <c>session/prompt</c> per turn, its output as <c>session/update</c> notifications, permission prompts as
 /// <c>session/request_permission</c>. ACP has no queue or steering, so queued messages wait here and steering cancels
 /// the running turn first. A later process continues with <c>session/load</c> when the agent supports it.

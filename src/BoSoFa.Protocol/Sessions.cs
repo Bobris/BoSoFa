@@ -132,13 +132,10 @@ public static class Harnesses
     /// <summary>OpenCode, through ACP.</summary>
     public const string OpenCode = "opencode";
 
-    /// <summary>Gemini CLI, through ACP.</summary>
-    public const string Gemini = "gemini";
-
     /// <summary>Plays a recorded Claude Code transcript; only on daemons started with <c>--replay-fixture</c>.</summary>
     public const string Replay = "replay";
 
-    public static readonly string[] All = [Claude, Codex, OpenCode, Gemini, Replay];
+    public static readonly string[] All = [Claude, Codex, OpenCode, Replay];
 
     public static readonly string[] PermissionModes = ["default", "acceptEdits", "plan", "bypassPermissions"];
 }

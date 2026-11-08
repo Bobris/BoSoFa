@@ -4,7 +4,7 @@ Status: draft 1 (2026-11-07). The decisions listed below are settled. The open q
 
 ## 1. What we are building
 
-BoSoFa runs AI coding harnesses such as Claude Code, Codex, and ACP agents (Gemini CLI, Copilot CLI, OpenCode, …) on many machines. People control it from one place: a web UI or a desktop app.
+BoSoFa runs AI coding harnesses such as Claude Code, Codex, and ACP agents (OpenCode, Copilot CLI, …) on many machines. People control it from one place: a web UI or a desktop app.
 
 ```mermaid
 flowchart LR
@@ -217,7 +217,7 @@ interface IHarnessAdapter {
 |---|---|---|
 | Claude Code | `claude -p --input-format stream-json --output-format stream-json` plus the control protocol (permission prompts via stdio) | Uses `CLAUDE_CONFIG_DIR` per account profile and `--mcp-config` for injected MCP. The Agent SDK is TS/Python only, so we speak the CLI protocol directly, as CodeAlta does. |
 | Codex | `codex app-server` over stdio JSON-RPC: `thread/*`, `turn/start|steer|interrupt`, approval requests | Uses its own `CODEX_HOME` with a generated `config.toml`. Types are generated from the app-server schema. |
-| ACP (Gemini CLI, Copilot CLI, OpenCode, Cursor…) | ACP JSON-RPC over stdio | Types are generated from the ACP schema. Per-agent oddities go in quirk classes. |
+| ACP (OpenCode, Copilot CLI, Cursor…) | ACP JSON-RPC over stdio | Types are generated from the ACP schema. Per-agent oddities go in quirk classes. |
 
 - **Install and update:**
   - The server holds a `HarnessRelease` catalog: id, version, and per-RID artifacts `{url, sha256, kind: archive|binary|npm}`.
@@ -402,7 +402,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
 | **M0 Foundations and spikes** (2 wk) | Repo skeleton, CI (build, AOT-warning gate, contract-staleness check), single-node server with BTDB genesis, dev login, SPA shell served. Spikes: ① BTDB event volume (1M `SessionItemsAppended`, latency, disk/Blob growth), ② Solid 2 UI kit choice, ③ NeoAstra hello with the Solid SPA and remote `connect-src`, ④ Claude stream-json + control protocol from an AOT C# process. | The UI shows "hello <user>" from a BTDB-backed endpoint. Spike notes are written in `docs/spikes/`. |
 | **M1 First session end to end** | Daemon: enroll (device code), WebSocket, outbox, ClaudeCode adapter in place (no worktree), runtime requests. Server: sessions, items, live hub, inbox. UI: machines list, session view, composer, approvals. Replay adapter + fixtures. | Start Claude Code on my laptop from the browser, approve a tool, see the streamed answer, kill the server mid-run, and see the session catch up. |
 | **M2 Multi-node early** | docker-compose with 3 nodes + Azurite, Azure storages, internal live relay, peer port, presence ownership, failover test in CI. | The M1 scenario passes while the leader pod is killed. |
-| **M3 More harnesses and git** | Harness accounts (§5.4.1): secrets encrypted with Data Protection, account leases, pasted Claude tokens and API keys, Codex device-code sign-in per machine. Codex app-server and ACP adapters, the harness install/update catalog with pinned hashes, worktrees, checkpoints, diffs, steer/queue/interrupt. | The same project runs on Claude, Codex and Gemini with diffs per run. |
+| **M3 More harnesses and git** | Harness accounts (§5.4.1): secrets encrypted with Data Protection, account leases, pasted Claude tokens and API keys, Codex device-code sign-in per machine. Codex app-server and ACP adapters, the harness install/update catalog with pinned hashes, worktrees, checkpoints, diffs, steer/queue/interrupt. | The same project runs on Claude, Codex and OpenCode with diffs per run. |
 | **M4 MCP, skills, files, terminals** | BoSoFa MCP endpoint, managed MCP catalog + profiles, skill bundles, file upload/download + browser, attach/observe PTY terminals. | A profile pushes a new skill and an MCP server to a machine and a session uses them. |
 | **M5 Operations** | Service install on all 3 OSes, launcher + signed self-update + rollout channels, long-poll fallback, API tokens, audit UI. | Install on Windows/macOS/Linux, roll out a new daemon version remotely, roll back a broken one automatically. |
 | **M6 Desktop** | NeoAstra app, desktop auth flow, LocalDaemon RPC (install/enroll this machine), "Add Claude account" through `claude setup-token`, notifications, deep links. | Fresh machine: install the desktop, click "enable this machine", and run a session. |
@@ -492,6 +492,7 @@ M2 is done. The M1 scenario passes while the leader node is killed: `FailoverTes
 - **Every node runs the application.**
   - BTDB 36.4.0 added `ObjectDB.TryInitializeRelationsWithoutWriting`, so a follower starts only when its restored history holds its schema.
   - A follower that restored too early restarts on `SchemaDetached`. A node that restores while a new cluster's genesis is being published restarts once too, so local runs need a supervisor (the dev cluster restarts such nodes).
+  - Since BTDB 36.5.1 a follower calls `InitializeRelations` and starts at once. If that writes a schema, BTDB detaches its database and requests the restart once the leader published the schema; a node of a newer generation takes over and publishes it. An older-generation node with no schema to write stays detached and serves locally until it is replaced.
 - **Shutdown and storage.**
   - BTDB master (`acfe5472`, unreleased) fixes a 10 s wait on every follower shutdown: an `EventCluster` withdrawal waited for a presence exchange after `ApplicationStopping` had already stopped replication.
   - Azure leases must be 15–60 s, so a crashed leader's replication lease is taken over only after at least 15 s. Writes don't wait for it, because they go through the EventLog, whose topics move to a new owner sooner.
@@ -500,7 +501,7 @@ M2 is done. The M1 scenario passes while the leader node is killed: `FailoverTes
 
 ### M3 steps
 
-Done when: the same project runs on Claude, Codex and Gemini, with diffs per run. Locally installed: Claude Code 2.1.317, Codex 0.167 and OpenCode (ACP). Gemini comes through the catalog (step 6).
+Done when: the same project runs on Claude, Codex and OpenCode, with diffs per run. Locally installed: Claude Code 2.1.317, Codex 0.167 and OpenCode (ACP).
 
 1. **Harness abstraction in the daemon.** *Done:* `IHarnessSession`, with `DispatchMode` sent from the composer as Queue or Steer.
    - `IHarnessSession` (send with `Queue` or `Steer`, interrupt, answer, stop) behind a factory per harness. `ClaudeSession` becomes the first implementation.
@@ -519,7 +520,7 @@ Done when: the same project runs on Claude, Codex and Gemini, with diffs per run
    - `CodexSessionTest` plays the protocol against a fake server. The AOT daemon with Codex 0.167 was checked up to the device code.
    - `codex app-server` over stdio JSON-RPC (`thread/*`, `turn/start|steer|interrupt`, approvals), with types generated from `codex app-server generate-json-schema`.
    - Per-profile `CODEX_HOME` with `cli_auth_credentials_store = "file"`, and device-code sign-in started from the UI.
-4. **ACP adapter.** *Done:* `AcpSession` speaks ACP JSON-RPC over stdio. A real OpenCode turn ran through the AOT daemon, and `session/load` restored the conversation after a daemon restart. Gemini CLI is wired to the same adapter (`gemini --experimental-acp`) but untested until the catalog installs it. ACP has no steering, so Steer cancels the turn and its message runs first.
+4. **ACP adapter.** *Done:* `AcpSession` speaks ACP JSON-RPC over stdio. A real OpenCode turn ran through the AOT daemon, and `session/load` restored the conversation after a daemon restart. ACP has no steering, so Steer cancels the turn and its message runs first.
 5. **Git: worktrees, checkpoints, diffs.** *Done:*
    - `GitWorkspace`: checkpoints are commits built with a temporary index, kept in `refs/bosofa/<session>/<run>-before|after`.
    - `SessionHost` takes them around every run, for any harness, and reports a `Diff` item with the patch and per-file counts.
@@ -529,9 +530,9 @@ Done when: the same project runs on Claude, Codex and Gemini, with diffs per run
 6. **Install catalog.** *Done for binary, tar.gz and zip artifacts:*
    - An admin publishes a `HarnessRelease` (`POST /api/v1/harness-releases`; https only, SHA-256 required), and an owner installs it with `POST /api/v1/machines/{id}/harnesses`.
    - The daemon verifies the hash, unpacks aside and moves into place, so a failed install keeps the previous version. Machines report their inventory, and an installed binary wins over the PATH.
-   - No UI to publish or install yet. npm-only agents (Gemini CLI) still need the `npm` kind and a managed Node runtime.
+   - No UI to publish or install yet. npm-only agents still need the `npm` kind and a managed Node runtime.
    - `HarnessRelease` entries with per-RID artifacts and SHA-256 hashes. The daemon installs into `harnesses/<id>/<version>/` and reports its inventory.
-   - Gemini and Codex are installed through it.
+   - Codex is installed through it.
 
 ### M3 status (2026-11-08)
 
@@ -540,7 +541,7 @@ Steps 1–6 are implemented, but the milestone's "done when" is not fully met ye
 - **Claude Code:** real turns ran in M1.
 - **OpenCode (ACP):** a real turn and a resume after a daemon restart ran.
 - **Codex:** the protocol is tested against a fake server, and the AOT daemon with the real 0.167 CLI reached the device-code prompt. A full real turn needs a person to sign in.
-- **Gemini CLI:** wired to the ACP adapter but never run. It is npm-only, so it needs the catalog's `npm` kind or a manual install.
+- **Gemini CLI:** postponed (2026-11-08) and removed from the providers. It was never run. To bring it back, add its name to `Harnesses` and one line to `SessionHost.Create` (`gemini --experimental-acp`, on the existing ACP adapter). It is npm-only, so it also needs the catalog's `npm` kind or a manual install.
 - **Open:** one Windows CI run hung once in the .NET tests and did not recur. CI now names a hung test after 3 minutes.
 
 ### M4 steps
