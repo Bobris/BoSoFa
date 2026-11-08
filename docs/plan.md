@@ -520,7 +520,10 @@ Done when: the same project runs on Claude, Codex and Gemini, with diffs per run
    - `codex app-server` over stdio JSON-RPC (`thread/*`, `turn/start|steer|interrupt`, approvals), with types generated from `codex app-server generate-json-schema`.
    - Per-profile `CODEX_HOME` with `cli_auth_credentials_store = "file"`, and device-code sign-in started from the UI.
 4. **ACP adapter.** *Done:* `AcpSession` speaks ACP JSON-RPC over stdio. A real OpenCode turn ran through the AOT daemon, and `session/load` restored the conversation after a daemon restart. Gemini CLI is wired to the same adapter (`gemini --experimental-acp`) but untested until the catalog installs it. ACP has no steering, so Steer cancels the turn and its message runs first.
-5. **Git: worktrees, checkpoints, diffs.**
+5. **Git: worktrees, checkpoints, diffs.** *Done:*
+   - `GitWorkspace`: checkpoints are commits built with a temporary index, kept in `refs/bosofa/<session>/<run>-before|after`.
+   - `SessionHost` takes them around every run, for any harness, and reports a `Diff` item with the patch and per-file counts.
+   - Worktrees live in the daemon's data folder and are not cleaned up yet.
    - A session runs in place or in a `bosofa/<slug>` worktree.
    - A hidden-ref checkpoint is taken before and after each run, and the run's diff is stored and shown per run.
 6. **Install catalog.**

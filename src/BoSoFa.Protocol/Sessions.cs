@@ -30,7 +30,10 @@ public enum SessionItemKind
     ToolUse,
     ToolResult,
     RunEnded,
-    Notice
+    Notice,
+
+    /// <summary>What a run changed: <c>Text</c> is the patch, <c>Data</c> the per-file line counts as JSON.</summary>
+    Diff
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<RuntimeRequestStatus>))]
@@ -63,7 +66,8 @@ public sealed record SessionDto(
     double CostUsd,
     bool CanControl,
     ulong? AccountId,
-    string? AccountLabel);
+    string? AccountLabel,
+    string? Branch);
 
 /// <summary>One persisted transcript entry. <c>Data</c> holds JSON details (tool input, run usage) and <c>Ref</c> the
 /// harness's message ID, which live deltas carry too.</summary>
@@ -98,7 +102,8 @@ public sealed record CreateSessionRequest(
     string Prompt,
     string? PermissionMode,
     string? Model,
-    ulong? AccountId = null);
+    ulong? AccountId = null,
+    bool UseWorktree = false);
 
 /// <summary>How a message reaches a session whose turn is still running.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<DispatchMode>))]

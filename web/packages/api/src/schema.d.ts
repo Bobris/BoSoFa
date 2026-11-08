@@ -1123,6 +1123,8 @@ export interface components {
             model: null | string;
             /** Format: uint64 */
             accountId?: null | number | string;
+            /** @default false */
+            useWorktree: boolean;
         };
         DaemonTokenRequest: {
             /** Format: uint64 */
@@ -1256,12 +1258,13 @@ export interface components {
                 /** Format: uint64 */
                 accountId: null | number | string;
                 accountLabel: null | string;
+                branch: null | string;
             };
             items: {
                 /** Format: int64 */
                 seq: number | string;
                 /** @enum {unknown} */
-                kind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice";
+                kind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff";
                 /** Format: date-time */
                 at: string;
                 text: string;
@@ -1352,6 +1355,7 @@ export interface components {
             /** Format: uint64 */
             accountId: null | number | string;
             accountLabel: null | string;
+            branch: null | string;
         };
         SessionItemDto: {
             /** Format: int64 */
@@ -1367,7 +1371,7 @@ export interface components {
             ref: null | string;
         };
         /** @enum {unknown} */
-        SessionItemKind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice";
+        SessionItemKind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff";
         /** @enum {unknown} */
         SessionStatus: "Starting" | "Running" | "WaitingForApproval" | "Idle" | "Stopped" | "Failed";
         UserDto: {

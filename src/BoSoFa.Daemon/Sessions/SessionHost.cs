@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using BoSoFa.Daemon.Harnesses;
 using BoSoFa.Daemon.Harnesses.Acp;
@@ -29,6 +31,9 @@ public sealed class SessionState
 
     /// <summary>The harness account whose secret is leased for each start of the harness; null: the machine's own sign-in.</summary>
     public ulong? AccountId { get; set; }
+
+    /// <summary>Runs started so far, numbering the checkpoints.</summary>
+    public int Runs { get; set; }
 }
 
 /// <summary>Fetches a harness account's secret for a session, just in time (plan §5.4.1).</summary>
@@ -55,6 +60,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     readonly CommandJournal _journal;
     readonly Dictionary<ulong, IHarnessSession> _sessions = new();
     readonly object _stateLock = new();
+    readonly ConcurrentDictionary<ulong, string?> _runs = new();
 
     /// <summary>Set by the link while it is connected; deltas are dropped otherwise.</summary>
     public Action<DeltaMessage>? DeltaSink { get; set; }
@@ -183,6 +189,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                     PermissionMode = start.PermissionMode, Model = start.Model, Status = SessionStatus.Starting,
                     AccountId = start.AccountId
                 };
+                if (start.UseWorktree && !PrepareWorktree(state, start.Prompt)) break;
                 Save(state);
                 session = Create(state);
                 lock (_sessions) _sessions[state.SessionId] = session;
@@ -211,7 +218,59 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     {
         SessionState? state;
         lock (_sessions) state = _sessions.GetValueOrDefault(sessionId)?.State;
+        // Before the status goes out, so the agent cannot have changed anything yet.
+        if (report is StatusReport { Status: SessionStatus.Running } && state != null) BeginRun(state);
         Report(sessionId, report, state);
+        if (report is RunEndedReport && state != null) EndRun(state);
+    }
+
+    /// <summary>Moves a new session into its own worktree. False when that is impossible (reported as a failure).</summary>
+    bool PrepareWorktree(SessionState state, string prompt)
+    {
+        var repository = new GitWorkspace(state.WorkingDirectory);
+        var path = Path.Combine(_dataDirectory, "worktrees", $"session-{state.SessionId}");
+        var branch = GitWorkspace.BranchName(state.SessionId, prompt);
+        var error = !Directory.Exists(state.WorkingDirectory)
+            ? $"The working directory {state.WorkingDirectory} does not exist on this machine."
+            : !repository.IsRepository
+                ? $"{state.WorkingDirectory} is not a git repository, so the session cannot run in a worktree."
+                : repository.AddWorktree(path, branch);
+        if (error != null)
+        {
+            _outbox.Append(state.SessionId, new StatusReport(SessionStatus.Failed, Error: error));
+            return false;
+        }
+        state.WorkingDirectory = path;
+        _outbox.Append(state.SessionId, new WorkspaceReport(path, branch));
+        return true;
+    }
+
+    /// <summary>Takes the "before" checkpoint of a run; repeated running statuses within a run are ignored.</summary>
+    void BeginRun(SessionState state)
+    {
+        if (_runs.ContainsKey(state.SessionId)) return;
+        lock (_stateLock)
+        {
+            state.Runs++;
+            Save(state);
+        }
+        var workspace = new GitWorkspace(state.WorkingDirectory);
+        // Marks the run as begun even outside a repository, so later statuses of this run skip the work.
+        _runs[state.SessionId] = workspace.IsRepository
+            ? workspace.Checkpoint($"refs/bosofa/{state.SessionId}/{state.Runs}-before")
+            : null;
+    }
+
+    /// <summary>Takes the "after" checkpoint and reports what the run changed.</summary>
+    void EndRun(SessionState state)
+    {
+        if (!_runs.TryRemove(state.SessionId, out var before) || before == null) return;
+        var workspace = new GitWorkspace(state.WorkingDirectory);
+        if (workspace.Checkpoint($"refs/bosofa/{state.SessionId}/{state.Runs}-after") is not { } after ||
+            workspace.Diff(before, after) is not { } diff)
+            return;
+        _outbox.Append(state.SessionId, new ItemReport(SessionItemKind.Diff, DateTime.UtcNow, diff.Patch,
+            Data: new JsonObject { ["files"] = diff.Files, ["added"] = diff.Added, ["removed"] = diff.Removed }.ToJsonString()));
     }
 
     void Report(ulong sessionId, SessionReport report, SessionState? state)

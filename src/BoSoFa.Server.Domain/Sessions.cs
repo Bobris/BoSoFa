@@ -33,6 +33,9 @@ public class Session
 
     /// <summary>The harness account the session runs with; 0 means the machine's own sign-in.</summary>
     public ulong AccountId { get; set; }
+
+    /// <summary>The session's own branch when it runs in a worktree (then <see cref="WorkingDirectory"/> is that worktree).</summary>
+    public string? Branch { get; set; }
 }
 
 public interface ISessionTable : IRelation<Session>
@@ -148,6 +151,7 @@ public class SessionCreated : EventWithResult<SessionCommandResult>
     public string PermissionMode { get; set; } = "";
     public string? Model { get; set; }
     public ulong AccountId { get; set; }
+    public bool UseWorktree { get; set; }
 }
 
 public class SessionMessageSent : EventWithResult<SessionCommandResult>
@@ -285,7 +289,7 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
         Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt);
         Sessions.IssueCommand(signals, machine.Id, new StartSessionCommand(session.Id, session.Harness,
             session.WorkingDirectory, ev.Prompt, session.PermissionMode, session.Model,
-            session.AccountId == 0 ? null : session.AccountId), ev.When);
+            session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree), ev.When);
         Sessions.Changed(signals, session, ev.When);
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }
@@ -438,6 +442,10 @@ public sealed class DaemonReportsReceivedHandler(IDomainSignals signals) : IEven
                 // The daemon reports its status separately, possibly in a later batch: a pending approval already
                 // means the turn waits, so readers never see the request beside a running session.
                 session.Status = SessionStatus.WaitingForApproval;
+                break;
+            case WorkspaceReport workspace:
+                session.WorkingDirectory = workspace.Path;
+                session.Branch = workspace.Branch;
                 break;
             case ApprovalClosedReport closed:
                 var all = Ambient.Relation<IRuntimeRequestTable>();

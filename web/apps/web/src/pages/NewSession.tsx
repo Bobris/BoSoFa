@@ -54,6 +54,7 @@ export default function NewSession() {
   const [mode, setMode] = createSignal("default");
   const [model, setModel] = createSignal("");
   const [prompt, setPrompt] = createSignal("");
+  const [worktree, setWorktree] = createSignal(false);
   const [error, setError] = createSignal<string>();
   const [busy, setBusy] = createSignal(false);
   const selected = () => machine() ?? search.machine ?? String(machines()[0]?.id ?? "");
@@ -70,6 +71,7 @@ export default function NewSession() {
         permissionMode: mode(),
         model: model().trim() || null,
         accountId: usable().some((a) => String(a.id) === account()) ? Number(account()) : null,
+        useWorktree: worktree(),
       },
     });
     setBusy(false);
@@ -141,6 +143,10 @@ export default function NewSession() {
               value={directory()}
               onInput={(event) => setDirectory(event.currentTarget.value)}
             />
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={worktree()} onChange={(event) => setWorktree(event.currentTarget.checked)} />
+            Run in a new git worktree, on its own bosofa/… branch
           </label>
           <div class="grid gap-4 sm:grid-cols-2">
             <label class="block space-y-1">

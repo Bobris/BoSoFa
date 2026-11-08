@@ -45,6 +45,52 @@ function signIn(item: SessionItem): { verificationUrl: string; userCode: string 
   return undefined;
 }
 
+type DiffData = { files?: { path: string; added: number; removed: number }[]; added?: number; removed?: number };
+
+function DiffItem(props: { item: SessionItem }) {
+  const data = createMemo((): DiffData => {
+    try {
+      return JSON.parse(props.item.data ?? "{}") as DiffData;
+    } catch {
+      return {};
+    }
+  });
+  const lines = createMemo(() => props.item.text.split("\n"));
+  return (
+    <details class="rounded-md border border-line bg-panel text-sm">
+      <summary class="cursor-pointer select-none px-3 py-1.5">
+        <span class="font-medium">Changed {data().files?.length ?? 0} files</span>{" "}
+        <span class="text-green-600">+{data().added ?? 0}</span> <span class="text-red-600">−{data().removed ?? 0}</span>
+      </summary>
+      <ul class="border-t border-line px-3 py-2 font-mono text-xs">
+        <For each={data().files ?? []}>
+          {(file) => (
+            <li>
+              {file.path} <span class="text-green-600">+{file.added}</span>{" "}
+              <span class="text-red-600">−{file.removed}</span>
+            </li>
+          )}
+        </For>
+      </ul>
+      <pre class="max-h-96 overflow-auto border-t border-line px-3 py-2 text-xs">
+        <For each={lines()} keyed={false}>
+          {(line) => (
+            <div
+              class={{
+                "text-green-600": line().startsWith("+"),
+                "text-red-600": line().startsWith("-"),
+                "text-muted": line().startsWith("@@"),
+              }}
+            >
+              {line() || " "}
+            </div>
+          )}
+        </For>
+      </pre>
+    </details>
+  );
+}
+
 function Item(props: { item: SessionItem }) {
   return (
     <Switch>
@@ -81,6 +127,9 @@ function Item(props: { item: SessionItem }) {
             {props.item.text}
           </pre>
         </details>
+      </Match>
+      <Match when={props.item.kind === "Diff"}>
+        <DiffItem item={props.item} />
       </Match>
       <Match when={props.item.kind === "RunEnded"}>
         <p class={["text-xs", props.item.isError ? "text-red-600" : "text-muted"]}>{runSummary(props.item)}</p>
@@ -283,7 +332,8 @@ function SessionView(props: { id: number }) {
             <p class="text-sm text-muted">
               {session().machineName} · {session().harness}
               <Show when={session().model}>{(model) => <> · {model()}</>}</Show>
-              <Show when={session().accountLabel}>{(account) => <> · {account()}</>}</Show> ·{" "}
+              <Show when={session().accountLabel}>{(account) => <> · {account()}</>}</Show>
+              <Show when={session().branch}>{(branch) => <> · <span class="font-mono">{branch()}</span></>}</Show> ·{" "}
               <span class="font-mono">{session().workingDirectory}</span> · {session().permissionMode}
               <Show when={Number(session().costUsd) > 0}> · ${Number(session().costUsd).toFixed(4)}</Show>
             </p>

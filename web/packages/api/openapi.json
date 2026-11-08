@@ -1019,6 +1019,10 @@
               "string"
             ],
             "format": "uint64"
+          },
+          "useWorktree": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -1472,7 +1476,8 @@
               "costUsd",
               "canControl",
               "accountId",
-              "accountLabel"
+              "accountLabel",
+              "branch"
             ],
             "type": "object",
             "properties": {
@@ -1575,6 +1580,12 @@
                   "null",
                   "string"
                 ]
+              },
+              "branch": {
+                "type": [
+                  "null",
+                  "string"
+                ]
               }
             }
           },
@@ -1610,7 +1621,8 @@
                     "ToolUse",
                     "ToolResult",
                     "RunEnded",
-                    "Notice"
+                    "Notice",
+                    "Diff"
                   ]
                 },
                 "at": {
@@ -1907,7 +1919,8 @@
           "costUsd",
           "canControl",
           "accountId",
-          "accountLabel"
+          "accountLabel",
+          "branch"
         ],
         "type": "object",
         "properties": {
@@ -2003,6 +2016,12 @@
               "null",
               "string"
             ]
+          },
+          "branch": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -2075,7 +2094,8 @@
           "ToolUse",
           "ToolResult",
           "RunEnded",
-          "Notice"
+          "Notice",
+          "Diff"
         ]
       },
       "SessionStatus": {

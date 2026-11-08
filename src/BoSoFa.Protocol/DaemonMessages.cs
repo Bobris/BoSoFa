@@ -61,7 +61,7 @@ public abstract record MachineCommand(ulong SessionId);
 /// <summary>Starts a session. <c>AccountId</c> names the harness account whose secret the daemon leases just in time
 /// (<c>POST /api/daemon/v1/accounts/{id}/lease</c>); null runs on the machine's own sign-in.</summary>
 public sealed record StartSessionCommand(ulong SessionId, string Harness, string WorkingDirectory, string Prompt,
-    string PermissionMode, string? Model, ulong? AccountId = null) : MachineCommand(SessionId);
+    string PermissionMode, string? Model, ulong? AccountId = null, bool UseWorktree = false) : MachineCommand(SessionId);
 
 public sealed record SendMessageCommand(ulong SessionId, string Text, DispatchMode Mode = DispatchMode.Queue)
     : MachineCommand(SessionId);
@@ -80,6 +80,7 @@ public sealed record StopSessionCommand(ulong SessionId) : MachineCommand(Sessio
 [JsonDerivedType(typeof(RunEndedReport), "runEnded")]
 [JsonDerivedType(typeof(ApprovalRequestedReport), "approval")]
 [JsonDerivedType(typeof(ApprovalClosedReport), "approvalClosed")]
+[JsonDerivedType(typeof(WorkspaceReport), "workspace")]
 public abstract record SessionReport;
 
 /// <summary>A transcript item. Text above <see cref="InlineLimit"/> is cut; blobs carry the rest later (M4).</summary>
@@ -101,3 +102,6 @@ public sealed record ApprovalRequestedReport(string Key, DateTime At, string Too
     string? Description) : SessionReport;
 
 public sealed record ApprovalClosedReport(string Key, string Reason) : SessionReport;
+
+/// <summary>The session runs in this worktree, on this branch.</summary>
+public sealed record WorkspaceReport(string Path, string Branch) : SessionReport;
