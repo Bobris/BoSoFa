@@ -118,7 +118,9 @@ public sealed partial class LocalDaemon(DesktopAccount account, string dataRoot,
         content.EnsureSuccessStatusCode();
         var temporary = target + ".tmp";
         await using (var file = File.Create(temporary)) await content.Content.CopyToAsync(file, cancellation);
-        var hash = Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(File.OpenRead(temporary), cancellation));
+        string hash;
+        await using (var written = File.OpenRead(temporary))
+            hash = Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(written, cancellation));
         if (hash != artifact.Sha256)
         {
             File.Delete(temporary);
