@@ -887,6 +887,13 @@
           }
         }
       },
+      "DispatchMode": {
+        "enum": [
+          "Queue",
+          "Steer",
+          null
+        ]
+      },
       "EnrollmentDto": {
         "required": [
           "userCode",
@@ -1591,6 +1598,16 @@
         "properties": {
           "text": {
             "type": "string"
+          },
+          "mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DispatchMode"
+              }
+            ]
           }
         }
       },

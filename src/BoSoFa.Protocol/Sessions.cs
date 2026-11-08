@@ -97,7 +97,18 @@ public sealed record CreateSessionRequest(
     string? PermissionMode,
     string? Model);
 
-public sealed record SendMessageRequest(string Text);
+/// <summary>How a message reaches a session whose turn is still running.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<DispatchMode>))]
+public enum DispatchMode
+{
+    /// <summary>Waits until the running turn ends, then starts the next one.</summary>
+    Queue,
+
+    /// <summary>Redirects the running turn now (for harnesses without native steering: interrupt, then send).</summary>
+    Steer
+}
+
+public sealed record SendMessageRequest(string Text, DispatchMode? Mode = null);
 
 public sealed record AnswerRuntimeRequest(bool Allow, string? Message);
 

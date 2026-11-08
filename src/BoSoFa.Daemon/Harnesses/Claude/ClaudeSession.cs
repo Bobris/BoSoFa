@@ -12,7 +12,7 @@ namespace BoSoFa.Daemon.Harnesses.Claude;
 /// CLI's stream into durable reports (items, status, run ends, approvals) and ephemeral text deltas.
 /// </summary>
 public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<ClaudeLaunch, IClaudeTransport> launch,
-    TextWriter log) : IAsyncDisposable
+    TextWriter log) : IHarnessSession
 {
     static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(60);
 
@@ -26,7 +26,15 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
 
     public SessionState State => state;
 
-    public async Task SendAsync(string text)
+    /// <summary>The CLI queues a message written while a turn runs; steering interrupts that turn first, so the
+    /// message starts the next one at once (Claude Code has no native steering).</summary>
+    public async Task SendAsync(string text, DispatchMode mode)
+    {
+        if (mode == DispatchMode.Steer && _turnRunning) await InterruptAsync();
+        await SendAsync(text);
+    }
+
+    async Task SendAsync(string text)
     {
         await _lock.WaitAsync();
         try

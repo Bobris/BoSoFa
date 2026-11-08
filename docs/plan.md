@@ -502,7 +502,7 @@ M2 is done. The M1 scenario passes while the leader node is killed: `FailoverTes
 
 Done when: the same project runs on Claude, Codex and Gemini, with diffs per run. Locally installed: Claude Code 2.1.317, Codex 0.167 and OpenCode (ACP). Gemini comes through the catalog (step 6).
 
-1. **Harness abstraction in the daemon.**
+1. **Harness abstraction in the daemon.** *Done:* `IHarnessSession`, with `DispatchMode` sent from the composer as Queue or Steer.
    - `IHarnessSession` (send with `Queue` or `Steer`, interrupt, answer, stop) behind a factory per harness. `ClaudeSession` becomes the first implementation.
    - `SendMessageCommand` gains the dispatch mode. Steering a running Claude turn means interrupting it, then sending.
 2. **Harness accounts.**

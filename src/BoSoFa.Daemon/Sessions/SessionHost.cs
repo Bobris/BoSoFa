@@ -39,7 +39,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     readonly HarnessOptions _options;
     readonly TextWriter _log;
     readonly CommandJournal _journal;
-    readonly Dictionary<ulong, ClaudeSession> _sessions = new();
+    readonly Dictionary<ulong, IHarnessSession> _sessions = new();
     readonly object _stateLock = new();
 
     /// <summary>Set by the link while it is connected; deltas are dropped otherwise.</summary>
@@ -69,7 +69,8 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         get { lock (_sessions) return _sessions.Keys.ToArray(); }
     }
 
-    ClaudeSession Create(SessionState state) => new(state, this, Launch(state), _log);
+    /// <summary>The harness implementation of a session; Claude Code and its replay share the Claude adapter.</summary>
+    IHarnessSession Create(SessionState state) => new ClaudeSession(state, this, Launch(state), _log);
 
     Func<ClaudeLaunch, IClaudeTransport> Launch(SessionState state) => state.Harness switch
     {
@@ -83,7 +84,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     public async Task<bool> ApplyAsync(ulong commandId, MachineCommand command)
     {
         if (_journal.Contains(commandId)) return false;
-        ClaudeSession? session;
+        IHarnessSession? session;
         lock (_sessions) session = _sessions.GetValueOrDefault(command.SessionId);
         switch (command)
         {
@@ -98,11 +99,11 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                 session = Create(state);
                 lock (_sessions) _sessions[state.SessionId] = session;
                 _log.WriteLine($"Session {state.SessionId}: starting {state.Harness} in {state.WorkingDirectory}");
-                await session.SendAsync(start.Prompt);
+                await session.SendAsync(start.Prompt, DispatchMode.Queue);
                 break;
             case SendMessageCommand send:
                 if (session == null) Report(send.SessionId, new StatusReport(SessionStatus.Failed, Error: "Unknown session."));
-                else await session.SendAsync(send.Text);
+                else await session.SendAsync(send.Text, send.Mode);
                 break;
             case InterruptCommand:
                 if (session != null) await session.InterruptAsync();
@@ -149,7 +150,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        ClaudeSession[] sessions;
+        IHarnessSession[] sessions;
         lock (_sessions) sessions = _sessions.Values.ToArray();
         await Task.WhenAll(sessions.Select(session => session.DisposeAsync().AsTask()));
     }

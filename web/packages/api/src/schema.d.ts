@@ -967,6 +967,8 @@ export interface components {
             email: string;
             name: null | string;
         };
+        /** @enum {unknown} */
+        DispatchMode: "Queue" | "Steer" | null;
         EnrollmentDto: {
             userCode: string;
             name: string;
@@ -1129,6 +1131,7 @@ export interface components {
         RuntimeRequestStatus: "Pending" | "Allowed" | "Denied" | "Cancelled";
         SendMessageRequest: {
             text: string;
+            mode?: null | components["schemas"]["DispatchMode"];
         };
         SessionDto: {
             /** Format: uint64 */

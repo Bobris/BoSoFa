@@ -61,7 +61,8 @@ public abstract record MachineCommand(ulong SessionId);
 public sealed record StartSessionCommand(ulong SessionId, string Harness, string WorkingDirectory, string Prompt,
     string PermissionMode, string? Model) : MachineCommand(SessionId);
 
-public sealed record SendMessageCommand(ulong SessionId, string Text) : MachineCommand(SessionId);
+public sealed record SendMessageCommand(ulong SessionId, string Text, DispatchMode Mode = DispatchMode.Queue)
+    : MachineCommand(SessionId);
 
 public sealed record InterruptCommand(ulong SessionId) : MachineCommand(SessionId);
 

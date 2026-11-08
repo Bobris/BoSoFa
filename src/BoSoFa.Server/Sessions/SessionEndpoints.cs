@@ -97,7 +97,10 @@ public static class SessionEndpoints
 
     static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> SendMessageAsync(ulong id,
         SendMessageRequest request, BtdbNode node, HttpContext http) =>
-        RunAsync(node, http, new SessionMessageSent { SessionId = id, UserId = http.User.UserId() ?? 0, Text = request.Text });
+        RunAsync(node, http, new SessionMessageSent
+        {
+            SessionId = id, UserId = http.User.UserId() ?? 0, Text = request.Text, Mode = request.Mode ?? DispatchMode.Queue
+        });
 
     static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> InterruptAsync(ulong id,
         BtdbNode node, HttpContext http) =>

@@ -151,6 +151,7 @@ public class SessionMessageSent : EventWithResult<SessionCommandResult>
     public ulong SessionId { get; set; }
     public ulong UserId { get; set; }
     public string Text { get; set; } = "";
+    public DispatchMode Mode { get; set; }
 }
 
 public class SessionInterruptRequested : EventWithResult<SessionCommandResult>
@@ -290,7 +291,7 @@ public sealed class SessionMessageSentHandler(IDomainSignals signals)
         if (session == null) return new() { Outcome = outcome };
         if (session.Status is SessionStatus.Stopped) return new() { Outcome = CommandOutcome.Invalid };
         Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text);
-        Sessions.IssueCommand(signals, machine!.Id, new SendMessageCommand(session.Id, ev.Text), ev.When);
+        Sessions.IssueCommand(signals, machine!.Id, new SendMessageCommand(session.Id, ev.Text, ev.Mode), ev.When);
         Sessions.Changed(signals, session, ev.When);
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }

@@ -137,12 +137,13 @@ function Composer(props: { sessionId: number; disabled: boolean; running: boolea
   const [text, setText] = createSignal("");
   const [error, setError] = createSignal<string>();
 
-  async function send() {
+  /** Queue waits for the running turn; Steer redirects it now. */
+  async function send(mode: "Queue" | "Steer" = "Queue") {
     const value = text().trim();
     if (!value) return;
     const { response } = await api.POST("/api/v1/sessions/{id}/messages", {
       params: { path: { id: props.sessionId } },
-      body: { text: value },
+      body: { text: value, mode },
     });
     if (response.ok) {
       setText("");
@@ -160,7 +161,7 @@ function Composer(props: { sessionId: number; disabled: boolean; running: boolea
         <textarea
           class="min-h-11 flex-1 resize-y rounded-md border border-line bg-panel px-3 py-2 text-sm"
           rows={2}
-          placeholder={props.disabled ? "Only the machine's owner can write here." : "Message (⌘/Ctrl+Enter to send)"}
+          placeholder={props.disabled ? "Only the machine's owner can write here." : "Message (⌘/Ctrl+Enter to send or queue)"}
           disabled={props.disabled}
           value={text()}
           onInput={(event) => setText(event.currentTarget.value)}
@@ -176,12 +177,23 @@ function Composer(props: { sessionId: number; disabled: boolean; running: boolea
             Interrupt
           </button>
         </Show>
+        <Show when={props.running && !props.disabled}>
+          <button
+            class="rounded-md border border-accent px-3 py-2 text-sm text-accent disabled:opacity-50"
+            title="Send now and redirect the running turn"
+            disabled={text().trim() === ""}
+            onClick={() => send("Steer")}
+          >
+            Steer
+          </button>
+        </Show>
         <button
           class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          title={props.running ? "Send after the running turn ends" : undefined}
           disabled={props.disabled || text().trim() === ""}
-          onClick={send}
+          onClick={() => send("Queue")}
         >
-          Send
+          {props.running ? "Queue" : "Send"}
         </button>
       </div>
       <Show when={error()}>{(message) => <p class="mt-1 text-sm text-red-600">{message()}</p>}</Show>
