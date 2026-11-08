@@ -138,7 +138,7 @@ public class AcpSessionTest
         await using var agent = new FakeAgent();
         var sink = new RecordingSink();
         var state = new SessionState { SessionId = 1, Harness = Harnesses.OpenCode, WorkingDirectory = Path.GetTempPath(), PermissionMode = "default" };
-        await using IHarnessSession session = new AcpSession(state, sink, () => Task.FromResult(agent.Client), TextWriter.Null);
+        await using IHarnessSession session = new AcpSession(state, sink, () => Task.FromResult(new AcpLaunch(agent.Client, new JsonArray())), TextWriter.Null);
 
         await session.SendAsync("first", DispatchMode.Queue);
         await WaitFor(() => sink.Reports.OfType<ApprovalRequestedReport>().Any(), "the permission prompt");

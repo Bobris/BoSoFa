@@ -11,7 +11,7 @@ namespace BoSoFa.Daemon.Harnesses.Claude;
 /// <summary>How to start (or resume) one Claude Code conversation. <c>Environment</c> adds to (and overrides) the clean
 /// environment: the leased account's secret and its own <c>CLAUDE_CONFIG_DIR</c>.</summary>
 public sealed record ClaudeLaunch(string WorkingDirectory, string PermissionMode, string? Model, string? ResumeSessionId,
-    IReadOnlyDictionary<string, string>? Environment = null);
+    IReadOnlyDictionary<string, string>? Environment = null, string? McpConfigJson = null, string? PluginDirectory = null);
 
 /// <summary>The stream-json conversation with one Claude Code process, or a replay of one.</summary>
 public interface IClaudeTransport : IAsyncDisposable
@@ -82,6 +82,8 @@ public sealed class ClaudeProcess : IClaudeTransport
         };
         if (launch.Model != null) arguments.AddRange(["--model", launch.Model]);
         if (launch.ResumeSessionId != null) arguments.Add($"--resume={launch.ResumeSessionId}");
+        if (launch.McpConfigJson != null) arguments.AddRange(["--mcp-config", launch.McpConfigJson]);
+        if (launch.PluginDirectory != null) arguments.AddRange(["--plugin-dir", launch.PluginDirectory]);
         return arguments;
     }
 

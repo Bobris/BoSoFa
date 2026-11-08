@@ -14,6 +14,9 @@ export type RuntimeRequest = components["schemas"]["RuntimeRequestDto"];
 export type CreateSession = components["schemas"]["CreateSessionRequest"];
 export type HarnessAccount = components["schemas"]["HarnessAccountDto"];
 export type AccountKind = HarnessAccount["kind"];
+export type McpServer = components["schemas"]["McpServerDto"];
+export type SkillBundle = components["schemas"]["SkillBundleDto"];
+export type Profile = components["schemas"]["ProfileDto"];
 export type LiveClientMessage = components["schemas"]["LiveClientMessage"];
 export type LiveServerMessage = components["schemas"]["LiveServerMessage"];
 

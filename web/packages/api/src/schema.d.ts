@@ -52,6 +52,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/daemon/v1/sessions/{id}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionProfileResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/providers": {
         parameters: {
             query?: never;
@@ -1213,6 +1257,222 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mcp-servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["McpServerDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PublishMcpServer"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillBundleDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PublishSkillBundle"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProfileDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProfileDto"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/blobs": {
         parameters: {
             query?: never;
@@ -1429,6 +1689,7 @@ export interface components {
             accountId?: null | number | string;
             /** @default false */
             useWorktree: boolean;
+            profileName?: null | string;
         };
         DaemonTokenRequest: {
             /** Format: uint64 */
@@ -1586,6 +1847,7 @@ export interface components {
                 accountId: null | number | string;
                 accountLabel: null | string;
                 branch: null | string;
+                profileName: null | string;
             };
             items: {
                 /** Format: int64 */
@@ -1634,10 +1896,58 @@ export interface components {
             connectedAt: null | string;
             harnesses: components["schemas"]["InstalledHarness"][];
         };
+        McpServerDto: {
+            name: string;
+            transport: components["schemas"]["McpTransport"];
+            command: null | string;
+            args: string[];
+            url: null | string;
+            secretNames: string[];
+        };
+        /** @enum {unknown} */
+        McpTransport: "Stdio" | "Http";
+        ProfileDto: {
+            name: string;
+            model: null | string;
+            permissionMode: null | string;
+            mcpServers: string[];
+            skills: components["schemas"]["SkillRef"][];
+        };
         PublishHarnessRelease: {
             harness: string;
             version: string;
             artifacts: components["schemas"]["HarnessArtifact"][];
+        };
+        PublishMcpServer: {
+            name: string;
+            transport: components["schemas"]["McpTransport"];
+            command: null | string;
+            args: null | string[];
+            url: null | string;
+            secrets: null | {
+                [key: string]: string;
+            };
+        };
+        PublishSkillBundle: {
+            name: string;
+            version: string;
+            sha256: string;
+            description: null | string;
+        };
+        ResolvedMcpServer: {
+            name: string;
+            transport: components["schemas"]["McpTransport"];
+            command: null | string;
+            args: string[];
+            url: null | string;
+            secrets: {
+                [key: string]: string;
+            };
+        };
+        ResolvedSkill: {
+            name: string;
+            version: string;
+            sha256: string;
         };
         RuntimeRequestDto: {
             /** Format: uint64 */
@@ -1689,6 +1999,7 @@ export interface components {
             accountId: null | number | string;
             accountLabel: null | string;
             branch: null | string;
+            profileName: null | string;
         };
         SessionItemDto: {
             /** Format: int64 */
@@ -1705,8 +2016,24 @@ export interface components {
         };
         /** @enum {unknown} */
         SessionItemKind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff";
+        SessionProfileResponse: {
+            mcpServers: components["schemas"]["ResolvedMcpServer"][];
+            skills: components["schemas"]["ResolvedSkill"][];
+        };
         /** @enum {unknown} */
         SessionStatus: "Starting" | "Running" | "WaitingForApproval" | "Idle" | "Stopped" | "Failed";
+        SkillBundleDto: {
+            name: string;
+            version: string;
+            sha256: string;
+            description: string;
+            /** Format: date-time */
+            publishedAt: string;
+        };
+        SkillRef: {
+            name: string;
+            version: string;
+        };
         UserDto: {
             /** Format: uint64 */
             id: number | string;

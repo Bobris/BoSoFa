@@ -84,7 +84,8 @@ public static class Domain
         typeof(IUserTable), typeof(IEnrollmentTable), typeof(IMachineTable), typeof(ISessionTable),
         typeof(ISessionItemTable), typeof(IRuntimeRequestTable), typeof(IMachineCommandTable),
         typeof(IMachinePresenceTable), typeof(IHarnessAccountTable),
-        typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable)
+        typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable), typeof(IMcpServerTable),
+        typeof(ISkillBundleTable), typeof(IProfileTable)
     ];
 
     public static EventDispatcher CreateDispatcher(IDomainSignals signals) => new EventDispatcher()
@@ -105,5 +106,8 @@ public static class Domain
         .Register(new HarnessAccountRemovedHandler())
         .Register(new HarnessReleasePublishedHandler())
         .Register(new HarnessInstallRequestedHandler(signals))
-        .Register(new MachineInventoryReportedHandler());
+        .Register(new MachineInventoryReportedHandler())
+        .Register(new McpServerPublishedHandler())
+        .Register(new SkillBundlePublishedHandler())
+        .Register(new ProfileSavedHandler());
 }

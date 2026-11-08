@@ -34,6 +34,9 @@ public sealed class SessionState
 
     /// <summary>Runs started so far, numbering the checkpoints.</summary>
     public int Runs { get; set; }
+
+    /// <summary>The session has a profile; its MCP servers and skills are fetched at each launch.</summary>
+    public bool HasProfile { get; set; }
 }
 
 /// <summary>Fetches a harness account's secret for a session, just in time (plan §5.4.1).</summary>
@@ -43,7 +46,7 @@ public interface IAccountLeaser
 }
 
 public sealed record HarnessOptions(string? ClaudeExecutable = null, string? ReplayFixture = null,
-    IAccountLeaser? Accounts = null, string? CodexExecutable = null);
+    IAccountLeaser? Accounts = null, string? CodexExecutable = null, IProfileSource? Profiles = null);
 
 /// <summary>
 /// Applies the server's commands to the sessions of this machine. Commands are idempotent per ID (the journal), and
@@ -54,6 +57,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
 {
     readonly string _directory;
     readonly string _dataDirectory;
+    readonly SessionProfiles _profiles;
     readonly Outbox _outbox;
     readonly HarnessOptions _options;
     readonly TextWriter _log;
@@ -70,6 +74,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         // Absolute: harnesses run in the session's working directory, so a relative profile path would point nowhere.
         _dataDirectory = Path.GetFullPath(dataDirectory);
         Installer = new HarnessInstaller(_dataDirectory);
+        _profiles = new SessionProfiles(_dataDirectory, options.Profiles);
         _directory = Path.Combine(dataDirectory, "sessions");
         Directory.CreateDirectory(_directory);
         _outbox = outbox;
@@ -102,14 +107,15 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     };
 
     /// <summary>An ACP agent uses the machine's own sign-in of that tool (accounts for these come with the catalog).</summary>
-    Task<JsonRpcProcess> LaunchAcp(SessionState state, string name, string[] arguments)
+    async Task<AcpLaunch> LaunchAcp(SessionState state, string name, string[] arguments)
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var executable = HarnessEnvironment.FindExecutable(Installer.Find(name), OperatingSystem.IsWindows() ? [name + ".exe"] : [name],
                              Path.Combine(home, $".{name}", "bin"), "/opt/homebrew/bin", "/usr/local/bin") ??
                          throw new IOException($"The {name} executable was not found on this machine.");
-        return Task.FromResult(JsonRpcProcess.Start(executable, arguments, state.WorkingDirectory, HarnessEnvironment.Clean(),
-            includeVersion: true));
+        var profile = await _profiles.PrepareAsync(state);
+        return new(JsonRpcProcess.Start(executable, arguments, state.WorkingDirectory, HarnessEnvironment.Clean(), includeVersion: true),
+            McpConfig.ForAcp(profile?.McpServers ?? []));
     }
 
     /// <summary>A profile folder per account (or one for the machine's own sign-in), never the user's ~/.codex. Tokens
@@ -130,8 +136,10 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         await File.WriteAllTextAsync(Path.Combine(home, "config.toml"), CodexConfig);
         var environment = HarnessEnvironment.Clean();
         environment["CODEX_HOME"] = home;
+        var profile = await _profiles.PrepareAsync(state);
+        if (profile?.PluginDirectory is { } plugin) SessionProfiles.CopyDirectory(Path.Combine(plugin, "skills"), Path.Combine(home, "skills"));
         return new(JsonRpcProcess.Start(executable, ["app-server"], state.WorkingDirectory,
-            environment, includeVersion: false), apiKey);
+            environment, includeVersion: false), apiKey, profile is { McpServers.Length: > 0 } ? McpConfig.ForCodex(profile.McpServers) : null);
     }
 
     const string CodexConfig = """
@@ -147,22 +155,28 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     {
         HarnessNames.Replay when _options.ReplayFixture != null => async launch =>
         {
-            await WithAccountAsync(state, launch); // leased like Claude Code, so tests cover the lease
+            await PrepareClaudeAsync(state, launch); // leased like Claude Code, so tests cover the lease
             return new ReplayTransport(_options.ReplayFixture);
         },
         HarnessNames.Claude => async launch =>
         {
             var executable = ClaudeProcess.FindExecutable(_options.ClaudeExecutable ?? Installer.Find(HarnessNames.Claude)) ??
                              throw new FileNotFoundException("The claude executable was not found on this machine.");
-            return ClaudeProcess.Start(executable, await WithAccountAsync(state, launch));
+            return ClaudeProcess.Start(executable, await PrepareClaudeAsync(state, launch));
         },
         _ => _ => throw new InvalidOperationException($"This daemon cannot run the {state.Harness} harness.")
     };
 
     /// <summary>With an account: its secret only in the child's environment, and a config folder of its own, so
     /// neither the machine's own login nor another account's state mixes in.</summary>
-    async Task<ClaudeLaunch> WithAccountAsync(SessionState state, ClaudeLaunch launch)
+    async Task<ClaudeLaunch> PrepareClaudeAsync(SessionState state, ClaudeLaunch launch)
     {
+        if (await _profiles.PrepareAsync(state) is { } profile)
+            launch = launch with
+            {
+                McpConfigJson = profile.McpServers.Length > 0 ? McpConfig.ForClaude(profile.McpServers) : null,
+                PluginDirectory = profile.PluginDirectory
+            };
         if (state.AccountId is not { } accountId) return launch;
         if (_options.Accounts is not { } accounts)
             throw new InvalidOperationException("This daemon cannot lease harness accounts.");
@@ -198,7 +212,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                 {
                     SessionId = start.SessionId, Harness = start.Harness, WorkingDirectory = start.WorkingDirectory,
                     PermissionMode = start.PermissionMode, Model = start.Model, Status = SessionStatus.Starting,
-                    AccountId = start.AccountId
+                    AccountId = start.AccountId, HasProfile = start.HasProfile
                 };
                 if (start.UseWorktree && !PrepareWorktree(state, start.Prompt)) break;
                 Save(state);

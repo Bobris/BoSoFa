@@ -39,7 +39,7 @@ public static class SessionEndpoints
             session.LastSeq, session.Model, session.PermissionMode, session.CostUsd,
             machine != null && machine.OwnerId == userId, session.AccountId == 0 ? null : session.AccountId,
             session.AccountId == 0 ? null : Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId)?.Label,
-            session.Branch);
+            session.Branch, session.ProfileName);
     }
 
     static RuntimeRequestDto ToDto(RuntimeRequest request) => new(request.Id, request.SessionId, request.ToolName,
@@ -89,14 +89,26 @@ public static class SessionEndpoints
     }
 
     static async Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> CreateSessionAsync(
-        CreateSessionRequest request, BtdbNode node, HttpContext http) =>
-        await RunAsync(node, http, new SessionCreated
+        CreateSessionRequest request, BtdbNode node, HttpContext http)
+    {
+        // The request's own choices win over the profile's defaults.
+        string? model = request.Model, permissionMode = request.PermissionMode;
+        if (request.ProfileName is { } name)
+        {
+            var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+            using var query = publisher.StartQuery();
+            var profile = Ambient.Relation<IProfileTable>().FindByIdOrDefault(name);
+            model ??= profile?.Model;
+            permissionMode ??= profile?.PermissionMode;
+        }
+        return await RunAsync(node, http, new SessionCreated
         {
             MachineId = request.MachineId, UserId = http.User.UserId() ?? 0, Harness = request.Harness,
             WorkingDirectory = request.WorkingDirectory, Prompt = request.Prompt,
-            PermissionMode = request.PermissionMode ?? "default", Model = request.Model, AccountId = request.AccountId ?? 0,
-            UseWorktree = request.UseWorktree
+            PermissionMode = permissionMode ?? "default", Model = model, AccountId = request.AccountId ?? 0,
+            UseWorktree = request.UseWorktree, ProfileName = request.ProfileName
         });
+    }
 
     static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> SendMessageAsync(ulong id,
         SendMessageRequest request, BtdbNode node, HttpContext http) =>

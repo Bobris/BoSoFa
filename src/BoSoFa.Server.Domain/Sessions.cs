@@ -36,6 +36,9 @@ public class Session
 
     /// <summary>The session's own branch when it runs in a worktree (then <see cref="WorkingDirectory"/> is that worktree).</summary>
     public string? Branch { get; set; }
+
+    /// <summary>The profile whose MCP servers and skills the session gets; null for none.</summary>
+    public string? ProfileName { get; set; }
 }
 
 public interface ISessionTable : IRelation<Session>
@@ -152,6 +155,7 @@ public class SessionCreated : EventWithResult<SessionCommandResult>
     public string? Model { get; set; }
     public ulong AccountId { get; set; }
     public bool UseWorktree { get; set; }
+    public string? ProfileName { get; set; }
 }
 
 public class SessionMessageSent : EventWithResult<SessionCommandResult>
@@ -278,18 +282,21 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
             if (account.OwnerId != ev.UserId) return new() { Outcome = CommandOutcome.Forbidden };
             if (AccountSecrets.HarnessOf(account.Kind) != harness) return new() { Outcome = CommandOutcome.Invalid };
         }
+        if (ev.ProfileName != null && Ambient.Relation<IProfileTable>().FindByIdOrDefault(ev.ProfileName) == null)
+            return new() { Outcome = CommandOutcome.NotFound };
         var session = new Session
         {
             Id = Ambient.AllocateId(), MachineId = machine.Id, CreatedById = ev.UserId, Harness = ev.Harness,
             WorkingDirectory = ev.WorkingDirectory.Trim(), Title = Sessions.TitleOf(ev.Prompt),
             PermissionMode = ev.PermissionMode, Model = string.IsNullOrWhiteSpace(ev.Model) ? null : ev.Model.Trim(),
-            Status = SessionStatus.Starting, CreatedAt = ev.When, UpdatedAt = ev.When, AccountId = ev.AccountId
+            Status = SessionStatus.Starting, CreatedAt = ev.When, UpdatedAt = ev.When, AccountId = ev.AccountId,
+            ProfileName = ev.ProfileName
         };
         Ambient.Relation<ISessionTable>().Insert(session);
         Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt);
         Sessions.IssueCommand(signals, machine.Id, new StartSessionCommand(session.Id, session.Harness,
             session.WorkingDirectory, ev.Prompt, session.PermissionMode, session.Model,
-            session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree), ev.When);
+            session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree, ev.ProfileName != null), ev.When);
         Sessions.Changed(signals, session, ev.When);
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }

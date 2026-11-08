@@ -69,6 +69,25 @@ public sealed class ServerClient(Uri server, HttpMessageHandler? handler = null)
         return (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.AccountLeaseResponse, cancellation))!;
     }
 
+    public async Task<SessionProfileResponse> GetSessionProfileAsync(string accessToken, ulong sessionId, CancellationToken cancellation)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/daemon/v1/sessions/{sessionId}/profile");
+        request.Headers.Authorization = new("Bearer", accessToken);
+        using var response = await _http.SendAsync(request, cancellation);
+        await EnsureSuccessAsync(response, cancellation);
+        return (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.SessionProfileResponse, cancellation))!;
+    }
+
+    public async Task DownloadBlobAsync(string accessToken, string sha256, string file, CancellationToken cancellation)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/daemon/v1/blobs/{sha256}");
+        request.Headers.Authorization = new("Bearer", accessToken);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
+        await EnsureSuccessAsync(response, cancellation);
+        await using var output = File.Create(file);
+        await response.Content.CopyToAsync(output, cancellation);
+    }
+
     static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellation)
     {
         if (response.IsSuccessStatusCode) return;

@@ -67,7 +67,8 @@ public sealed record SessionDto(
     bool CanControl,
     ulong? AccountId,
     string? AccountLabel,
-    string? Branch);
+    string? Branch,
+    string? ProfileName);
 
 /// <summary>One persisted transcript entry. <c>Data</c> holds JSON details (tool input, run usage) and <c>Ref</c> the
 /// harness's message ID, which live deltas carry too.</summary>
@@ -103,7 +104,8 @@ public sealed record CreateSessionRequest(
     string? PermissionMode,
     string? Model,
     ulong? AccountId = null,
-    bool UseWorktree = false);
+    bool UseWorktree = false,
+    string? ProfileName = null);
 
 /// <summary>How a message reaches a session whose turn is still running.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<DispatchMode>))]

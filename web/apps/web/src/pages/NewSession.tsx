@@ -1,4 +1,4 @@
-import { api, type HarnessAccount, type Machine } from "@bosofa/api";
+import { api, type HarnessAccount, type Machine, type Profile } from "@bosofa/api";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { paths } from "../router";
@@ -45,6 +45,8 @@ export default function NewSession() {
   const accounts = createMemo(async (): Promise<HarnessAccount[]> =>
     me() ? ((await api.GET("/api/v1/accounts")).data ?? []) : [],
   );
+  const profiles = createMemo(async (): Promise<Profile[]> => (me() ? ((await api.GET("/api/v1/profiles")).data ?? []) : []));
+  const [profile, setProfile] = createSignal("");
   const [machine, setMachine] = createSignal<string>();
   const [account, setAccount] = createSignal("");
   // The replay plays Claude Code, so it takes Claude accounts.
@@ -68,10 +70,11 @@ export default function NewSession() {
         harness: harness(),
         workingDirectory: directory().trim(),
         prompt: prompt(),
-        permissionMode: mode(),
+        permissionMode: profile() && mode() === "default" ? null : mode(), // the profile's own default applies
         model: model().trim() || null,
         accountId: usable().some((a) => String(a.id) === account()) ? Number(account()) : null,
         useWorktree: worktree(),
+        profileName: profile() || null,
       },
     });
     setBusy(false);
@@ -127,6 +130,15 @@ export default function NewSession() {
               </select>
             </label>
           </div>
+          <label class="block space-y-1">
+            <span class="text-sm text-muted">Profile (MCP servers and skills)</span>
+            <select class={field} value={profile()} onChange={(event) => setProfile(event.currentTarget.value)}>
+              <option value="">None</option>
+              <For each={profiles()} keyed={(option) => option.name}>
+                {(option) => <option value={option().name}>{option().name}</option>}
+              </For>
+            </select>
+          </label>
           <label class="block space-y-1">
             <span class="text-sm text-muted">Account</span>
             <select class={field} value={account()} onChange={(event) => setAccount(event.currentTarget.value)}>

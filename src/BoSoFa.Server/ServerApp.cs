@@ -95,6 +95,7 @@ public static class ServerApp
         app.MapMachineEndpoints();
         app.MapSessionEndpoints();
         app.MapAccountEndpoints();
+        app.MapCatalogEndpoints();
         app.MapBlobEndpoints();
         if (cluster != null)
         {

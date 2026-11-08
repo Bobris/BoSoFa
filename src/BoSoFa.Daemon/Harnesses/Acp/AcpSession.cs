@@ -10,13 +10,16 @@ using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon.Harnesses.Acp;
 
+/// <summary>A started ACP agent and the MCP servers its sessions get.</summary>
+public sealed record AcpLaunch(JsonRpcProcess Rpc, JsonArray McpServers);
+
 /// <summary>
 /// One BoSoFa session on an Agent Client Protocol agent (OpenCode, Gemini CLI): JSON-RPC 2.0 over stdio, one long
 /// <c>session/prompt</c> per turn, its output as <c>session/update</c> notifications, permission prompts as
 /// <c>session/request_permission</c>. ACP has no queue or steering, so queued messages wait here and steering cancels
 /// the running turn first. A later process continues with <c>session/load</c> when the agent supports it.
 /// </summary>
-public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<JsonRpcProcess>> launch, TextWriter log)
+public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<AcpLaunch>> launch, TextWriter log)
     : IHarnessSession
 {
     static readonly TimeSpan RequestTimeout = TimeSpan.FromMinutes(2);
@@ -32,6 +35,7 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
     Task? _worker;
     JsonRpcProcess? _rpc;
     Task? _pump;
+    JsonArray _mcpServers = new();
     bool _ready, _turnActive, _loading;
     int _turn, _block;
 
@@ -95,8 +99,13 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
             return false;
         }
         JsonRpcProcess rpc;
-        try { rpc = await launch(); }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException or
+        try
+        {
+            var started = await launch();
+            rpc = started.Rpc;
+            _mcpServers = started.McpServers;
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException or HttpRequestException or
                                               System.ComponentModel.Win32Exception)
         {
             sink.Report(state.SessionId, new StatusReport(SessionStatus.Failed, Error: $"The agent did not start: {exception.Message}"));
@@ -130,7 +139,7 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
                 _loading = true; // the agent replays the conversation as updates; the transcript already has it
                 await rpc.RequestAsync("session/load", new JsonObject
                 {
-                    ["sessionId"] = existing, ["cwd"] = state.WorkingDirectory, ["mcpServers"] = new JsonArray()
+                    ["sessionId"] = existing, ["cwd"] = state.WorkingDirectory, ["mcpServers"] = _mcpServers.DeepClone()
                 }, RequestTimeout);
                 return true;
             }
@@ -144,7 +153,7 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
         {
             var created = await rpc.RequestAsync("session/new", new JsonObject
             {
-                ["cwd"] = state.WorkingDirectory, ["mcpServers"] = new JsonArray()
+                ["cwd"] = state.WorkingDirectory, ["mcpServers"] = _mcpServers.DeepClone()
             }, RequestTimeout);
             sink.Report(state.SessionId, new StatusReport(SessionStatus.Running, HarnessSessionId: ClaudeJson.Str(created, "sessionId")));
             return true;

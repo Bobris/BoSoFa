@@ -333,6 +333,7 @@ function SessionView(props: { id: number }) {
               {session().machineName} · {session().harness}
               <Show when={session().model}>{(model) => <> · {model()}</>}</Show>
               <Show when={session().accountLabel}>{(account) => <> · {account()}</>}</Show>
+              <Show when={session().profileName}>{(profile) => <> · {profile()}</>}</Show>
               <Show when={session().branch}>{(branch) => <> · <span class="font-mono">{branch()}</span></>}</Show> ·{" "}
               <span class="font-mono">{session().workingDirectory}</span> · {session().permissionMode}
               <Show when={Number(session().costUsd) > 0}> · ${Number(session().costUsd).toFixed(4)}</Show>

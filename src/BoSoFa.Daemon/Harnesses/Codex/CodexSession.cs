@@ -10,7 +10,7 @@ using BoSoFa.Protocol;
 namespace BoSoFa.Daemon.Harnesses.Codex;
 
 /// <summary>A started <c>codex app-server</c>, and the API key to sign it in with when the session's account has one.</summary>
-public sealed record CodexLaunch(JsonRpcProcess Rpc, string? ApiKey);
+public sealed record CodexLaunch(JsonRpcProcess Rpc, string? ApiKey, JsonObject? Config = null);
 
 /// <summary>
 /// One BoSoFa session on <c>codex app-server</c> (JSON-RPC over stdio). The process and its thread start with the first
@@ -39,6 +39,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
     string? _turnId;
     long _inputTokens, _outputTokens;
     TaskCompletionSource<(bool Success, string? Error)>? _login;
+    JsonObject? _config;
 
     public SessionState State => state;
 
@@ -157,6 +158,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
             return false;
         }
         var rpc = started.Rpc;
+        _config = started.Config;
         rpc.OnRequest = HandleRequestAsync;
         _rpc = rpc;
         _pump = Task.Run(() => PumpAsync(rpc));
@@ -207,6 +209,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         var (approval, sandbox) = Policies();
         var settings = new JsonObject { ["cwd"] = state.WorkingDirectory, ["approvalPolicy"] = approval, ["sandbox"] = sandbox };
         if (state.Model != null) settings["model"] = state.Model;
+        if (_config != null) settings["config"] = _config.DeepClone(); // Codex does not keep it across resumes
         JsonElement result;
         if (state.HarnessSessionId is { } threadId)
         {
