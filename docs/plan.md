@@ -453,6 +453,29 @@ M1 is done. With real Claude Code (`haiku`) on this laptop: a session started fr
   - `@solidjs/diagnostics` was missing from M0, so the dev diagnostics bridge never loaded. With it installed, polled lists need `keyed` and live updates need `reconcile`; the console is now clean.
 - **Left for later:** inline payloads are cut at 16 KiB until blobs arrive (M4); `bypassPermissions`/`acceptEdits` are passed through as is; there is no interrupt for queued messages and no per-profile `CLAUDE_CONFIG_DIR` yet (M3); the sessions list still polls (`subscribe{shell}` comes later).
 
+### M2 steps
+
+Done when: the M1 scenario passes while the leader node is killed. The nodes run as plain processes on Azurite, locally and in CI; Docker is optional.
+
+1. **Every node runs the application.**
+   - Today only the leader starts the `EventPublisher` (from `PrepareSchemaAsync`), so followers neither consume events nor serve reads.
+   - After restore, a follower calls `ObjectDB.TryInitializeRelationsWithoutWriting` (new in BTDB). Once its history holds this build's schema, it starts the same publisher, which consumes into its own ObjectDB.
+   - While the schema is missing, it keeps the loop stopped and restores again until it is there, or until it leads.
+   - Leader-only work runs under `ReplicationLeadership.RunWhileLeaderAsync`.
+2. **Cluster configuration.**
+   - `BoSoFa:Cluster` selects `AddBTDBReplication` + `AddBTDBEventLog` with `AzureLeaderStorage`, `AzureReplicationStorage` and `AzureEventLogStorage` (Azurite locally). A blob client without SDK retries handles authority.
+   - The peer endpoints (`MapBTDBReplication`, `MapBTDBEventLog`) go on a separate internal port with `RequireHost`.
+   - The Data Protection key ring moves to Blob, so cookies and daemon tokens work on every node.
+3. **Presence.**
+   - A daemon's connection is recorded as data: `MachineConnected` and `MachineDisconnected` carry the node and a connection id. Every node can then answer "online", and send a command to the right place.
+   - The leader drops connections of nodes that left `ReplicationPresence`.
+4. **Live relay.**
+   - A UI on node B that follows a session whose daemon is on node A gets A's deltas through one internal streaming request: `GET /internal/live/machines/{id}` on the peer port.
+   - Persisted items already reach every node through the event log.
+5. **Local cluster and failover test.**
+   - A script starts Azurite and three nodes behind a small round-robin proxy, for development.
+   - A CI test runs the replay scenario across three node processes, kills the leader mid-turn, and checks that the daemon reconnects through the proxy and the session catches up with no gaps or duplicates.
+
 ## 10. Risks
 
 | Risk | Mitigation |
