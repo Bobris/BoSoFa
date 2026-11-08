@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Wire contracts shared by the server, the daemon and the clients. References nothing else of BoSoFa.</Description>
+  </PropertyGroup>
+</Project>

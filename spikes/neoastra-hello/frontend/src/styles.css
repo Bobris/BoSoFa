@@ -1,0 +1,16 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; --line: #8884; }
+body { margin: 0; }
+main { max-width: 1000px; margin: 0 auto; padding: 16px 24px; }
+h1 { font-size: 22px; margin: 8px 0 0; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+.muted { color: #888; font-size: 13px; }
+.card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: 14px; }
+dt { color: #888; }
+dd { margin: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+td { border-top: 1px solid var(--line); padding: 4px 6px; vertical-align: top; }
+td.detail { font-family: ui-monospace, monospace; word-break: break-all; }
+.ok { color: #1a7f37; font-weight: 600; }
+.fail { color: #cf222e; font-weight: 600; }
+button { font-size: 12px; margin-left: 8px; }

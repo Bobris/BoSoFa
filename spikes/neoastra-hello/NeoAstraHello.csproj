@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Spike ③ (M0): a NeoAstra desktop shell hosting a SolidJS 2 SPA. See docs/spikes/03-neoastra-desktop.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>NeoAstraHello</RootNamespace>
+    <AssemblyName>neoastra-hello</AssemblyName>
+    <!-- Like CodeAlta: framework-dependent, ReadyToRun on publish, no AOT. -->
+    <SelfContained>false</SelfContained>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <!-- NeoAstra collects frontend outputs itself; SDK globs must not walk them. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);frontend/node_modules/**;frontend/dist/**</DefaultItemExcludes>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NeoAstra" Version="1.12.0" />
+  </ItemGroup>
+</Project>

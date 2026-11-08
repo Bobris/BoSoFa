@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <ProjectReference Include="../../src/BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
+    <ProjectReference Include="../../src/BoSoFa.Server.Domain/BoSoFa.Server.Domain.csproj" />
+    <ProjectReference Include="../../src/BoSoFa.Server/BoSoFa.Server.csproj" />
+    <ProjectReference Include="../../src/BoSoFa.Daemon/BoSoFa.Daemon.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

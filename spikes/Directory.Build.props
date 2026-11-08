@@ -1,0 +1,13 @@
+<Project>
+  <!-- Spikes are throwaway experiments: they do not inherit the product build rules (central package versions,
+       warnings as errors, AOT analyzers). Each spike project states its own package versions. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)../artifacts/spikes</ArtifactsPath>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

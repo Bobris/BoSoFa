@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>bosofad: the per-machine daemon that runs agent harnesses for the BoSoFa server.</Description>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>bosofad</AssemblyName>
+    <RootNamespace>BoSoFa.Daemon</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <StripSymbols>true</StripSymbols>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
+  </ItemGroup>
+</Project>

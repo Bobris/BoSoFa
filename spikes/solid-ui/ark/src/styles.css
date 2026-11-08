@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: light-dark(#f7f7f8, #111214);
+  --color-panel: light-dark(#ffffff, #1b1c1f);
+  --color-ink: light-dark(#1d1e22, #e8e8ea);
+  --color-muted: light-dark(#6b6d76, #9a9ca5);
+  --color-line: light-dark(#e3e3e7, #2c2d32);
+  --color-accent: light-dark(#3b5bdb, #8ea2ff);
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  @apply bg-canvas text-ink antialiased;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}

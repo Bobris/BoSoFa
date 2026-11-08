@@ -1,0 +1,14 @@
+{
+  "name": "bosofa-web",
+  "private": true,
+  "packageManager": "pnpm@10.15.1",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @bosofa/web dev",
+    "build": "pnpm --filter @bosofa/web build",
+    "gen:api": "pnpm --filter @bosofa/api gen",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

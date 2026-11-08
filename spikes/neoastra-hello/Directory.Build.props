@@ -1,0 +1,9 @@
+<Project>
+  <Import Project="../Directory.Build.props" />
+  <PropertyGroup>
+    <!-- The spikes build into artifacts/spikes; the frontend imports the generated RPC binding and the staged
+         @neoastra/client from fixed paths beside it instead (as CodeAlta does). -->
+    <NeoRpcIntermediateOutputPath>$(MSBuildThisFileDirectory)obj/neoastra</NeoRpcIntermediateOutputPath>
+    <NeoAstraFrontendClientStageDirectory>$(MSBuildThisFileDirectory)obj/neoastra/client</NeoAstraFrontendClientStageDirectory>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Spike 4 (M0): drive Claude Code over its stream-json protocol from a Native AOT process. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>claude-stream-spike</AssemblyName>
+    <RootNamespace>ClaudeStreamSpike</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Any reflection-based (de)serialization throws at run time: only the source-generated context works. -->
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,7 @@
+<Project>
+  <!-- Evaluated after each project, so IsTestProject is known. Every product assembly stays AOT-analyzable (trimming
+       and AOT warnings are errors); only the daemon actually publishes with Native AOT. -->
+  <PropertyGroup Condition="'$(IsTestProject)' != 'true'">
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+</Project>

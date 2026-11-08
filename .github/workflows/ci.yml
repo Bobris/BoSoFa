@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  dotnet:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - run: dotnet build BoSoFa.slnx -c Release
+      # Includes ContractTest: the checked-in web/packages/api/openapi.json must match the server.
+      - run: dotnet test BoSoFa.slnx -c Release --no-build
+
+  daemon-aot:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Install Native AOT prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+      # Trimming and AOT warnings are errors (TreatWarningsAsErrors), so this is the AOT gate.
+      - run: dotnet publish src/BoSoFa.Daemon -c Release -r ${{ matrix.rid }} -o out
+      - run: ./out/bosofad version
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bosofad-${{ matrix.rid }}
+          path: out/bosofad*
+          if-no-files-found: error
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Generated API client is up to date
+        run: pnpm gen:api && git diff --exit-code -- packages/api/src/schema.d.ts
+      - run: pnpm typecheck
+      - run: pnpm build

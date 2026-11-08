@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BoSoFa.Daemon/BoSoFa.Daemon.csproj" />
+    <Project Path="src/BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
+    <Project Path="src/BoSoFa.Server.Domain/BoSoFa.Server.Domain.csproj" />
+    <Project Path="src/BoSoFa.Server/BoSoFa.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BoSoFa.Architecture.Tests/BoSoFa.Architecture.Tests.csproj" />
+    <Project Path="tests/BoSoFa.Server.Tests/BoSoFa.Server.Tests.csproj" />
+  </Folder>
+</Solution>

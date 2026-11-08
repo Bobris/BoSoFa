@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Spike 01 (M0): volume of session transcript items persisted as BTDB EventSourcing events, single-node mode on
+       local file-system storage. See docs/spikes/01-btdb-event-volume.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>btdb-volume</AssemblyName>
+    <RootNamespace>BtdbVolume</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Same GC mode as the ASP.NET Core server (Microsoft.NET.Sdk.Web defaults to server GC). -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="BTDB" Version="36.2.0" />
+    <PackageReference Include="BTDB.Replication" Version="36.2.0" />
+    <PackageReference Include="BTDB.Replication.EventSourcing" Version="36.2.0" />
+    <PackageReference Include="BTDB.Replication.Http" Version="36.2.0" />
+    <PackageReference Include="BTDB.SourceGenerator" Version="36.2.0" OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

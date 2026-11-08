@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <Description>BoSoFa server: Minimal API, authentication, live hub and the SPA, over BTDB replication.</Description>
+    <AssemblyName>bosofa-server</AssemblyName>
+    <RootNamespace>BoSoFa.Server</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
+    <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="BTDB.Replication.Http" />
+    <PackageReference Include="BTDB.SourceGenerator" OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
+    <ProjectReference Include="../BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
+    <ProjectReference Include="../BoSoFa.Server.Domain/BoSoFa.Server.Domain.csproj" />
+    <InternalsVisibleTo Include="BoSoFa.Server.Tests" />
+  </ItemGroup>
+</Project>

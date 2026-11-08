@@ -1,0 +1,19 @@
+{
+  "name": "bosofa-neoastra-hello",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --strictPort",
+    "build": "tsc --noEmit && vite build"
+  },
+  "dependencies": {
+    "@neoastra/client": "file:../obj/neoastra/client",
+    "@solidjs/web": "2.0.0-rc.21",
+    "solid-js": "2.0.0-rc.21"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.57",
+    "typescript": "5.9.3",
+    "vite": "8.3.6"
+  }
+}
