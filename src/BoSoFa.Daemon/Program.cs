@@ -146,7 +146,7 @@ namespace BoSoFa.Daemon
             using var outbox = new Outbox(Path.Combine(store.Directory, "outbox"));
             var leaser = new ServerAccountLeaser(state, key);
             await using var host = new Sessions.SessionHost(store.Directory, outbox,
-                harnesses with { Accounts = leaser, Profiles = leaser }, output);
+                harnesses with { Accounts = leaser, Profiles = leaser, Uploader = leaser }, output);
             try
             {
                 await new DaemonLink(state, key, output, outbox, host).RunAsync(cancellation);

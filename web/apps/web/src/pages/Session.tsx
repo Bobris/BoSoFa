@@ -91,6 +91,17 @@ function DiffItem(props: { item: SessionItem }) {
   );
 }
 
+/** A file the agent uploaded with bosofa_upload_file. */
+function uploaded(item: SessionItem): { blob: string; fileName: string } | undefined {
+  try {
+    const data = JSON.parse(item.data ?? "null") as { blob?: string; fileName?: string } | null;
+    if (data?.blob && /^[0-9a-f]{64}$/.test(data.blob)) return { blob: data.blob, fileName: data.fileName ?? "download" };
+  } catch {
+    /* an ordinary notice */
+  }
+  return undefined;
+}
+
 function Item(props: { item: SessionItem }) {
   return (
     <Switch>
@@ -147,6 +158,16 @@ function Item(props: { item: SessionItem }) {
           </div>
         )}
       </Match>
+      <Match when={props.item.kind === "Notice" && uploaded(props.item)}>
+        {(file) => (
+          <p class="text-sm text-muted">
+            {props.item.text}{" "}
+            <a class="text-accent underline" href={`/api/v1/blobs/${file().blob}`} download={file().fileName}>
+              Download
+            </a>
+          </p>
+        )}
+      </Match>
       <Match when={props.item.kind === "Notice"}>
         <p class={["text-sm", props.item.isError ? "text-red-600" : "text-muted"]}>{props.item.text}</p>
       </Match>
@@ -197,7 +218,7 @@ function Approval(props: { request: RuntimeRequest; canControl: boolean; session
           </button>
           <input
             class="min-w-48 flex-1 rounded-md border border-line bg-transparent px-2 py-1.5 text-sm"
-            placeholder="Reason for the model (optional, with Deny)"
+            placeholder="Reason or answer for the model (optional)"
             value={message()}
             onInput={(event) => setMessage(event.currentTarget.value)}
           />

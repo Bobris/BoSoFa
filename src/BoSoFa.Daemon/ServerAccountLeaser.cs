@@ -6,7 +6,7 @@ namespace BoSoFa.Daemon;
 
 /// <summary>Leases account secrets from the server with a fresh machine token per lease (leases are rare: once per
 /// harness start). The secret is never written to disk.</summary>
-public sealed class ServerAccountLeaser(DaemonState state, ECDsa key) : IAccountLeaser, IProfileSource
+public sealed class ServerAccountLeaser(DaemonState state, ECDsa key) : IAccountLeaser, IProfileSource, IBlobUploader
 {
     public async Task<AccountLeaseResponse> LeaseAsync(ulong accountId, ulong sessionId, CancellationToken cancellation)
     {
@@ -20,6 +20,13 @@ public sealed class ServerAccountLeaser(DaemonState state, ECDsa key) : IAccount
         using var client = new ServerClient(state.Server);
         var token = await client.GetTokenAsync(state.MachineId, key, cancellation);
         return await client.GetSessionProfileAsync(token.AccessToken, sessionId, cancellation);
+    }
+
+    public async Task<BlobRef> UploadAsync(string file, CancellationToken cancellation)
+    {
+        using var client = new ServerClient(state.Server);
+        var token = await client.GetTokenAsync(state.MachineId, key, cancellation);
+        return await client.UploadBlobAsync(token.AccessToken, file, cancellation);
     }
 
     public async Task DownloadBlobAsync(string sha256, string file, CancellationToken cancellation)

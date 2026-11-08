@@ -78,6 +78,20 @@ public sealed class ServerClient(Uri server, HttpMessageHandler? handler = null)
         return (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.SessionProfileResponse, cancellation))!;
     }
 
+    /// <summary>Uploads a file under its hash; the server verifies it.</summary>
+    public async Task<BlobRef> UploadBlobAsync(string accessToken, string file, CancellationToken cancellation)
+    {
+        string sha256;
+        await using (var content = File.OpenRead(file))
+            sha256 = Convert.ToHexStringLower(await SHA256.HashDataAsync(content, cancellation));
+        await using var body = File.OpenRead(file);
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"/api/daemon/v1/blobs/{sha256}") { Content = new StreamContent(body) };
+        request.Headers.Authorization = new("Bearer", accessToken);
+        using var response = await _http.SendAsync(request, cancellation);
+        await EnsureSuccessAsync(response, cancellation);
+        return (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.BlobRef, cancellation))!;
+    }
+
     public async Task DownloadBlobAsync(string accessToken, string sha256, string file, CancellationToken cancellation)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/daemon/v1/blobs/{sha256}");

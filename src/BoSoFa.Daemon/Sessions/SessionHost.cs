@@ -46,7 +46,8 @@ public interface IAccountLeaser
 }
 
 public sealed record HarnessOptions(string? ClaudeExecutable = null, string? ReplayFixture = null,
-    IAccountLeaser? Accounts = null, string? CodexExecutable = null, IProfileSource? Profiles = null);
+    IAccountLeaser? Accounts = null, string? CodexExecutable = null, IProfileSource? Profiles = null,
+    IBlobUploader? Uploader = null);
 
 /// <summary>
 /// Applies the server's commands to the sessions of this machine. Commands are idempotent per ID (the journal), and
@@ -75,6 +76,10 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         _dataDirectory = Path.GetFullPath(dataDirectory);
         Installer = new HarnessInstaller(_dataDirectory);
         _profiles = new SessionProfiles(_dataDirectory, options.Profiles);
+        Mcp = new McpEndpoint(id =>
+        {
+            lock (_sessions) return _sessions.GetValueOrDefault(id)?.State;
+        }, this, options.Uploader);
         _directory = Path.Combine(dataDirectory, "sessions");
         Directory.CreateDirectory(_directory);
         _outbox = outbox;
@@ -115,7 +120,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                          throw new IOException($"The {name} executable was not found on this machine.");
         var profile = await _profiles.PrepareAsync(state);
         return new(JsonRpcProcess.Start(executable, arguments, state.WorkingDirectory, HarnessEnvironment.Clean(), includeVersion: true),
-            McpConfig.ForAcp(profile?.McpServers ?? []));
+            McpConfig.ForAcp(ServersOf(state, profile)));
     }
 
     /// <summary>A profile folder per account (or one for the machine's own sign-in), never the user's ~/.codex. Tokens
@@ -139,7 +144,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         var profile = await _profiles.PrepareAsync(state);
         if (profile?.PluginDirectory is { } plugin) SessionProfiles.CopyDirectory(Path.Combine(plugin, "skills"), Path.Combine(home, "skills"));
         return new(JsonRpcProcess.Start(executable, ["app-server"], state.WorkingDirectory,
-            environment, includeVersion: false), apiKey, profile is { McpServers.Length: > 0 } ? McpConfig.ForCodex(profile.McpServers) : null);
+            environment, includeVersion: false), apiKey, McpConfig.ForCodex(ServersOf(state, profile)));
     }
 
     const string CodexConfig = """
@@ -171,12 +176,12 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     /// neither the machine's own login nor another account's state mixes in.</summary>
     async Task<ClaudeLaunch> PrepareClaudeAsync(SessionState state, ClaudeLaunch launch)
     {
-        if (await _profiles.PrepareAsync(state) is { } profile)
-            launch = launch with
-            {
-                McpConfigJson = profile.McpServers.Length > 0 ? McpConfig.ForClaude(profile.McpServers) : null,
-                PluginDirectory = profile.PluginDirectory
-            };
+        var profile = await _profiles.PrepareAsync(state);
+        launch = launch with
+        {
+            McpConfigJson = McpConfig.ForClaude(ServersOf(state, profile)), PluginDirectory = profile?.PluginDirectory,
+            AllowedTools = McpEndpoint.PreApprovedClaudeTools
+        };
         if (state.AccountId is not { } accountId) return launch;
         if (_options.Accounts is not { } accounts)
             throw new InvalidOperationException("This daemon cannot lease harness accounts.");
@@ -187,6 +192,12 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         environment[lease.Kind == AccountKind.ClaudeOAuthToken ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"] = lease.Secret;
         return launch with { Environment = environment };
     }
+
+    /// <summary>The BoSoFa MCP server every session of this machine gets.</summary>
+    public McpEndpoint Mcp { get; }
+
+    ResolvedMcpServer[] ServersOf(SessionState state, PreparedProfile? profile) =>
+        [Mcp.ServerFor(state.SessionId), ..profile?.McpServers ?? []];
 
     /// <summary>Installed harnesses and failed installs, for the server's inventory.</summary>
     public HarnessInstaller Installer { get; }
@@ -229,6 +240,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                 if (session != null) await session.InterruptAsync();
                 break;
             case AnswerApprovalCommand answer:
+                if (Mcp.TryAnswer(answer.Key, answer.Allow, answer.Message)) break;
                 if (session != null) await session.AnswerAsync(answer.Key, answer.Allow, answer.Message);
                 break;
             case StopSessionCommand:
@@ -246,7 +258,11 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         // Before the status goes out, so the agent cannot have changed anything yet.
         if (report is StatusReport { Status: SessionStatus.Running } && state != null) BeginRun(state);
         Report(sessionId, report, state);
-        if (report is RunEndedReport && state != null) EndRun(state);
+        if (report is RunEndedReport && state != null)
+        {
+            Mcp.CancelQuestions(sessionId);
+            EndRun(state);
+        }
     }
 
     /// <summary>Moves a new session into its own worktree. False when that is impossible (reported as a failure).</summary>
@@ -322,6 +338,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await Mcp.DisposeAsync();
         IHarnessSession[] sessions;
         lock (_sessions) sessions = _sessions.Values.ToArray();
         await Task.WhenAll(sessions.Select(session => session.DisposeAsync().AsTask()));
