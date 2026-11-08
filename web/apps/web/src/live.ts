@@ -1,4 +1,4 @@
-import type { LiveClientMessage, LiveServerMessage, RuntimeRequest, Session, SessionItem } from "@bosofa/api";
+import { liveSocketUrl, type LiveClientMessage, type LiveServerMessage, type RuntimeRequest, type Session, type SessionItem } from "@bosofa/api";
 import { createStore, onSettled, reconcile } from "solid-js";
 
 export type Draft = { ref: string; text: string };
@@ -35,9 +35,15 @@ export function createLiveSession(sessionId: number) {
     let closed = false;
     let backoff = 500;
 
-    const connect = () => {
-      const url = new URL("/api/v1/live", location.href);
-      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const connect = async () => {
+      let url: string;
+      try {
+        url = await liveSocketUrl();
+      } catch {
+        if (!closed) retry = setTimeout(() => void connect(), 2000);
+        return;
+      }
+      if (closed) return;
       const ws = new WebSocket(url);
       socket = ws;
       ws.onopen = () => {
@@ -55,7 +61,7 @@ export function createLiveSession(sessionId: number) {
           s.drafts = []; // deltas missed meanwhile cannot be recovered; the final items will come
         });
         if (closed) return;
-        retry = setTimeout(connect, backoff);
+        retry = setTimeout(() => void connect(), backoff);
         backoff = Math.min(backoff * 2, 10_000);
       };
     };
@@ -94,7 +100,7 @@ export function createLiveSession(sessionId: number) {
       }
     };
 
-    connect();
+    void connect();
     return () => {
       closed = true;
       clearTimeout(retry);

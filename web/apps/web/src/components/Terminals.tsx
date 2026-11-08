@@ -1,4 +1,4 @@
-import { api, type LiveClientMessage, type LiveServerMessage, type Terminal } from "@bosofa/api";
+import { api, liveSocketUrl, type LiveClientMessage, type LiveServerMessage, type Terminal } from "@bosofa/api";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -78,15 +78,21 @@ function TerminalView(props: { machineId: number; terminalId: string; onExit: ()
       }
     };
 
-    const connect = () => {
-      const url = new URL("/api/v1/live", location.href);
-      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const connect = async () => {
+      let url: string;
+      try {
+        url = await liveSocketUrl();
+      } catch {
+        if (!closed) retry = setTimeout(() => void connect(), 2000);
+        return;
+      }
+      if (closed) return;
       const ws = new WebSocket(url);
       socket = ws;
       ws.onopen = subscribe;
       ws.onmessage = (event) => receive(JSON.parse(event.data as string) as LiveServerMessage);
       ws.onclose = () => {
-        if (!closed) retry = setTimeout(connect, 1000);
+        if (!closed) retry = setTimeout(() => void connect(), 1000);
       };
     };
 
@@ -97,7 +103,7 @@ function TerminalView(props: { machineId: number; terminalId: string; onExit: ()
     const resize = terminal.onResize(({ cols, rows }) => send({ t: "terminalResize", terminalId, cols, rows }));
     const observer = new ResizeObserver(() => fit.fit());
     observer.observe(element);
-    connect();
+    void connect();
     terminal.focus();
 
     return () => {

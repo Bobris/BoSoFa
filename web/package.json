@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @bosofa/web dev",
-    "build": "pnpm --filter @bosofa/web build",
+    "build": "pnpm --filter @bosofa/web --filter @bosofa/desktop build",
     "gen:api": "pnpm --filter @bosofa/api gen",
     "typecheck": "pnpm -r typecheck"
   }

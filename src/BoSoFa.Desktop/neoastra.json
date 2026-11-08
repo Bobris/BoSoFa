@@ -1,0 +1,6 @@
+{
+  "$schema": "neoastra-project-v1.schema.json",
+  "version": 1,
+  "app": { "identifier": "dev.bosofa.desktop", "displayName": "BoSoFa" },
+  "assets": { "origin": "app://bosofa", "excludedPrefixes": [] }
+}

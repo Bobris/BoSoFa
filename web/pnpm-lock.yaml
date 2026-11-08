@@ -8,6 +8,31 @@ importers:
 
   .: {}
 
+  apps/desktop:
+    dependencies:
+      '@bosofa/api':
+        specifier: workspace:*
+        version: link:../../packages/api
+      '@neoastra/client':
+        specifier: file:neoastra/client
+        version: file:apps/desktop/neoastra/client
+    devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.57
+        version: 3.0.0-next.57(@solidjs/web@2.0.0-rc.21(solid-js@2.0.0-rc.21))(solid-js@2.0.0-rc.21)(vite@8.3.6(jiti@2.7.0))
+      '@tailwindcss/vite':
+        specifier: 4.3.5
+        version: 4.3.5(vite@8.3.6(jiti@2.7.0))
+      tailwindcss:
+        specifier: 4.3.5
+        version: 4.3.5
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vite:
+        specifier: 8.3.6
+        version: 8.3.6(jiti@2.7.0)
+
   apps/web:
     dependencies:
       '@bosofa/api':
@@ -106,6 +131,10 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3
+
+  '@neoastra/client@file:apps/desktop/neoastra/client':
+    resolution: {directory: apps/desktop/neoastra/client, type: directory}
+    engines: {node: '>=20'}
 
   '@oxc-project/types@0.156.0':
     resolution: {integrity: sha512-1Duyg48TdJNdyhEB8Xn1L36bT9Pv6GUtlKjHxOys8xkaF/rQq3XJE+bAurSK/AgIz5mGFsb77cn9Pb20+WCScw==}
@@ -781,6 +810,8 @@ snapshots:
       '@emnapi/runtime': 1.11.3
       '@tybys/wasm-util': 0.10.4
     optional: true
+
+  '@neoastra/client@file:apps/desktop/neoastra/client': {}
 
   '@oxc-project/types@0.156.0': {}
 

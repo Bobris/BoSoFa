@@ -26,5 +26,85 @@ export type DaemonRollout = components["schemas"]["DaemonRolloutDto"];
 export type LiveClientMessage = components["schemas"]["LiveClientMessage"];
 export type LiveServerMessage = components["schemas"]["LiveServerMessage"];
 
-/** Typed client of the BoSoFa server, generated from openapi.json (see `pnpm gen:api`). Same-origin, cookie auth. */
-export const api = createClient<paths>({ baseUrl: "", credentials: "same-origin" });
+/** How this app reaches the server: the web page by same-origin cookie, the desktop app by bearer token across origins. */
+export interface Platform {
+  readonly kind: "web" | "desktop";
+  /** Prefix of every server path; empty for same-origin. */
+  readonly baseUrl: string;
+  /** The Authorization header, when requests need one and someone is signed in. */
+  authorization(): Promise<string | undefined>;
+  /** Saves a blob of the server as a file for the person using this app. */
+  saveBlob(sha256: string, name: string): Promise<void>;
+  signOut(): Promise<void>;
+  /** The desktop's own sign-in; absent on the web, whose login page signs in. */
+  signIn?(server: string): Promise<string | undefined>;
+  /** The server this desktop app last used. */
+  readonly server?: string;
+}
+
+function createApi(platform: Platform) {
+  const client = createClient<paths>({ baseUrl: platform.baseUrl, credentials: platform.kind === "web" ? "same-origin" : "omit" });
+  client.use({
+    async onRequest({ request }) {
+      const authorization = await platform.authorization();
+      if (authorization) request.headers.set("Authorization", authorization);
+      return request;
+    },
+  });
+  return client;
+}
+
+const webPlatform: Platform = {
+  kind: "web",
+  baseUrl: "",
+  authorization: () => Promise.resolve(undefined),
+  saveBlob(sha256, name) {
+    const link = document.createElement("a");
+    link.href = `/api/v1/blobs/${sha256}`;
+    link.download = name;
+    link.click();
+    return Promise.resolve();
+  },
+  async signOut() {
+    await api.POST("/auth/logout");
+  },
+};
+
+let current = webPlatform;
+
+/** Typed client of the BoSoFa server, generated from openapi.json (see `pnpm gen:api`). */
+export let api = createApi(webPlatform);
+
+/** The desktop entry calls this before anything renders. */
+export function setPlatform(platform: Platform): void {
+  current = platform;
+  api = createApi(platform);
+}
+
+export function getPlatform(): Platform {
+  return current;
+}
+
+/** Stores a file in the server's blob store and returns its hash; the error text when that fails. */
+export async function uploadBlob(file: Blob): Promise<{ sha256?: string; error?: string }> {
+  const authorization = await current.authorization();
+  const response = await fetch(`${current.baseUrl}/api/v1/blobs`, {
+    method: "POST",
+    body: file,
+    headers: authorization ? { Authorization: authorization } : undefined,
+  });
+  if (!response.ok) return { error: (await response.text()) || `The upload failed (${response.status}).` };
+  return { sha256: ((await response.json()) as { sha256: string }).sha256 };
+}
+
+/** The address of the live socket. A browser cannot put a bearer on a WebSocket, so the desktop gets a one-time ticket. */
+export async function liveSocketUrl(): Promise<string> {
+  const url = new URL(`${current.baseUrl}/api/v1/live`, location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  if (current.kind === "desktop") {
+    const { data } = await api.POST("/api/v1/live/ticket");
+    if (!data) throw new Error("No ticket for the live connection.");
+    url.searchParams.set("ticket", data.ticket);
+  }
+  return url.toString();
+}

@@ -1,0 +1,7 @@
+{
+  "extends": "../web/tsconfig.json",
+  "compilerOptions": {
+    "paths": { "#neoastra": ["./neoastra/neoastra.ts"] }
+  },
+  "include": ["src", "../web/src"]
+}

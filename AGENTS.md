@@ -11,6 +11,7 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 - `src/BoSoFa.Daemon`: `bosofad`, the per-machine daemon, published with Native AOT.
 - `tools/BoSoFa.DevCluster`: runs a local cluster (Azurite, node processes, front door); the cluster tests use its classes.
 - `tests/`: xUnit. `BoSoFa.Architecture.Tests` enforces project boundaries. The cluster and failover tests need Azurite.
+- `src/BoSoFa.Desktop`: the NeoAstra desktop app; `web/apps/desktop` is the same SPA with a desktop `Platform`.
 - `web/`: pnpm workspace. `apps/web` is the SolidJS 2 SPA, `packages/api` the generated API client.
 
 ## Commands
@@ -26,6 +27,7 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 - Cluster for development: `dotnet run --project tools/BoSoFa.DevCluster` starts Azurite (`npm install --global
   azurite`), three nodes as separate processes and a front door on http://localhost:5080 (data in `data/cluster`).
   Type `kill 1` / `start 1` to try failover. The SPA dev server and daemons point at port 5080 as usual.
+- Desktop: `pnpm --dir web build`, then `dotnet run --project src/BoSoFa.Desktop`. RPC changed: build it and commit `web/apps/desktop/neoastra/neoastra.ts`.
 - Service and updates: `bosofad install --dry-run` prints the service definition; `bosofad doctor` checks a machine. Releases are signed with
   `bosofad release-keygen` / `release-publish`; a build needs `-p:BoSoFaReleasePublicKey=<key>` to accept them.
 - API changed: `BOSOFA_UPDATE_CONTRACT=1 dotnet test tests/BoSoFa.Server.Tests --filter ContractTest`, then

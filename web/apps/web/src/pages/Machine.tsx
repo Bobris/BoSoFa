@@ -1,4 +1,4 @@
-import { api, type FileEntry } from "@bosofa/api";
+import { api, getPlatform, uploadBlob, type FileEntry } from "@bosofa/api";
 import { useNavigate, useParams } from "@solidjs/router";
 import Terminals from "../components/Terminals";
 import { createEffect, createMemo, createSignal, For, refresh, Show } from "solid-js";
@@ -17,13 +17,6 @@ function formatSize(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function saveAs(sha256: string, name: string) {
-  const link = document.createElement("a");
-  link.href = `/api/v1/blobs/${sha256}`;
-  link.download = name;
-  link.click();
 }
 
 /** Browses the folders a machine shares, with a text preview, download and upload. */
@@ -77,7 +70,7 @@ function Files(props: { machineId: number; onTerminalHere: (directory: string) =
     });
     if (!data) return setNotice(asText(error));
     setNotice(undefined);
-    saveAs(data.blob.sha256, data.name);
+    await getPlatform().saveBlob(data.blob.sha256, data.name);
   }
 
   async function store(directory: string, file: File, sha256: string, overwrite: boolean): Promise<void> {
@@ -101,10 +94,9 @@ function Files(props: { machineId: number; onTerminalHere: (directory: string) =
     input.value = "";
     if (!file || target === null) return;
     setNotice(`Uploading ${file.name}…`);
-    const uploaded = await fetch("/api/v1/blobs", { method: "POST", body: file });
-    if (!uploaded.ok) return setNotice(await uploaded.text());
-    const blob = (await uploaded.json()) as { sha256: string };
-    await store(target, file, blob.sha256, false);
+    const uploaded = await uploadBlob(file);
+    if (!uploaded.sha256) return setNotice(uploaded.error);
+    await store(target, file, uploaded.sha256, false);
   }
 
   return (

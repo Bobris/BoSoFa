@@ -1,0 +1,9 @@
+<Project>
+  <Import Project="../../Directory.Build.props" />
+  <PropertyGroup>
+    <!-- Read by NeoAstra's props, so it must be set this early. The generated RPC binding is committed beside the page, so the
+         web build needs no .NET build first; CI fails when it is stale. The staged client changes only with NeoAstra. -->
+    <ArtifactsPath>$(MSBuildThisFileDirectory)../../artifacts</ArtifactsPath> <!-- not beside this file -->
+    <NeoRpcTypeScriptOutput>$(MSBuildThisFileDirectory)../../web/apps/desktop/neoastra/neoastra.ts</NeoRpcTypeScriptOutput>
+  </PropertyGroup>
+</Project>

@@ -1,4 +1,4 @@
-import { api, type RuntimeRequest, type SessionItem } from "@bosofa/api";
+import { api, getPlatform, type RuntimeRequest, type SessionItem } from "@bosofa/api";
 import { useNavigate, useParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Match, Show, Switch, untrack } from "solid-js";
 import { StatusBadge } from "../components/StatusBadge";
@@ -162,9 +162,9 @@ function Item(props: { item: SessionItem }) {
         {(file) => (
           <p class="text-sm text-muted">
             {props.item.text}{" "}
-            <a class="text-accent underline" href={`/api/v1/blobs/${file().blob}`} download={file().fileName}>
+            <button class="text-accent underline" onClick={() => void getPlatform().saveBlob(file().blob, file().fileName)}>
               Download
-            </a>
+            </button>
           </p>
         )}
       </Match>

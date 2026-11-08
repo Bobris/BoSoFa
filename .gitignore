@@ -19,3 +19,6 @@ data/
 
 # OS
 .DS_Store
+
+# The staged NeoAstra client is committed, so the web build needs no .NET build first.
+!web/apps/desktop/neoastra/client/dist/

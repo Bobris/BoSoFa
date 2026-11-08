@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>BoSoFa.Desktop</RootNamespace>
+    <AssemblyName>bosofa-desktop</AssemblyName>
+    <!-- Like CodeAlta: framework-dependent, ReadyToRun on publish, no AOT. -->
+    <SelfContained>false</SelfContained>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <!-- The page comes from the pnpm workspace (pnpm -C web build): it is served as files, so the CSP can name the server
+         chosen at run time, and NeoAstra's npm-only frontend build is off. -->
+    <NeoAstraBuildFrontend>false</NeoAstraBuildFrontend>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
+    <PackageReference Include="NeoAstra" />
+  </ItemGroup>
+  <Target Name="CopyPage" AfterTargets="Build;Publish">
+    <ItemGroup>
+      <PageFile Include="../../web/apps/desktop/dist/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PageFile)" DestinationFiles="@(PageFile->'$(OutDir)spa/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Copy Condition="'$(PublishDir)' != '' and Exists('$(PublishDir)')" SourceFiles="@(PageFile)" DestinationFiles="@(PageFile->'$(PublishDir)spa/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

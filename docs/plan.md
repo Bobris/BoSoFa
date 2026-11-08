@@ -342,7 +342,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
 
 - **BoSoFa.Desktop:**
   - .NET 10 plus **NeoAstra**: framework-dependent with ReadyToRun (not AOT, like CodeAlta), and no native title bar.
-  - It hosts `web/apps/desktop`, which is the SPA plus a desktop platform module.
+  - It hosts `web/apps/desktop`, which is the web app's source plus a desktop platform module. `@bosofa/api` holds the `Platform` interface.
   - Distribution: `dotnet tool install -g BoSoFa.Desktop` (like CodeAlta), later signed installers.
 - **Talking to the server:** the WebView calls the server directly (CORS plus a bearer from the desktop token flow), with `connect-src` including the server origin. Alternative: tunnel through C# RPC. Decide in the M0 spike.
 - **Native RPC services** (`[NeoRpcService]`):
@@ -572,7 +572,7 @@ Done when: install on Windows, macOS and Linux, roll out a new daemon version re
 Done when: on a fresh machine, install the desktop, click "enable this machine", and run a session.
 
 1. **Server for the desktop.** *Done:* CORS for `app://bosofa`, sign-in through the system browser (loopback redirect, PKCE) ending in a 15-minute access token and a rotating refresh token, one-time tickets for the live socket, and an Origin check on it.
-2. **The app.** `BoSoFa.Desktop` (NeoAstra) hosting the same SPA through a `Platform` interface, with its sign-in and the keychain.
+2. **The app.** *Done, run on macOS against a real server:* `BoSoFa.Desktop` (NeoAstra) runs the web app's source behind a `Platform` in `@bosofa/api`. It signs in through the browser, keeps the refresh token in the OS keychain, and calls the server directly with a CSP built at run time. Not done yet: an `.app` bundle and installers. Windows and Linux are only built, never run.
 3. **This machine.** `LocalDaemon` RPC over a local control socket: detect, install, enroll, start, stop.
 4. **Claude account.** `claude setup-token` in a pseudo-terminal, as in §5.4.1.
 5. **Desktop touches.** Notifications, deep links, open in editor.

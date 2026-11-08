@@ -1,0 +1,119 @@
+export const PROTOCOL_MAJOR = 1;
+export const PROTOCOL_MINOR = 0;
+export const SUPPORTED_FEATURES = Object.freeze(["invoke", "cancel", "events"]);
+// Match native and managed signed 32-bit byte lengths, not an application payload quota.
+export const HARD_MAXIMUM_FRAME_BYTES = 2 ** 31 - 1;
+export const DEFAULT_MAXIMUM_FRAME_BYTES = HARD_MAXIMUM_FRAME_BYTES;
+export const DEFAULT_MAXIMUM_JSON_DEPTH = 32;
+export const DEFAULT_DIAGNOSTIC_QUEUE_LIMIT = 100;
+export const DEFAULT_HANDSHAKE_TIMEOUT_MILLISECONDS = 10_000;
+export class NeoAstraClientError extends Error {
+    code;
+    correlationId;
+    retryable;
+    constructor(code, message, retryable = false, correlationId) {
+        super(message);
+        this.name = "NeoAstraClientError";
+        this.code = code;
+        this.retryable = retryable;
+        this.correlationId = correlationId;
+    }
+}
+let encoder;
+/** Tells whether a string takes more than `maximumBytes` in UTF-8, encoding it only when its length cannot decide. */
+export function exceedsUtf8Bytes(value, maximumBytes) {
+    // A UTF-16 code unit takes one to three UTF-8 bytes (a surrogate pair, two units, takes four).
+    if (value.length * 3 <= maximumBytes)
+        return false;
+    if (value.length > maximumBytes)
+        return true;
+    return (encoder ??= new TextEncoder()).encode(value).byteLength > maximumBytes;
+}
+/**
+ * Checks a frame the page sends and returns its JSON, made once and handed to the bootstrap with the frame.
+ * The host reads the envelope around the frame with the same depth limit, so the frame keeps one level for it.
+ */
+export function checkOutboundFrame(value, maximumFrameBytes, maximumJsonDepth = DEFAULT_MAXIMUM_JSON_DEPTH) {
+    assertFrameShape(value);
+    if (exceedsJsonDepth(value, maximumJsonDepth - 1))
+        throw depthError();
+    let json;
+    try {
+        json = JSON.stringify(value);
+    }
+    catch {
+        throw new NeoAstraClientError("invalid_frame", "The transport frame is not JSON serializable.");
+    }
+    if (typeof json !== "string") {
+        throw new NeoAstraClientError("invalid_frame", "The transport frame must be a JSON value.");
+    }
+    if (exceedsUtf8Bytes(json, maximumFrameBytes)) {
+        throw new NeoAstraClientError("payload_too_large", "The transport frame exceeds the negotiated byte limit.");
+    }
+    return json;
+}
+/**
+ * Checks a frame the host sent, whose own depth is limited by the negotiated depth. Its size is not measured
+ * again: the host bounds every envelope it sends by the negotiated byte limit before posting it.
+ */
+export function assertInboundFrame(value, maximumJsonDepth = DEFAULT_MAXIMUM_JSON_DEPTH) {
+    assertFrameShape(value);
+    if (exceedsJsonDepth(value, maximumJsonDepth))
+        throw depthError();
+}
+function assertFrameShape(value) {
+    if (!isRecord(value) || value.neoastra !== 1 || typeof value.kind !== "string" || value.kind.length === 0) {
+        throw new NeoAstraClientError("invalid_frame", "A frame must be an object with the NeoAstra discriminator and a kind.");
+    }
+    if (value.kind === "hello" || value.kind === "hello_ack" || value.kind === "close" || value.kind === "diagnostic") {
+        throw new NeoAstraClientError("invalid_frame", "Transport control frame kinds are reserved.");
+    }
+}
+function depthError() {
+    return new NeoAstraClientError("invalid_frame", "The transport frame exceeds the negotiated JSON depth.");
+}
+/**
+ * Tells whether a value nests more than `maximumDepth` objects and arrays, counted as System.Text.Json counts
+ * `MaxDepth` on the host: each object or array is one level, and a primitive value adds none. The walk is
+ * recursive and allocates nothing; it stops at the limit, so a cyclic value is reported as too deep. An object
+ * that serializes through `toJSON`, such as a `Date`, counts as one level, which can only be stricter.
+ */
+export function exceedsJsonDepth(value, maximumDepth) {
+    return typeof value === "object" && value !== null && nestsBeyond(value, maximumDepth);
+}
+function nestsBeyond(value, remaining) {
+    if (remaining <= 0)
+        return true;
+    if (Array.isArray(value)) {
+        for (let index = 0; index < value.length; index++) {
+            const item = value[index];
+            if (typeof item === "object" && item !== null && nestsBeyond(item, remaining - 1))
+                return true;
+        }
+        return false;
+    }
+    for (const key in value) {
+        const item = value[key];
+        if (typeof item === "object" && item !== null && nestsBeyond(item, remaining - 1))
+            return true;
+    }
+    return false;
+}
+export function describeRejectedFrame(value, error) {
+    return Object.freeze({
+        kind: value.kind,
+        id: typeof value.id === "string" ? value.id : undefined,
+        channel: typeof value.channel === "string" ? value.channel : undefined,
+        subscription: typeof value.subscription === "string" ? value.subscription : undefined,
+        sequence: Number.isSafeInteger(value.sequence) ? value.sequence : undefined,
+        error,
+    });
+}
+/** Reads the bounded reason token of a host close frame; anything else is reported as "unspecified". */
+export function parseCloseReason(value) {
+    return typeof value === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(value) ? value : "unspecified";
+}
+export function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+//# sourceMappingURL=shared.js.map

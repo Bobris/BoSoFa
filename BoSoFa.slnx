@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/BoSoFa.Daemon/BoSoFa.Daemon.csproj" />
+    <Project Path="src/BoSoFa.Desktop/BoSoFa.Desktop.csproj" />
     <Project Path="src/BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
     <Project Path="src/BoSoFa.Server.Domain/BoSoFa.Server.Domain.csproj" />
     <Project Path="src/BoSoFa.Server/BoSoFa.Server.csproj" />

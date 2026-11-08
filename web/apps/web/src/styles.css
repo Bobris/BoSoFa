@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "./"; /* also when the desktop app builds this source from its own folder */
 
 @theme {
   --color-canvas: light-dark(#f7f7f8, #111214);

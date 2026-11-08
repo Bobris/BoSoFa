@@ -1,4 +1,4 @@
-import { api, type McpServer, type Profile, type SkillBundle } from "@bosofa/api";
+import { api, uploadBlob, type McpServer, type Profile, type SkillBundle } from "@bosofa/api";
 import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, refresh, Show } from "solid-js";
 import { paths } from "../router";
@@ -72,9 +72,9 @@ export default function Catalog() {
     event.preventDefault();
     const file = skillFile?.files?.[0];
     if (!file) return;
-    const uploaded = await fetch("/api/v1/blobs", { method: "POST", body: file });
-    if (!report("Uploading the bundle", uploaded)) return;
-    const { sha256 } = (await uploaded.json()) as { sha256: string };
+    const uploaded = await uploadBlob(file);
+    if (!uploaded.sha256) return setError(`Uploading the bundle failed: ${uploaded.error}`);
+    const { sha256 } = uploaded;
     const { response } = await api.POST("/api/v1/skills", {
       body: { name: skillName().trim(), version: skillVersion().trim(), sha256, description: null },
     });
