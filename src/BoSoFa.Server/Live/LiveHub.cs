@@ -103,4 +103,7 @@ public sealed class DomainSignals(DaemonConnections connections, LiveHub hub) : 
     public void MachineCommandsIssued(ulong machineId) => connections.Get(machineId)?.WakeCommands();
 
     public void SessionChanged(ulong sessionId) => hub.SessionChanged(sessionId);
+
+    public void MachinePresenceChanged(ulong machineId, string? connectionId) =>
+        connections.Supersede(machineId, connectionId);
 }

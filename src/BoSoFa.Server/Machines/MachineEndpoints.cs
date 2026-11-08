@@ -97,13 +97,12 @@ public static class MachineEndpoints
             : TypedResults.Unauthorized();
     }
 
-    static async Task<Results<Ok<MachineDto>, NotFound>> GetOwnMachineAsync(BtdbNode node, DaemonConnections connections,
-        HttpContext http)
+    static async Task<Results<Ok<MachineDto>, NotFound>> GetOwnMachineAsync(BtdbNode node, HttpContext http)
     {
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using var query = publisher.StartQuery();
         return http.User.MachineId() is { } id && Ambient.Relation<IMachineTable>().FindByIdOrDefault(id) is { } machine
-            ? TypedResults.Ok(ToDto(machine, connections))
+            ? TypedResults.Ok(ToDto(machine))
             : TypedResults.NotFound();
     }
 
@@ -119,7 +118,7 @@ public static class MachineEndpoints
     }
 
     static async Task<Results<Ok<MachineDto>, Conflict<string>>> ApproveEnrollmentAsync(string userCode, BtdbNode node,
-        DaemonConnections connections, HttpContext http)
+        HttpContext http)
     {
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         var result = await publisher.PublishAndWaitAsync(
@@ -127,29 +126,30 @@ public static class MachineEndpoints
             http.RequestAborted);
         if (result.Status != EnrollStatus.Approved) return TypedResults.Conflict($"The enrollment is {result.Status}.");
         using var query = publisher.StartQuery();
-        return TypedResults.Ok(ToDto(Ambient.Relation<IMachineTable>().FindByIdOrDefault(result.MachineId)!, connections));
+        return TypedResults.Ok(ToDto(Ambient.Relation<IMachineTable>().FindByIdOrDefault(result.MachineId)!));
     }
 
-    static async Task<MachineDto[]> ListMachinesAsync(BtdbNode node, DaemonConnections connections, HttpContext http)
+    static async Task<MachineDto[]> ListMachinesAsync(BtdbNode node, HttpContext http)
     {
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using var query = publisher.StartQuery();
-        return Ambient.Relation<IMachineTable>().Select(machine => ToDto(machine, connections))
+        return Ambient.Relation<IMachineTable>().Select(machine => ToDto(machine))
             .OrderBy(machine => machine.Name, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    static MachineDto ToDto(Machine machine, DaemonConnections connections)
+    /// <summary>Must run inside a query scope. Online means some node holds the daemon's connection.</summary>
+    static MachineDto ToDto(Machine machine)
     {
         var owner = Ambient.Relation<IUserTable>().FindByIdOrDefault(machine.OwnerId);
-        var connection = connections.Get(machine.Id);
+        var presence = Ambient.Relation<IMachinePresenceTable>().FindByIdOrDefault(machine.Id);
         return new(machine.Id, machine.Name, machine.Os, machine.Arch, machine.OwnerId, owner?.Name ?? "",
-            connection?.DaemonVersion ?? machine.DaemonVersion, connection != null, connection?.ConnectedAt);
+            presence?.DaemonVersion ?? machine.DaemonVersion, presence != null, presence?.ConnectedAt);
     }
 
     /// <summary>The daemon's WebSocket: hello/welcome, then every unacknowledged inbox command (and new ones as they
     /// are issued), outbox batches with their acknowledgements, deltas, and keepalive.</summary>
     static async Task ConnectAsync(HttpContext http, DaemonConnections connections, BtdbNode node, LiveHub hub,
-        TimeProvider time, ILoggerFactory loggers, IHostApplicationLifetime lifetime)
+        MachinePresenceService presence, TimeProvider time, ILoggerFactory loggers, IHostApplicationLifetime lifetime)
     {
         if (!http.WebSockets.IsWebSocketRequest)
         {
@@ -159,6 +159,7 @@ public static class MachineEndpoints
         var machineId = http.User.MachineId()!.Value;
         var logger = loggers.CreateLogger("BoSoFa.Server.Daemon");
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        await presence.Ready.WaitAsync(http.RequestAborted); // this node's older connections are expired first
         using var socket = await http.WebSockets.AcceptWebSocketAsync();
         // Kestrel does not abort upgraded connections on a graceful stop; without this the host waits its whole
         // shutdown timeout. The daemon reconnects (to another pod in a cluster) and resends what is unacknowledged.
@@ -178,6 +179,13 @@ public static class MachineEndpoints
         var connection = new DaemonConnections.Connection(machineId, hello.DaemonVersion, hello.HostName,
             time.GetUtcNow().UtcDateTime, socket);
         connections.Add(connection);
+        // Recorded as data, so every node knows the machine is online here; a newer connection elsewhere closes this one.
+        await publisher.PublishAsync(new MachineConnected
+        {
+            MachineId = machineId, NodeId = presence.NodeId, ConnectionId = connection.ConnectionId,
+            DaemonVersion = hello.DaemonVersion, HostName = hello.HostName
+        }, cancellation);
+        connection.Registered = true;
         logger.LogInformation("Machine {MachineId} connected ({HostName}, bosofad {Version})", machineId, hello.HostName,
             hello.DaemonVersion);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -209,6 +217,15 @@ public static class MachineEndpoints
         finally
         {
             connections.Remove(connection);
+            try
+            {
+                await publisher.PublishAsync(
+                    new MachineDisconnected { MachineId = machineId, ConnectionId = connection.ConnectionId });
+            }
+            catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException or IOException)
+            {
+                // The node is stopping; it expires its connections when it starts again (MachinePresenceService).
+            }
             await stop.CancelAsync();
             if (commands != null)
                 try { await commands; }

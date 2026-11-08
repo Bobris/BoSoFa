@@ -466,7 +466,11 @@ Done when: the M1 scenario passes while the leader node is killed. The nodes run
    - `BoSoFa:Cluster` selects `AddBTDBReplication` + `AddBTDBEventLog` with `AzureLeaderStorage`, `AzureReplicationStorage` and `AzureEventLogStorage` (Azurite locally). A blob client without SDK retries handles authority.
    - The peer endpoints (`MapBTDBReplication`, `MapBTDBEventLog`) go on a separate internal port with `RequireHost`.
    - The Data Protection key ring moves to Blob, so cookies and daemon tokens work on every node.
-3. **Presence.**
+3. **Presence.** *Done:*
+   - `MachinePresence` (one row per machine: node, connection id, daemon version) answers "online" on every node.
+   - A newer connection elsewhere closes the older one.
+   - A node expires its own leftover rows before accepting daemons, and the leader expires rows of nodes missing from the `EventCluster` view.
+   - Gotcha: a node that restores while a new cluster's genesis is still being published is asked to restart, so local multi-node runs need a supervisor (step 5).
    - A daemon's connection is recorded as data: `MachineConnected` and `MachineDisconnected` carry the node and a connection id. Every node can then answer "online", and send a command to the right place.
    - The leader drops connections of nodes that left `ReplicationPresence`.
 4. **Live relay.**

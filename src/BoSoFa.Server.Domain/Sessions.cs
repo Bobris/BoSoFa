@@ -113,6 +113,10 @@ public interface IDomainSignals
 {
     void MachineCommandsIssued(ulong machineId);
     void SessionChanged(ulong sessionId);
+
+    /// <summary>The machine's connection is now <paramref name="connectionId"/> (null: none). A node holding a different
+    /// connection of that machine closes it.</summary>
+    void MachinePresenceChanged(ulong machineId, string? connectionId);
 }
 
 public enum CommandOutcome

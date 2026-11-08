@@ -15,6 +15,12 @@ public sealed class DaemonConnections
         readonly SemaphoreSlim _commands = new(0);
 
         public ulong MachineId { get; } = machineId;
+
+        /// <summary>Unique per connection; recorded in <see cref="Domain.MachinePresence"/>.</summary>
+        public string ConnectionId { get; } = Guid.NewGuid().ToString("N");
+
+        /// <summary>Its <c>MachineConnected</c> is stored; before that, presence cannot name it yet.</summary>
+        public bool Registered { get; set; }
         public string DaemonVersion { get; } = daemonVersion;
         public string HostName { get; } = hostName;
         public DateTime ConnectedAt { get; } = connectedAt;
@@ -55,4 +61,16 @@ public sealed class DaemonConnections
 
     public void Remove(Connection connection) =>
         _connections.TryRemove(new KeyValuePair<ulong, Connection>(connection.MachineId, connection));
+
+    /// <summary>The machine's presence now names <paramref name="connectionId"/> (or nothing): a connection of it held
+    /// here under another id was superseded, by a newer connection elsewhere or by expiry, so it is closed and the
+    /// daemon reconnects and registers again.</summary>
+    public void Supersede(ulong machineId, string? connectionId)
+    {
+        // Without a row, only a registered connection is stale: a new one's MachineConnected may still be on its way
+        // (the old connection's disconnect can commit after the new one connected here).
+        if (Get(machineId) is { } connection && connection.ConnectionId != connectionId &&
+            (connectionId != null || connection.Registered))
+            connection.Socket.Abort();
+    }
 }

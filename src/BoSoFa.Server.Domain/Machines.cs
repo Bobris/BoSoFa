@@ -143,3 +143,103 @@ public sealed class EnrollmentApprovedHandler : IEventHandler<EnrollmentApproved
         return new() { Status = EnrollStatus.Approved, MachineId = machine.Id };
     }
 }
+
+/// <summary>Which node holds a machine's daemon connection, so every node can tell whether it is online and where its
+/// commands and live deltas go. At most one row per machine: the newest connection wins.</summary>
+public class MachinePresence
+{
+    [PrimaryKey(1)] public ulong MachineId { get; set; }
+
+    /// <summary>The node holding the connection (its replication node id).</summary>
+    public string NodeId { get; set; } = "";
+
+    /// <summary>Unique per connection, so a late disconnect of an older connection removes nothing.</summary>
+    public string ConnectionId { get; set; } = "";
+
+    public string DaemonVersion { get; set; } = "";
+    public string HostName { get; set; } = "";
+    public DateTime ConnectedAt { get; set; }
+}
+
+public interface IMachinePresenceTable : IRelation<MachinePresence>
+{
+    MachinePresence? FindByIdOrDefault(ulong machineId);
+    bool RemoveById(ulong machineId);
+}
+
+/// <summary>A daemon connected to <see cref="NodeId"/>.</summary>
+public class MachineConnected : PureEvent
+{
+    public ulong MachineId { get; set; }
+    public string NodeId { get; set; } = "";
+    public string ConnectionId { get; set; } = "";
+    public string DaemonVersion { get; set; } = "";
+    public string HostName { get; set; } = "";
+}
+
+public class MachineDisconnected : PureEvent
+{
+    public ulong MachineId { get; set; }
+    public string ConnectionId { get; set; } = "";
+}
+
+/// <summary>Every connection held by a node is gone: the node restarted (it publishes this for itself before accepting
+/// daemons) or left the cluster (the leader publishes it).</summary>
+public class NodePresenceExpired : PureEvent
+{
+    public string NodeId { get; set; } = "";
+}
+
+public sealed class MachineConnectedHandler(IDomainSignals signals) : IEventHandler<MachineConnected>
+{
+    public void Validate(MachineConnected ev)
+    {
+        if (string.IsNullOrEmpty(ev.NodeId) || string.IsNullOrEmpty(ev.ConnectionId))
+            throw new ArgumentException("A connection needs a node and a connection id.");
+    }
+
+    public void Consume(MachineConnected ev)
+    {
+        if (Ambient.Relation<IMachineTable>().FindByIdOrDefault(ev.MachineId) == null) return;
+        Ambient.Relation<IMachinePresenceTable>().Upsert(new()
+        {
+            MachineId = ev.MachineId, NodeId = ev.NodeId, ConnectionId = ev.ConnectionId,
+            DaemonVersion = ev.DaemonVersion, HostName = ev.HostName, ConnectedAt = ev.When
+        });
+        var (machineId, connectionId) = (ev.MachineId, ev.ConnectionId);
+        Ambient.RegisterPostCommit(() => signals.MachinePresenceChanged(machineId, connectionId));
+    }
+}
+
+public sealed class MachineDisconnectedHandler(IDomainSignals signals) : IEventHandler<MachineDisconnected>
+{
+    public void Validate(MachineDisconnected ev) { }
+
+    public void Consume(MachineDisconnected ev)
+    {
+        var presence = Ambient.Relation<IMachinePresenceTable>();
+        if (presence.FindByIdOrDefault(ev.MachineId)?.ConnectionId != ev.ConnectionId) return; // a newer one won
+        presence.RemoveById(ev.MachineId);
+        var machineId = ev.MachineId;
+        Ambient.RegisterPostCommit(() => signals.MachinePresenceChanged(machineId, null));
+    }
+}
+
+public sealed class NodePresenceExpiredHandler(IDomainSignals signals) : IEventHandler<NodePresenceExpired>
+{
+    public void Validate(NodePresenceExpired ev)
+    {
+        if (string.IsNullOrEmpty(ev.NodeId)) throw new ArgumentException("A node id is required.");
+    }
+
+    public void Consume(NodePresenceExpired ev)
+    {
+        var presence = Ambient.Relation<IMachinePresenceTable>();
+        foreach (var row in presence.Where(row => row.NodeId == ev.NodeId).ToList())
+        {
+            presence.RemoveById(row.MachineId);
+            var machineId = row.MachineId;
+            Ambient.RegisterPostCommit(() => signals.MachinePresenceChanged(machineId, null));
+        }
+    }
+}

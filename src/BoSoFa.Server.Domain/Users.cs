@@ -82,7 +82,8 @@ public static class Domain
     public static readonly Type[] Relations =
     [
         typeof(IUserTable), typeof(IEnrollmentTable), typeof(IMachineTable), typeof(ISessionTable),
-        typeof(ISessionItemTable), typeof(IRuntimeRequestTable), typeof(IMachineCommandTable)
+        typeof(ISessionItemTable), typeof(IRuntimeRequestTable), typeof(IMachineCommandTable),
+        typeof(IMachinePresenceTable)
     ];
 
     public static EventDispatcher CreateDispatcher(IDomainSignals signals) => new EventDispatcher()
@@ -95,5 +96,8 @@ public static class Domain
         .Register(new SessionStopRequestedHandler(signals))
         .Register(new RuntimeRequestAnsweredHandler(signals))
         .Register(new MachineCommandsAckedHandler())
-        .Register(new DaemonReportsReceivedHandler(signals));
+        .Register(new DaemonReportsReceivedHandler(signals))
+        .Register(new MachineConnectedHandler(signals))
+        .Register(new MachineDisconnectedHandler(signals))
+        .Register(new NodePresenceExpiredHandler(signals));
 }

@@ -76,6 +76,8 @@ public static class ServerApp
             builder.Services.AddBTDBEventLog(cluster.PeerUrl, cluster.PeerKey);
         }
         builder.Services.AddHostedService(sp => sp.GetRequiredService<BtdbNode>()); // after BTDB's: stops first
+        builder.Services.AddSingleton<MachinePresenceService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<MachinePresenceService>());
 
         var app = builder.Build();
         app.Services.GetRequiredService<BtdbNode>().Attach(app.Services);
