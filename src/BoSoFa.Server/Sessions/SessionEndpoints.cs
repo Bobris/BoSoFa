@@ -52,7 +52,9 @@ public static class SessionEndpoints
             session.Harness == Harnesses.Agent && session.MachineId == 0 ? SessionAccess.CanSee(userId, session) : machine != null && MachineAccess.CanControl(userId, machine),
             session.AccountId == 0 ? null : session.AccountId,
             session.AccountId == 0 ? null : Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId)?.Label,
-            session.Branch, session.ProfileName, session.ReasoningEffort, session.ToolGroup.Length == 0 ? null : session.ToolGroup);
+            session.Branch, session.ProfileName, session.ReasoningEffort, session.ToolGroup.Length == 0 ? null : session.ToolGroup,
+            session.ContextTokens == 0 ? null : session.ContextTokens, session.ContextLimit == 0 ? null : session.ContextLimit, session.CacheExpiresAt,
+            session.AccountId == 0 ? null : AccountUsages.Of(session.AccountId));
     }
 
     static RuntimeRequestDto ToDto(RuntimeRequest request) => new(request.Id, request.SessionId, request.ToolName,

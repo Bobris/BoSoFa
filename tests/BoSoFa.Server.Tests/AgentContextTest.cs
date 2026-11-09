@@ -251,6 +251,75 @@ public class AgentContextTest
         Assert.Equal("https://example.com", (string)assistant[4]!["citations"]![0]!["url"]!);
     }
 
+    static async Task UseAnthropicAsync(AgentSessionTest.Harness h)
+    {
+        var account = await (await h.Boris.PostAsJsonAsync("/api/v1/accounts", new CreateHarnessAccountRequest(AccountKind.AnthropicApiKey, "Claude", "sk-ant-api03-testtesttesttesttesttesttest")))
+            .Content.ReadFromJsonAsync<HarnessAccountDto>();
+        h.AccountId = account!.Id;
+    }
+
+    [Fact]
+    public async Task TheModelListIsWhatTheProviderOffersAndTheSnapshotKnows()
+    {
+        await using var h = await AgentSessionTest.Harness.StartAsync();
+        var openAi = await h.Boris.GetFromJsonAsync<AgentModelDto[]>($"/api/v1/accounts/{h.AccountId}/models");
+        Assert.Equal(["gpt-5.5"], openAi!.Select(model => model.Id));
+        Assert.Equal("GPT-5.5", openAi![0].Name);
+        Assert.Equal((5, 30), (openAi[0].InputPrice, openAi[0].OutputPrice));
+        Assert.Contains("high", openAi[0].ReasoningEfforts);
+        await UseAnthropicAsync(h);
+        Assert.Equal(["claude-opus-5-5"], (await h.Boris.GetFromJsonAsync<AgentModelDto[]>($"/api/v1/accounts/{h.AccountId}/models"))!.Select(model => model.Id));
+
+        h.Backend.ModelListFails = true; // the snapshot will do
+        var fallback = await h.Boris.GetFromJsonAsync<AgentModelDto[]>($"/api/v1/accounts/{h.AccountId}/models");
+        Assert.Contains(fallback!, model => model.Id == "claude-haiku-5-5");
+    }
+
+    [Fact]
+    public async Task TheSessionReportsHowFullItsContextIsAndWhenItsCacheLapses()
+    {
+        await using var h = await AgentSessionTest.Harness.StartAsync();
+        await UseAnthropicAsync(h);
+        h.Backend.AnthropicAnswer("Little cached.");
+        var session = await h.StartSessionAsync(profile: null, model: "claude-opus-5-5");
+        await h.RunEndedAsync(session.Id);
+        var after = await h.Boris.GetFromJsonAsync<SessionDto>($"/api/v1/sessions/{session.Id}");
+        Assert.Equal((19, 1_000_000), (after!.ContextTokens!.Value, after.ContextLimit!.Value)); // 10 + 4 cached + 5 out
+        Assert.Null(after.CacheExpiresAt); // too little to matter
+
+        h.Backend.AnthropicCacheRead = 50_000;
+        h.Backend.AnthropicAnswer("Much cached.");
+        await h.SendAsync(session.Id, "Again.");
+        await h.RunEndedAsync(session.Id, 2);
+        after = await h.Boris.GetFromJsonAsync<SessionDto>($"/api/v1/sessions/{session.Id}");
+        var left = after!.CacheExpiresAt!.Value - DateTime.UtcNow;
+        Assert.InRange(left.TotalMinutes, 3, 5.1);
+    }
+
+    [Fact]
+    public async Task AnOpenAISessionCountsNoCacheDown()
+    {
+        await using var h = await AgentSessionTest.Harness.StartAsync();
+        h.Backend.Call("c1", Notify, Message, inputTokens: 500_000);
+        h.Backend.Answer("Done.");
+        var session = await h.StartSessionAsync(profile: null, model: "gpt-5.5");
+        await h.RunEndedAsync(session.Id);
+        var after = await h.Boris.GetFromJsonAsync<SessionDto>($"/api/v1/sessions/{session.Id}");
+        Assert.Null(after!.CacheExpiresAt);
+        Assert.Equal(922_000, after.ContextLimit);
+    }
+
+    [Fact]
+    public async Task ThinkingCarriesARefSoItsStreamEnds()
+    {
+        await using var h = await AgentSessionTest.Harness.StartAsync();
+        await UseAnthropicAsync(h);
+        h.Backend.AnthropicThinkAndCall("Hmm.", "sig", "toolu_1", Notify, Message);
+        h.Backend.AnthropicAnswer("Done.");
+        var items = await h.RunEndedAsync((await h.StartSessionAsync(profile: null, model: "claude-opus-5-5")).Id);
+        Assert.StartsWith("thinking-", items.Single(item => item.Kind == SessionItemKind.Thinking).Ref);
+    }
+
     [Fact]
     public async Task OpenCodeGoGetsNoHostedSearchButKeepsWebFetch()
     {

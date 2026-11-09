@@ -12,6 +12,9 @@ public static class MachineTools
     /// <summary>How much of a project's instructions a session takes.</summary>
     public const int ProjectInstructionsLimit = 32 * 1024;
 
+    /// <summary>Shares a file of the machine with the people following the session; the result is an <see cref="UploadedFile"/>.</summary>
+    public const string UploadFile = "upload_file";
+
     public const string ReadFile = "read_file", ListDir = "list_dir", Glob = "glob", Grep = "grep", WriteFile = "write_file", EditFile = "edit_file",
         ApplyPatch = "apply_patch", Shell = "shell";
 
@@ -29,6 +32,8 @@ public static class MachineTools
     /// <summary>Tools that may change files, so a run with one of them gets a diff.</summary>
     public static bool Changes(string tool) => tool is WriteFile or EditFile or ApplyPatch or Shell;
 }
+
+public sealed record UploadedFile(string Name, string Sha256, long Size);
 
 /// <summary>Calls about a server agent's tools. They take as long as they take, so the daemon serves them on their own tasks.</summary>
 public abstract record ToolRpc : MachineRpc;

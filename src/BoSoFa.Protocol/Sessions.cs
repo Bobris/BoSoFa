@@ -76,7 +76,11 @@ public sealed record SessionDto(
     string? Branch,
     string? ProfileName,
     string? ReasoningEffort = null,
-    string? ToolGroup = null);
+    string? ToolGroup = null,
+    long? ContextTokens = null,
+    long? ContextLimit = null,
+    DateTime? CacheExpiresAt = null,
+    AccountUsageDto? AccountUsage = null);
 
 /// <summary>One persisted transcript entry. <c>Data</c> holds JSON details (tool input, run usage) and <c>Ref</c> the
 /// harness's message ID, which live deltas carry too.</summary>

@@ -30,10 +30,13 @@ public sealed class AgentToolHost : IAsyncDisposable
     readonly CancellationTokenSource _stopping = new();
     readonly Task _sweeper;
     readonly bool _useRipgrep;
+    readonly IBlobUploader? _uploader;
 
     /// <param name="useRipgrep">Search with ripgrep when the machine has it.</param>
-    public AgentToolHost(ISessionSink sink, bool useRipgrep = true)
+    /// <param name="uploader">Puts a machine's file in the server's blob store; null where that is not possible.</param>
+    public AgentToolHost(ISessionSink sink, bool useRipgrep = true, IBlobUploader? uploader = null)
     {
+        _uploader = uploader;
         _sink = sink;
         _useRipgrep = useRipgrep;
         _sweeper = SweepAsync(_stopping.Token);
@@ -111,6 +114,7 @@ public sealed class AgentToolHost : IAsyncDisposable
             return request.Tool switch
             {
                 ToolNames.ProjectInstructions => await files.ProjectInstructionsAsync(timeout.Token),
+                ToolNames.UploadFile => await UploadAsync(files, arguments, timeout.Token),
                 ToolNames.ReadFile => await files.ReadAsync(arguments, timeout.Token),
                 ToolNames.ListDir => files.List(arguments),
                 ToolNames.Glob => files.Glob(arguments, timeout.Token),
@@ -127,6 +131,15 @@ public sealed class AgentToolHost : IAsyncDisposable
         catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { return new($"The tool did not finish within {timeoutSeconds} seconds.", true); }
         catch (OperationCanceledException) { return new("The tool was stopped.", true); }
         catch (Exception problem) { return new(problem.Message, true); } // whatever went wrong, the model is told and the daemon carries on
+    }
+
+    async Task<ToolRunResult> UploadAsync(FileTools files, ToolArguments arguments, CancellationToken cancellation)
+    {
+        if (_uploader == null) return new("Uploading is not available on this machine.", true);
+        var file = files.Resolve(arguments.Required("path"));
+        if (!File.Exists(file)) throw new ToolProblem("There is no such file.");
+        var blob = await _uploader.UploadAsync(file, cancellation);
+        return new(JsonSerializer.Serialize(new UploadedFile(Path.GetFileName(file), blob.Sha256, blob.Size), ProtocolJsonContext.Default.UploadedFile), false);
     }
 
     static ToolDiffResult Diff(ToolDiffRequest request)

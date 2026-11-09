@@ -12,8 +12,12 @@ const kinds: { value: AccountKind; label: string; help: string }[] = [
     label: "Claude subscription token",
     help: "Run `claude setup-token` on any computer, sign in, and paste the token it prints (valid for one year).",
   },
-  { value: "AnthropicApiKey", label: "Anthropic API key", help: "Billed to the API key's Console organization." },
-  { value: "OpenAIApiKey", label: "OpenAI API key", help: "For Codex sessions billed to an OpenAI API key." },
+  {
+    value: "AnthropicApiKey",
+    label: "Anthropic API key",
+    help: "For Claude Code and the server agent, billed to the key's Console organization. Max, Ultra and Team plans include monthly API credits: link the organization under Settings > Billing on claude.ai.",
+  },
+  { value: "OpenAIApiKey", label: "OpenAI API key", help: "For Codex and the server agent, billed to the key's OpenAI organization." },
   {
     value: "OpenCodeGoApiKey",
     label: "OpenCode Go API key",

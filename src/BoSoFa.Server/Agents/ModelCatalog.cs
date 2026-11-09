@@ -4,8 +4,11 @@ using BoSoFa.Protocol;
 namespace BoSoFa.Server.Agents;
 
 /// <summary>What is known about one model. Prices are in US dollars per million tokens.</summary>
-public sealed record ModelInfo(long? InputLimit, long? OutputLimit, double InputPrice, double OutputPrice, double? CacheReadPrice, double? CacheWritePrice)
+public sealed record ModelInfo(long? InputLimit, long? OutputLimit, double InputPrice, double OutputPrice, double? CacheReadPrice, double? CacheWritePrice,
+    string? Name = null, string[]? Efforts = null, bool ToolCall = true)
 {
+    public AgentModelDto ToDto(string id) => new(id, Name ?? id, InputLimit, OutputLimit, Efforts ?? [], InputPrice, OutputPrice);
+
     /// <summary>A list-price estimate: tiered prices and the providers' per-search fees are not counted.</summary>
     public double CostOf(TurnUsage usage)
     {
@@ -35,12 +38,20 @@ public static class ModelCatalog
         _ => null
     };
 
-    public static ModelInfo? Find(AccountKind kind, string model)
+    public static ModelInfo? Find(AccountKind kind, string model) =>
+        ProviderOf(kind) is { } provider && Snapshot.Value[provider]?[model] is JsonObject entry ? Read(entry) : null;
+
+    /// <summary>Every model of this provider that can use tools, as the snapshot knows them.</summary>
+    public static IEnumerable<(string Id, ModelInfo Info)> ToolModels(AccountKind kind)
     {
-        if (ProviderOf(kind) is not { } provider || Snapshot.Value[provider]?[model] is not JsonObject entry) return null;
-        return new(entry["input_limit"]?.GetValue<long>(), entry["output_limit"]?.GetValue<long>(), Price(entry["input"]) ?? 0, Price(entry["output"]) ?? 0,
-            Price(entry["cache_read"]), Price(entry["cache_write"]));
+        if (ProviderOf(kind) is not { } provider || Snapshot.Value[provider] is not JsonObject models) yield break;
+        foreach (var (id, entry) in models)
+            if (entry is JsonObject found && Read(found) is { ToolCall: true } info) yield return (id, info);
     }
+
+    static ModelInfo Read(JsonObject entry) => new(entry["input_limit"]?.GetValue<long>(), entry["output_limit"]?.GetValue<long>(), Price(entry["input"]) ?? 0, Price(entry["output"]) ?? 0,
+        Price(entry["cache_read"]), Price(entry["cache_write"]), entry["name"]?.GetValue<string>(),
+        (entry["efforts"] as JsonArray)?.Select(effort => effort!.GetValue<string>()).ToArray(), entry["tools"]?.GetValue<bool>() ?? true);
 
     static double? Price(JsonNode? node) => node?.GetValue<double>();
 }

@@ -36,6 +36,9 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
     LiveHub hub, LiveRelay relay, MachineRpcClient rpc, IDataProtectionProvider protection, IBlobStore blobs, TimeProvider time, ILogger<AgentRunnerService> logger)
     : BackgroundService
 {
+    /// <summary>Anthropic's default cache lifetime; OpenAI and OpenCode do not promise one, so nothing is counted down for them.</summary>
+    const int AnthropicCacheSeconds = 300;
+
     static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(2);
     static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(5);
     static readonly TimeSpan RetryAfterFailure = TimeSpan.FromSeconds(2);
@@ -204,6 +207,6 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
         var speaksMessages = kind == AccountKind.AnthropicApiKey || (kind == AccountKind.OpenCodeGoApiKey && OpenCodeGo.UsesMessages(session.Model!));
         var maxOutput = speaksMessages && model?.OutputLimit is { } limit ? (int)Math.Min(limit, AnthropicMessagesExecutor.DefaultMaxOutputTokens) : (int?)null;
         return (new AgentEnvironment(new RetryingTurnExecutor(executor, time), tools, AgentInstructions.Shared(profilePrompt, profileMode),
-            AgentInstructions.Runtime(time.GetUtcNow(), os, session.WorkingDirectory, ToolGroupOf(session)), model, maxOutput), problems);
+            AgentInstructions.Runtime(time.GetUtcNow(), os, session.WorkingDirectory, ToolGroupOf(session)), model, maxOutput, kind == AccountKind.AnthropicApiKey ? AnthropicCacheSeconds : 0), problems);
     }
 }

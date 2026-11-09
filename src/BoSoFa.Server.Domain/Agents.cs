@@ -59,6 +59,14 @@ public class AgentItemsRecorded : EventWithResult<SessionCommandResult>
 
     /// <summary>Worked out by the loop, which knows the model's prices; handlers must not read a price list.</summary>
     public double CostUsd { get; set; }
+
+    /// <summary>Set by a model call: how full the context is now.</summary>
+    public long ContextTokens { get; set; }
+
+    public long ContextLimit { get; set; }
+
+    /// <summary>How long what this model call cached will last; zero when little is cached.</summary>
+    public int CacheSeconds { get; set; }
 }
 
 /// <summary>A tool call waits for a person. <see cref="Key"/> comes from the call's place in the transcript, so a resumed loop finds the same
@@ -178,6 +186,12 @@ public sealed class AgentItemsRecordedHandler(IDomainSignals signals) : IEventHa
         runner.ReasoningTokens += ev.ReasoningTokens;
         runner.CostUsd += ev.CostUsd;
         session.CostUsd += ev.CostUsd; // so a running session shows what it has cost so far
+        if (ev.ContextTokens > 0)
+        {
+            session.ContextTokens = ev.ContextTokens;
+            session.ContextLimit = ev.ContextLimit;
+            session.CacheExpiresAt = ev.CacheSeconds > 0 ? ev.When.AddSeconds(ev.CacheSeconds) : null;
+        }
         Ambient.Relation<IAgentRunnerTable>().Update(runner);
         Sessions.Changed(signals, session, ev.When);
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };

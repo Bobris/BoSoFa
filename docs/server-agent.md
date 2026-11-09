@@ -1,6 +1,6 @@
 # Server agent: a harness that runs in the server
 
-Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only), 3 (machine tools) 4 (Anthropic), 6 (OpenCode Go), 7 (system prompts) and 8 (context, cost and web) are done, 6 not yet against the real service; 5 (ChatGPT sign-in) is not built, see §5.2, the rest is planned.
+Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only), 3 (machine tools) 4 (Anthropic), 6 (OpenCode Go), 7 (system prompts), 8 (context, cost and web) and 9 (UI polish) are done, 6 not yet against the real service; 5 (ChatGPT sign-in) is not built, see §5.2, the rest is planned.
 
 ## 1. What and why
 
@@ -536,6 +536,13 @@ at the start, the session goes on without it and says so.
    - Learned from the real API: the newer Claude search returns `code_execution` blocks, which must go back with the search's.
 9. **UI polish.** The model picker, tool-call cards with streamed output, account sign-in flows. Run every flow in the
    browser and the desktop app.
+   *Done (2026-11-10):*
+   - The new-session form lists what the provider offers and the snapshot knows, with context size and prices, and any other
+     model can be typed. The last choice is remembered per account.
+   - A tool call is one card: its state, what it does, and its output as it comes. Thinking streams while it happens.
+   - A status bar shows the model, how full the context is, the prompt cache's countdown (Anthropic only: the others promise no
+     lifetime), the plan limit closest to running out, the project, the worktree and the cost. What is unknown is left out.
+   - `upload_file` from §6.4.
 
 ## 12. Decisions (2026-11-09)
 

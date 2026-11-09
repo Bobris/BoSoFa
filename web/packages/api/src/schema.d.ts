@@ -3346,6 +3346,10 @@ export interface components {
             /** Format: int64 */
             maxOutputTokens: null | number | string;
             reasoningEfforts: string[];
+            /** Format: double */
+            inputPrice?: null | number | string;
+            /** Format: double */
+            outputPrice?: null | number | string;
         };
         AnswerRuntimeRequest: {
             allow: boolean;
@@ -3725,6 +3729,30 @@ export interface components {
                 profileName: null | string;
                 reasoningEffort?: null | string;
                 toolGroup?: null | string;
+                /** Format: int64 */
+                contextTokens?: null | number | string;
+                /** Format: int64 */
+                contextLimit?: null | number | string;
+                /** Format: date-time */
+                cacheExpiresAt?: null | string;
+                accountUsage?: {
+                    fiveHour: {
+                        /** Format: double */
+                        utilization: number | string;
+                        /** Format: date-time */
+                        resetsAt: null | string;
+                        status: null | string;
+                    };
+                    sevenDay: {
+                        /** Format: double */
+                        utilization: number | string;
+                        /** Format: date-time */
+                        resetsAt: null | string;
+                        status: null | string;
+                    };
+                    /** Format: date-time */
+                    updatedAt: string;
+                };
             };
             items: {
                 /** Format: int64 */
@@ -3957,6 +3985,13 @@ export interface components {
             profileName: null | string;
             reasoningEffort?: null | string;
             toolGroup?: null | string;
+            /** Format: int64 */
+            contextTokens?: null | number | string;
+            /** Format: int64 */
+            contextLimit?: null | number | string;
+            /** Format: date-time */
+            cacheExpiresAt?: null | string;
+            accountUsage?: null | components["schemas"]["AccountUsageDto"];
         };
         SessionItemDto: {
             /** Format: int64 */

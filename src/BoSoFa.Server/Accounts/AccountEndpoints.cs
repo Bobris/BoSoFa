@@ -69,22 +69,19 @@ public static class AccountEndpoints
 
     static readonly HttpClient ModelLists = new() { Timeout = TimeSpan.FromSeconds(15) };
 
-    /// <summary>The models this account can run; empty when the provider cannot say right now, as the model's name can still be typed.</summary>
-    static async Task<Results<Ok<AgentModelDto[]>, NotFound>> ModelsAsync(ulong id, BtdbNode node, ServerOptions options, HttpContext http)
+    /// <summary>The models this account can run; a name not listed can still be typed.</summary>
+    static async Task<Results<Ok<AgentModelDto[]>, NotFound>> ModelsAsync(ulong id, BtdbNode node, IDataProtectionProvider protection, ServerOptions options, HttpContext http)
     {
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         AccountKind kind;
+        string secret;
         using (publisher.StartQuery())
         {
             if (Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(id) is not { } account || account.OwnerId != (http.User.UserId() ?? 0)) return TypedResults.NotFound();
             kind = account.Kind;
+            secret = SecretOf(account, protection);
         }
-        if (kind != AccountKind.OpenCodeGoApiKey) return TypedResults.Ok(Array.Empty<AgentModelDto>());
-        try { return TypedResults.Ok(await OpenCodeGo.ListModelsAsync(ModelLists, options.Agent.OpenCodeGoBaseUrl, http.RequestAborted)); }
-        catch (Exception problem) when (problem is HttpRequestException or System.Text.Json.JsonException or TaskCanceledException && !http.RequestAborted.IsCancellationRequested)
-        {
-            return TypedResults.Ok(Array.Empty<AgentModelDto>());
-        }
+        return TypedResults.Ok(AccountSecrets.ServesAgent(kind) ? await ProviderModels.ListAsync(ModelLists, kind, secret, options, http.RequestAborted) : []);
     }
 
     static async Task<Results<NoContent, NotFound, ForbidHttpResult>> RemoveAsync(ulong id, BtdbNode node, HttpContext http)

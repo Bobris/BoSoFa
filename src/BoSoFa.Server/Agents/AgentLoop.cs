@@ -28,7 +28,9 @@ sealed record AgentView(Session Session, AgentRunner Runner, List<SessionItem> I
 /// <param name="RuntimeContext">Date, machine and tools, as of now.</param>
 /// <param name="Model">What is known about the model; null when the snapshot does not have it.</param>
 /// <param name="MaxOutputTokens">The output limit to ask for; null for the API's own default.</param>
-sealed record AgentEnvironment(IModelTurnExecutor Executor, AgentToolbox Tools, string SharedInstructions, string RuntimeContext, ModelInfo? Model, int? MaxOutputTokens);
+/// <param name="PromptCacheSeconds">How long the provider says its prompt cache lasts; zero when it does not.</param>
+sealed record AgentEnvironment(IModelTurnExecutor Executor, AgentToolbox Tools, string SharedInstructions, string RuntimeContext, ModelInfo? Model, int? MaxOutputTokens,
+    int PromptCacheSeconds);
 
 /// <summary>The session cannot run at all; the person is told and the run ends.</summary>
 sealed class AgentSetupException(string message) : Exception(message);
@@ -172,10 +174,18 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         return BlobPrefix + sha256;
     }
 
-    Task RecordAsync(AgentView view, IEnumerable<AgentItem> items, TurnUsage? usage, CancellationToken cancellation, double costUsd = 0) =>
+    /// <summary>Below this many cached tokens, a lapsing cache is not worth showing.</summary>
+    const long CacheWorthShowing = 10_000;
+
+    Task RecordModelAsync(AgentView view, IEnumerable<AgentItem> items, TurnUsage usage, long contextTokens, AgentEnvironment environment, CancellationToken cancellation) =>
+        RecordAsync(view, items, usage, cancellation, environment.Model?.CostOf(usage) ?? 0, contextTokens, environment.Model?.InputLimit ?? 0,
+            usage.CachedInputTokens + usage.CacheWriteTokens >= CacheWorthShowing ? environment.PromptCacheSeconds : 0);
+
+    Task RecordAsync(AgentView view, IEnumerable<AgentItem> items, TurnUsage? usage, CancellationToken cancellation, double costUsd = 0, long contextTokens = 0, long contextLimit = 0,
+        int cacheSeconds = 0) =>
         Publisher.PublishAndWaitAsync(new AgentItemsRecorded
         {
-            CostUsd = costUsd,
+            CostUsd = costUsd, ContextTokens = contextTokens, ContextLimit = contextLimit, CacheSeconds = cacheSeconds,
             SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version,
             ItemsJson = JsonSerializer.Serialize(items.ToArray(), ProtocolJsonContext.Default.AgentItemArray),
             InputTokens = usage?.InputTokens ?? 0, CachedInputTokens = usage?.CachedInputTokens ?? 0,
@@ -298,8 +308,8 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             return;
         }
         _lastContextTokens = null;
-        await RecordAsync(view, [new(SessionItemKind.Compaction, summary, Replay: await StoredFormAsync(new UserMessage(CompactionPrefix + summary), stopping))],
-            response.Usage, stopping, environment.Model?.CostOf(response.Usage) ?? 0);
+        await RecordModelAsync(view, [new(SessionItemKind.Compaction, summary, Replay: await StoredFormAsync(new UserMessage(CompactionPrefix + summary), stopping))],
+            response.Usage, Math.Max(1, summary.Length / 4), environment, stopping);
     }
 
     static List<ConversationItem> Shortened(IReadOnlyList<ConversationItem> conversation) => conversation.Where(item => item is not ReasoningItem)
@@ -308,12 +318,13 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
     async Task CallModelAsync(AgentView view, AgentConversationState state, AgentEnvironment environment, AgentInstructionsRecord instructions, CancellationToken stopping)
     {
         var itemRef = $"agent-{view.Session.LastSeq}";
+        var thinkingRef = $"thinking-{view.Session.LastSeq}";
         var request = new TurnRequest(view.Session.Model!, instructions.Shared, state.Conversation,
             environment.Tools.SpecsFor(view.Session.PermissionMode), sessionId.ToString(), instructions.Session, view.Session.ReasoningEffort, environment.MaxOutputTokens);
         TurnResponse response;
         try
         {
-            response = await WatchedAsync(cancellation => environment.Executor.ExecuteAsync(request, delta => StreamAsync(itemRef, delta), cancellation), stopping);
+            response = await WatchedAsync(cancellation => environment.Executor.ExecuteAsync(request, delta => StreamAsync(itemRef, thinkingRef, delta), cancellation), stopping);
         }
         catch (OperationCanceledException) when (!stopping.IsCancellationRequested) { return; } // the next pass sees why
         catch (ModelProviderException problem) when (problem.Failure == ProviderFailure.ContextOverflow && !state.JustCompacted)
@@ -335,6 +346,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
 
         var items = new List<AgentItem>();
         var refUsed = false;
+        var thinkingRefUsed = false;
         foreach (var output in response.Output)
             switch (output)
             {
@@ -343,7 +355,8 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                     refUsed = true;
                     break;
                 case ReasoningItem reasoning:
-                    items.Add(new(SessionItemKind.Thinking, reasoning.Text, Replay: await StoredFormAsync(reasoning, stopping)));
+                    items.Add(new(SessionItemKind.Thinking, reasoning.Text, Ref: thinkingRefUsed ? null : thinkingRef, Replay: await StoredFormAsync(reasoning, stopping)));
+                    thinkingRefUsed = true;
                     break;
                 case ToolCall call when response.Stop == StopReason.ToolCalls:
                     items.Add(new(SessionItemKind.ToolUse, Summary(call.Arguments), call.Id, call.Name, call.Arguments, Replay: await StoredFormAsync(call, stopping)));
@@ -362,14 +375,25 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         }
         if (stopNote != null) items.Add(new(SessionItemKind.Notice, stopNote, IsError: true));
         _lastContextTokens = response.Usage.InputTokens + response.Usage.OutputTokens;
-        await RecordAsync(view, items, response.Usage, stopping, environment.Model?.CostOf(response.Usage) ?? 0);
+        await RecordModelAsync(view, items, response.Usage, _lastContextTokens.Value, environment, stopping);
     }
 
-    ValueTask StreamAsync(string itemRef, TurnDelta delta)
+    ValueTask StreamAsync(string itemRef, string thinkingRef, TurnDelta delta)
     {
-        // Only the answer's text streams for now; reasoning and tool arguments arrive with the finished step.
-        if (delta.Kind == TurnDeltaKind.Text) context.PublishDelta(new(sessionId, itemRef, delta.Text));
-        else if (delta.Kind == TurnDeltaKind.Restart) context.PublishDelta(new(sessionId, itemRef, "", true));
+        // Tool arguments arrive with the finished step: they mean little until they are whole.
+        switch (delta.Kind)
+        {
+            case TurnDeltaKind.Text:
+                context.PublishDelta(new(sessionId, itemRef, delta.Text));
+                break;
+            case TurnDeltaKind.Reasoning:
+                context.PublishDelta(new(sessionId, thinkingRef, delta.Text));
+                break;
+            case TurnDeltaKind.Restart:
+                context.PublishDelta(new(sessionId, itemRef, "", true));
+                context.PublishDelta(new(sessionId, thinkingRef, "", true));
+                break;
+        }
         return ValueTask.CompletedTask;
     }
 
@@ -410,7 +434,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                     {
                         AgentToolKind.Ask => Str(arguments["question"]),
                         AgentToolKind.MachineShell => Str(arguments["command"]),
-                        AgentToolKind.MachineWrite => Str(arguments["path"]),
+                        AgentToolKind.MachineWrite or AgentToolKind.MachineUpload => Str(arguments["path"]),
                         _ => null
                     }
                 }, stopping);
@@ -461,6 +485,16 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         catch (Exception problem) when (problem is McpException or HttpRequestException or IOException or JsonException)
         {
             result = new(problem.Message, true);
+        }
+        if (kind == AgentToolKind.MachineUpload && !result.IsError && JsonSerializer.Deserialize(result.Text, ProtocolJsonContext.Default.UploadedFile) is { } file)
+        {
+            // The same notice daemon harnesses give, which the page turns into a download.
+            await RecordAsync(view,
+            [
+                new AgentItem(SessionItemKind.Notice, $"Uploaded {file.Name} ({file.Size} bytes).", Data: new JsonObject { ["blob"] = file.Sha256, ["fileName"] = file.Name, ["size"] = file.Size }.ToJsonString()),
+                Result(call, $"Uploaded {file.Name}.", false, toolCall.LiveRef)
+            ], null, stopping);
+            return;
         }
         await RecordAsync(view, [Result(call, result.Text, result.IsError, toolCall.LiveRef)], null, stopping);
     }

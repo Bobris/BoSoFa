@@ -1,8 +1,8 @@
 import { api, getPlatform, uploadBlob, type FileEntry, type Machine } from "@bosofa/api";
-import { useNavigate, useParams } from "@solidjs/router";
+import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import Limit from "../components/Limit";
 import Terminals from "../components/Terminals";
-import { createEffect, createMemo, createSignal, For, Loading, refresh, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Loading, refresh, Show, untrack } from "solid-js";
 import { paths } from "../router";
 import { fetchMe } from "../session";
 import { branding } from "../branding";
@@ -64,7 +64,9 @@ function CodexLimits(props: { machineId: number }) {
 /** Browses the folders a machine shares, with a text preview, download and upload. */
 function Files(props: { machineId: number; onTerminalHere: (directory: string) => void }) {
   const id = () => ({ path: { id: props.machineId } });
-  const [path, setPath] = createSignal<string | null>(null);
+  // A link from a session opens its working directory.
+  const [search] = useSearchParams<{ path: string }>();
+  const [path, setPath] = createSignal<string | null>(untrack(() => search.path ?? null));
   const [opened, setOpened] = createSignal<FileEntry | null>(null);
   const [notice, setNotice] = createSignal<string>();
 

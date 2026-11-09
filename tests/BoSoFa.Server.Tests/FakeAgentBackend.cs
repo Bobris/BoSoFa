@@ -47,6 +47,19 @@ sealed class FakeAgentBackend : IAsyncDisposable
         app.MapPost("/go/openai/v1/responses", backend.ModelAsync);
         app.MapPost("/go/anthropic/v1/messages", backend.ModelAsync);
         app.MapGet("/go/v1/models", backend.GoModelsAsync);
+        app.MapGet("/v1/models", (HttpContext http) =>
+        {
+            if (backend.ModelListFails)
+            {
+                http.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                return Task.CompletedTask;
+            }
+            http.Response.ContentType = "application/json";
+            return http.Response.WriteAsync(new JsonObject
+            {
+                ["data"] = new JsonArray(new[] { "gpt-5.5", "claude-opus-5-5", "text-embedding-9", "no-such-model" }.Select(id => (JsonNode)new JsonObject { ["id"] = id }).ToArray())
+            }.ToJsonString());
+        });
         app.MapGet("/page", (HttpContext http) =>
         {
             http.Response.ContentType = "text/html; charset=utf-8";
@@ -72,6 +85,12 @@ sealed class FakeAgentBackend : IAsyncDisposable
         new JsonObject { ["type"] = "web_search_call", ["id"] = "ws_1", ["status"] = "completed", ["action"] = new JsonObject { ["type"] = "search", ["query"] = query } },
         Message(text)
     ]));
+
+    /// <summary>What the next Messages API answers say came from the cache.</summary>
+    public long AnthropicCacheRead { get; set; } = 4;
+
+    /// <summary>When set, the providers' model lists fail.</summary>
+    public bool ModelListFails { get; set; }
 
     public string PageUrl => Address + "/page";
     public string RedirectUrl => Address + "/redirect";
@@ -120,7 +139,7 @@ sealed class FakeAgentBackend : IAsyncDisposable
     Task AnthropicStream(HttpContext http, string stopReason, params JsonObject[] events) => Task.Run(async () =>
     {
         await StartStream(http);
-        await WriteEvent(http, new JsonObject { ["type"] = "message_start", ["message"] = new JsonObject { ["usage"] = new JsonObject { ["input_tokens"] = 10, ["cache_read_input_tokens"] = 4, ["output_tokens"] = 1 } } });
+        await WriteEvent(http, new JsonObject { ["type"] = "message_start", ["message"] = new JsonObject { ["usage"] = new JsonObject { ["input_tokens"] = 10, ["cache_read_input_tokens"] = AnthropicCacheRead, ["output_tokens"] = 1 } } });
         foreach (var item in events) await WriteEvent(http, item);
         var delta = new JsonObject { ["stop_reason"] = stopReason };
         if (stopReason == "refusal") delta["stop_details"] = new JsonObject { ["type"] = "refusal", ["category"] = "cyber", ["explanation"] = "It looks like an attack." };

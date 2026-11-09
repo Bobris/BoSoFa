@@ -13,6 +13,11 @@ namespace BoSoFa.Server.Tests;
 /// <summary>Server agent sessions whose tools run on a real daemon, against a fake model provider (docs/server-agent.md §6).</summary>
 public class AgentMachineTest(ITestOutputHelper output)
 {
+    sealed class FakeUploader : IBlobUploader
+    {
+        public Task<BlobRef> UploadAsync(string file, CancellationToken cancellation) => Task.FromResult(new BlobRef(new string('a', 64), new FileInfo(file).Length));
+    }
+
     internal sealed class Machine : IAsyncDisposable
     {
         public AgentSessionTest.Harness H = null!;
@@ -36,7 +41,7 @@ public class AgentMachineTest(ITestOutputHelper output)
             machine.Id = machine._state.MachineId;
             machine._key = new DaemonStore(machine.DaemonDirectory).LoadOrCreateKey();
             machine._outbox = new Outbox(Path.Combine(machine.DaemonDirectory, "outbox"));
-            machine._host = new SessionHost(machine.DaemonDirectory, machine._outbox, new(), TextWriter.Null);
+            machine._host = new SessionHost(machine.DaemonDirectory, machine._outbox, new(Uploader: new FakeUploader()), TextWriter.Null);
             if (connect) await machine.ConnectAsync();
             return machine;
         }
@@ -236,6 +241,31 @@ public class AgentMachineTest(ITestOutputHelper output)
         Assert.False(result.IsError, result.Text);
         Assert.Equal("finished", result.Text.Trim());
         Assert.Single(await File.ReadAllLinesAsync(log));
+    }
+
+    [Fact]
+    public async Task UploadFileAsksAndGivesThePersonADownload()
+    {
+        await using var m = await Machine.StartAsync();
+        await File.WriteAllTextAsync(m.PathOf("report.txt"), "the report");
+        m.H.Backend.Call("c1", Tool.UploadFile, Args(("path", "report.txt")));
+        m.H.Backend.Call("c2", Tool.UploadFile, Args(("path", "../outside.txt")));
+        m.H.Backend.Answer("Done.");
+        var session = await m.StartSessionAsync("Share it.");
+        var request = await m.H.RequestAsync(session.Id);
+        Assert.Equal((Tool.UploadFile, "report.txt"), (request.ToolName, request.Description));
+        await m.H.AnswerAsync(session.Id, request.Id, true);
+        var second = await AgentSessionTest.Eventually(() => m.H.RequestAsync(session.Id), next => next.Id != request.Id);
+        await m.H.AnswerAsync(session.Id, second.Id, true);
+        var items = await m.H.RunEndedAsync(session.Id);
+        var notice = Assert.Single(items, item => item.Kind == SessionItemKind.Notice && item.Text.StartsWith("Uploaded", StringComparison.Ordinal));
+        Assert.Contains("\"fileName\":\"report.txt\"", notice.Data);
+        Assert.Contains(items, item => item is { Kind: SessionItemKind.ToolResult, IsError: true } && item.Text.Contains("outside"));
+
+        m.H.Backend.Answer("Planned.");
+        var plan = await m.StartSessionAsync("Plan.", "plan");
+        await m.H.RunEndedAsync(plan.Id);
+        Assert.DoesNotContain(Tool.UploadFile, AgentSessionTest.Tools(m.H.Backend.ModelRequests.Last()));
     }
 
     [Fact]

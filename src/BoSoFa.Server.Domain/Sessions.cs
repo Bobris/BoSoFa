@@ -47,6 +47,15 @@ public class Session
 
     /// <summary>Which of the machine's tools a server agent session has, already narrowed by its profile; empty for other harnesses.</summary>
     public string ToolGroup { get; set; } = "";
+
+    /// <summary>How full a server agent session's context is, by the latest model call; zero when unknown.</summary>
+    public long ContextTokens { get; set; }
+
+    /// <summary>What the model takes; zero when the snapshot does not say.</summary>
+    public long ContextLimit { get; set; }
+
+    /// <summary>When the provider's prompt cache lapses, if much is cached.</summary>
+    public DateTime? CacheExpiresAt { get; set; }
 }
 
 public interface ISessionTable : IRelation<Session>

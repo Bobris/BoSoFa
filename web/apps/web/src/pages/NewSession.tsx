@@ -14,6 +14,17 @@ const permissionModes = [
 ];
 
 const lastDirectoryKey = "bosofa.lastWorkingDirectory";
+const lastModelKey = (account: string) => `bosofa.lastAgentModel.${account}`;
+
+function modelLabel(model: AgentModel): string {
+  const parts = [model.name];
+  if (model.contextWindow != null) {
+    const size = Number(model.contextWindow);
+    parts.push(size >= 1_000_000 ? `${size / 1_000_000}M context` : `${Math.round(size / 1000)}K context`);
+  }
+  if (model.inputPrice != null && model.outputPrice != null) parts.push(`$${model.inputPrice} / $${model.outputPrice}`);
+  return parts.join(" · ");
+}
 
 function remembered(key: string): string {
   try {
@@ -60,9 +71,8 @@ export default function NewSession() {
   const accountKind = () => agentAccounts().find((a) => String(a.id) === agentAccount())?.kind;
   const modelExample = () =>
     accountKind() === "AnthropicApiKey" ? "claude-opus-5-5" : accountKind() === "OpenCodeGoApiKey" ? "glm-5.3" : "gpt-5.4-mini";
-  // Only OpenCode Go says what it serves so far; other accounts still take a typed name.
   const agentModels = createMemo(async (): Promise<AgentModel[]> => {
-    const id = accountKind() === "OpenCodeGoApiKey" ? agentAccount() : undefined;
+    const id = agentAccount();
     if (!id) return [];
     return (await api.GET("/api/v1/accounts/{id}/models", { params: { path: { id: Number(id) } } })).data ?? [];
   });
@@ -80,11 +90,11 @@ export default function NewSession() {
   const [systemPrompt, setSystemPrompt] = createSignal("");
   const [effort, setEffort] = createSignal("");
   const [toolGroup, setToolGroup] = createSignal("full");
-  const efforts = (): string[] => {
-    if (accountKind() === "AnthropicApiKey") return ["low", "medium", "high", "xhigh", "max"];
-    if (accountKind() === "OpenAIApiKey") return ["low", "medium", "high", "xhigh"];
-    return agentModels().find((option) => option.id === model().trim())?.reasoningEfforts ?? [];
-  };
+  const efforts = (): string[] => agentModels().find((option) => option.id === chosenModel())?.reasoningEfforts ?? [];
+  // A name typed by hand, for a model too new for the list.
+  const [typingModel, setTypingModel] = createSignal(false);
+  const chosenModel = () => (agentAccount() ? model().trim() || remembered(lastModelKey(agentAccount()!)) : model().trim());
+  const listedModel = () => agentModels().some((option) => option.id === chosenModel());
   const needsDirectory = () => !agentAccount() || agentMachine() !== "";
 
   async function start(event: SubmitEvent) {
@@ -97,7 +107,7 @@ export default function NewSession() {
         workingDirectory: needsDirectory() ? directory().trim() : "",
         prompt: prompt(),
         permissionMode: profile() && mode() === "default" ? null : mode(), // the profile's own default applies
-        model: model().trim() || null,
+        model: chosenModel() || null,
         accountId: agentAccount()
           ? Number(agentAccount())
           : usable().some((a) => String(a.id) === account())
@@ -107,7 +117,7 @@ export default function NewSession() {
         profileName: profile() || null,
         images: agentAccount() ? [] : attachments.hashes(),
         systemPrompt: agentAccount() && systemPrompt().trim() ? systemPrompt().trim() : null,
-        reasoningEffort: agentAccount() && effort() ? effort() : null,
+        reasoningEffort: agentAccount() && efforts().includes(effort()) ? effort() : null,
         toolGroup: agentAccount() && agentMachine() ? toolGroup() : null,
       },
     });
@@ -119,6 +129,7 @@ export default function NewSession() {
     if (!agentAccount())
       try {
         localStorage.setItem(lastDirectoryKey, directory().trim());
+        if (agentAccount()) localStorage.setItem(lastModelKey(agentAccount()!), chosenModel());
       } catch {
         /* private mode */
       }
@@ -217,17 +228,31 @@ export default function NewSession() {
             </label>
             <label class="block space-y-1">
               <span class="text-sm text-muted">{agentAccount() ? "Model" : "Model (optional)"}</span>
-              <input
-                class={field}
-                required={agentAccount() !== undefined}
-                placeholder={agentAccount() ? modelExample() : "sonnet, opus, haiku…"}
-                list="agent-models"
-                value={model()}
-                onInput={(event) => setModel(event.currentTarget.value)}
-              />
-              <datalist id="agent-models">
-                <For each={agentModels()}>{(option) => <option value={option.id}>{option.name}</option>}</For>
-              </datalist>
+              <Show
+                when={agentAccount() && agentModels().length > 0 && !typingModel()}
+                fallback={
+                  <input
+                    class={field}
+                    required={agentAccount() !== undefined}
+                    placeholder={agentAccount() ? modelExample() : "sonnet, opus, haiku…"}
+                    value={model()}
+                    onInput={(event) => setModel(event.currentTarget.value)}
+                  />
+                }
+              >
+                <select
+                  class={field}
+                  value={listedModel() ? chosenModel() : ""}
+                  onChange={(event) => {
+                    if (event.currentTarget.value === "other") setTypingModel(true);
+                    else setModel(event.currentTarget.value);
+                  }}
+                >
+                  <option value="">Choose a model</option>
+                  <For each={agentModels()}>{(option) => <option value={option.id}>{modelLabel(option)}</option>}</For>
+                  <option value="other">Another model, by name…</option>
+                </select>
+              </Show>
             </label>
           </div>
           <Show when={agentAccount()}>
@@ -280,7 +305,7 @@ export default function NewSession() {
                 busy() ||
                 !prompt().trim() ||
                 attachments.uploading() ||
-                (agentAccount() ? !model().trim() || (needsDirectory() && !directory().trim()) : !selected() || !directory().trim())
+                (agentAccount() ? !chosenModel() || (needsDirectory() && !directory().trim()) : !selected() || !directory().trim())
               }
             >
               Start

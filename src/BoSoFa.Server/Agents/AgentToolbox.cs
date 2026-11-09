@@ -28,6 +28,9 @@ public enum AgentToolKind
     /// <summary>Changes files on the machine; <c>acceptEdits</c> allows it without asking.</summary>
     MachineWrite,
 
+    /// <summary>Shows a file of the machine to the people following the session, so it asks unless the mode bypasses that.</summary>
+    MachineUpload,
+
     /// <summary>Runs a command on the machine, which can do anything, so only <c>bypassPermissions</c> allows it without asking.</summary>
     MachineShell
 }
@@ -64,6 +67,9 @@ public sealed partial class AgentToolbox
             ("glob", "string", "Only files whose names match this.", false),
             ("ignore_case", "boolean", "Ignore case.", false)))
     ];
+
+    static readonly ToolSpec UploadFile = new(MachineTools.UploadFile, "Share a file of the working directory with the person following this session, as a download.", Schema(
+        ("path", "string", "The file, relative to the working directory.", true)));
 
     static readonly ToolSpec WriteFile = new(MachineTools.WriteFile, "Create a file or replace all of it. Folders are created as needed.", Schema(
         ("path", "string", "The file, relative to the working directory.", true),
@@ -155,16 +161,18 @@ public sealed partial class AgentToolbox
 
     IEnumerable<ToolSpec> ReadingTools() => _machine == null || _toolGroup == AgentToolGroups.None ? [] : MachineRead;
 
+    IEnumerable<ToolSpec> SharingTools() => _machine == null || _toolGroup == AgentToolGroups.None ? [] : [UploadFile];
+
     IEnumerable<ToolSpec> ChangingTools() => _machine == null || _toolGroup != AgentToolGroups.Full ? [] : _offersPatch ? [WriteFile, EditFile, ApplyPatch, Shell] : [WriteFile, EditFile, Shell];
 
     /// <summary>The tool runs on the session's machine, so its creator must still be allowed to use that machine.</summary>
-    public bool RunsOnMachine(string name) => _mcp.TryGetValue(name, out var route) ? route.Stdio != null : ReadingTools().Concat(ChangingTools()).Any(spec => spec.Name == name);
+    public bool RunsOnMachine(string name) => _mcp.TryGetValue(name, out var route) ? route.Stdio != null : ReadingTools().Concat(SharingTools()).Concat(ChangingTools()).Any(spec => spec.Name == name);
 
     /// <summary>In <c>plan</c> mode only tools that change nothing are offered.</summary>
     public IReadOnlyList<ToolSpec> SpecsFor(string permissionMode)
     {
         IEnumerable<ToolSpec> reading = [..Own, ..ReadingTools()];
-        return permissionMode == "plan" ? reading.ToList() : [..reading, ..ChangingTools(), .._mcpSpecs];
+        return permissionMode == "plan" ? reading.ToList() : [..reading, ..SharingTools(), ..ChangingTools(), .._mcpSpecs];
     }
 
     public AgentToolKind KindOf(string name, string permissionMode)
@@ -175,6 +183,7 @@ public sealed partial class AgentToolbox
         if (ReadingTools().Any(spec => spec.Name == name)) return AgentToolKind.MachineRead;
         if (permissionMode == "plan") return AgentToolKind.Unknown;
         if (_mcp.ContainsKey(name)) return AgentToolKind.Mcp;
+        if (SharingTools().Any(spec => spec.Name == name)) return AgentToolKind.MachineUpload;
         if (!ChangingTools().Any(spec => spec.Name == name)) return AgentToolKind.Unknown;
         return name == MachineTools.Shell ? AgentToolKind.MachineShell : AgentToolKind.MachineWrite;
     }
@@ -182,7 +191,7 @@ public sealed partial class AgentToolbox
     public static bool NeedsApproval(AgentToolKind kind, string permissionMode) => kind switch
     {
         AgentToolKind.Ask => true,
-        AgentToolKind.Mcp or AgentToolKind.MachineShell => permissionMode != "bypassPermissions",
+        AgentToolKind.Mcp or AgentToolKind.MachineShell or AgentToolKind.MachineUpload => permissionMode != "bypassPermissions",
         AgentToolKind.MachineWrite => permissionMode is not ("acceptEdits" or "bypassPermissions"),
         _ => false
     };

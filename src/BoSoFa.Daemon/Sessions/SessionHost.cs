@@ -87,7 +87,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
             lock (_sessions) return _sessions.GetValueOrDefault(id)?.State;
         }, this, options.Uploader);
         Files = new MachineFiles(FileRoots, options.Uploader, options.Profiles);
-        Tools = new AgentToolHost(this);
+        Tools = new AgentToolHost(this, uploader: options.Uploader);
         _configuredRoots = options.Roots ?? [];
         Updater = new DaemonUpdater(Path.GetFullPath(dataDirectory), options.Profiles, options.ReleaseKey, options.Launched, IsBusy, log);
         _directory = Path.Combine(dataDirectory, "sessions");

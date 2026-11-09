@@ -9,6 +9,9 @@ const MAX_DRAFT_LENGTH = 128 * 1024;
 /** A draft with this kind of ref is the output of a running tool, not the agent's answer. */
 export const isToolOutput = (draft: Draft) => draft.ref.startsWith("tool-");
 
+/** A draft with this kind of ref is reasoning the model is doing right now. */
+export const isThinking = (draft: Draft) => draft.ref.startsWith("thinking-");
+
 export type LiveSessionState = {
   session: Session | undefined;
   items: SessionItem[];

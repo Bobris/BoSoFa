@@ -33,7 +33,12 @@ public class ModelCatalogTest
             {
                 var (id, model) = models[i];
                 var entry = new JsonObject();
-                if (model!["limit"]?["input"] is { } input) entry["input_limit"] = input.DeepClone();
+                entry["name"] = model!["name"]?.DeepClone();
+                if (model["tool_call"]?.GetValue<bool>() == false) entry["tools"] = false;
+                var efforts = (model["reasoning_options"] as JsonArray ?? []).OfType<JsonObject>().Where(option => option["type"]?.GetValue<string>() == "effort")
+                    .SelectMany(option => option["values"]!.AsArray().Select(value => value!.GetValue<string>())).Where(Harnesses.ReasoningEfforts.Contains).ToArray();
+                if (efforts.Length > 0) entry["efforts"] = new JsonArray(efforts.Select(effort => (JsonNode?)JsonValue.Create(effort)).ToArray());
+                if (model["limit"]?["input"] is { } input) entry["input_limit"] = input.DeepClone();
                 else if (model["limit"]?["context"] is { } context) entry["input_limit"] = context.DeepClone();
                 if (model["limit"]?["output"] is { } output) entry["output_limit"] = output.DeepClone();
                 foreach (var price in new[] { "input", "output", "cache_read", "cache_write" })
