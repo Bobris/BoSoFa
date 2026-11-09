@@ -47,6 +47,9 @@ public class Profile
     public string? PermissionMode { get; set; }
     public string McpServers { get; set; } = "[]";
     public string Skills { get; set; } = "[]";
+    public string? SystemPrompt { get; set; }
+    public string? SystemPromptMode { get; set; }
+    public string? MaxToolGroup { get; set; }
 }
 
 public interface IProfileTable : IRelation<Profile>
@@ -84,6 +87,9 @@ public class ProfileSaved : EventWithResult<SessionCommandResult>
     public string? PermissionMode { get; set; }
     public string McpServers { get; set; } = "[]";
     public string Skills { get; set; } = "[]";
+    public string? SystemPrompt { get; set; }
+    public string? SystemPromptMode { get; set; }
+    public string? MaxToolGroup { get; set; }
 }
 
 static class Catalog
@@ -129,7 +135,10 @@ public sealed class SkillBundlePublishedHandler : IEventHandler<SkillBundlePubli
 public sealed class ProfileSavedHandler : IEventHandler<ProfileSaved, SessionCommandResult>
 {
     public SessionCommandResult? Validate(ProfileSaved ev) =>
-        CatalogNames.IsValid(ev.Name) ? null : new() { Outcome = CommandOutcome.Invalid };
+        CatalogNames.IsValid(ev.Name) && (ev.SystemPrompt == null || ev.SystemPrompt.Length <= Sessions.MaximumPromptLength) &&
+        (ev.SystemPromptMode == null || Harnesses.SystemPromptModes.Contains(ev.SystemPromptMode)) && (ev.MaxToolGroup == null || AgentToolGroups.All.Contains(ev.MaxToolGroup))
+            ? null
+            : new() { Outcome = CommandOutcome.Invalid };
 
     public SessionCommandResult Consume(ProfileSaved ev)
     {
@@ -142,7 +151,8 @@ public sealed class ProfileSavedHandler : IEventHandler<ProfileSaved, SessionCom
             return new() { Outcome = CommandOutcome.NotFound };
         Ambient.Relation<IProfileTable>().Upsert(new()
         {
-            Name = ev.Name, Model = ev.Model, PermissionMode = ev.PermissionMode, McpServers = ev.McpServers, Skills = ev.Skills
+            Name = ev.Name, Model = ev.Model, PermissionMode = ev.PermissionMode, McpServers = ev.McpServers, Skills = ev.Skills,
+            SystemPrompt = string.IsNullOrWhiteSpace(ev.SystemPrompt) ? null : ev.SystemPrompt, SystemPromptMode = ev.SystemPromptMode, MaxToolGroup = ev.MaxToolGroup
         });
         Audit.Record(ev.When, ev.UserId, "profile.saved", ev.Name);
         return new() { Outcome = CommandOutcome.Ok };

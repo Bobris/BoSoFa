@@ -39,6 +39,14 @@ public class Session
 
     /// <summary>The profile whose MCP servers and skills the session gets; null for none.</summary>
     public string? ProfileName { get; set; }
+
+    /// <summary>A server agent session's own system prompt, given when starting it.</summary>
+    public string? SystemPrompt { get; set; }
+
+    public string? ReasoningEffort { get; set; }
+
+    /// <summary>Which of the machine's tools a server agent session has, already narrowed by its profile; empty for other harnesses.</summary>
+    public string ToolGroup { get; set; } = "";
 }
 
 public interface ISessionTable : IRelation<Session>
@@ -172,6 +180,10 @@ public class SessionCreated : EventWithResult<SessionCommandResult>
 
     /// <summary>The prompt's images as JSON (<see cref="PromptImage"/>[]); empty without any.</summary>
     public string ImagesJson { get; set; } = "";
+
+    public string? SystemPrompt { get; set; }
+    public string? ReasoningEffort { get; set; }
+    public string? ToolGroup { get; set; }
 
     /// <summary>For an agent session: the node handling this request, which runs the session.</summary>
     public string RunnerNodeId { get; set; } = "";
@@ -325,7 +337,9 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
         !Harnesses.All.Contains(ev.Harness) || !Harnesses.PermissionModes.Contains(ev.PermissionMode) ||
         (ev.Harness == Harnesses.Agent
             ? string.IsNullOrWhiteSpace(ev.Model) || ev.AccountId == 0 || ev.RunnerNodeId.Length == 0 || ev.UseWorktree ||
-              (ev.MachineId != 0 && string.IsNullOrWhiteSpace(ev.WorkingDirectory))
+              (ev.MachineId != 0 && string.IsNullOrWhiteSpace(ev.WorkingDirectory)) || ev.SystemPrompt?.Length > Sessions.MaximumPromptLength ||
+              (ev.ReasoningEffort != null && !Harnesses.ReasoningEfforts.Contains(ev.ReasoningEffort)) ||
+              (ev.ToolGroup != null && !AgentToolGroups.All.Contains(ev.ToolGroup))
             : string.IsNullOrWhiteSpace(ev.WorkingDirectory))
             ? new() { Outcome = CommandOutcome.Invalid }
             : null;
@@ -343,9 +357,11 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
             if (Ambient.Relation<IMachineTable>().FindByIdOrDefault(ev.MachineId) is not { } machine) return new() { Outcome = CommandOutcome.NotFound };
             if (!MachineAccess.CanControl(ev.UserId, machine)) return new() { Outcome = CommandOutcome.Forbidden };
         }
+        Profile? profile = null;
         if (ev.ProfileName != null)
         {
-            if (Ambient.Relation<IProfileTable>().FindByIdOrDefault(ev.ProfileName) is not { } profile) return new() { Outcome = CommandOutcome.NotFound };
+            profile = Ambient.Relation<IProfileTable>().FindByIdOrDefault(ev.ProfileName);
+            if (profile == null) return new() { Outcome = CommandOutcome.NotFound };
             var servers = Ambient.Relation<IMcpServerTable>();
             if (ev.MachineId == 0 && JsonSerializer.Deserialize(profile.McpServers, ProtocolJsonContext.Default.StringArray)!
                 .Any(name => servers.FindByIdOrDefault(name) is not { Transport: McpTransport.Http }))
@@ -356,7 +372,8 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
             Id = Ambient.AllocateId(), MachineId = ev.MachineId, WorkingDirectory = ev.MachineId == 0 ? "" : ev.WorkingDirectory.Trim(),
             CreatedById = ev.UserId, Harness = ev.Harness, Title = Sessions.TitleOf(ev.Prompt),
             PermissionMode = ev.PermissionMode, Model = ev.Model!.Trim(), Status = SessionStatus.Running, CreatedAt = ev.When,
-            UpdatedAt = ev.When, AccountId = ev.AccountId, ProfileName = ev.ProfileName
+            UpdatedAt = ev.When, AccountId = ev.AccountId, ProfileName = ev.ProfileName, SystemPrompt = string.IsNullOrWhiteSpace(ev.SystemPrompt) ? null : ev.SystemPrompt,
+            ReasoningEffort = ev.ReasoningEffort, ToolGroup = AgentToolGroups.Narrower(ev.ToolGroup, profile?.MaxToolGroup)
         };
         Ambient.Relation<ISessionTable>().Insert(session);
         Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, replay: AgentRunners.UserReplay(ev.Prompt, false));

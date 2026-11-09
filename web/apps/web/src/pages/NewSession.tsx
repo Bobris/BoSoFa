@@ -77,6 +77,14 @@ export default function NewSession() {
   const selected = () => machine() || search.machine || String(machines()[0]?.id ?? "");
   // The server agent needs no machine, so it has one only when somebody picks it.
   const agentMachine = () => machine() ?? search.machine ?? "";
+  const [systemPrompt, setSystemPrompt] = createSignal("");
+  const [effort, setEffort] = createSignal("");
+  const [toolGroup, setToolGroup] = createSignal("full");
+  const efforts = (): string[] => {
+    if (accountKind() === "AnthropicApiKey") return ["low", "medium", "high", "xhigh", "max"];
+    if (accountKind() === "OpenAIApiKey") return ["low", "medium", "high", "xhigh"];
+    return agentModels().find((option) => option.id === model().trim())?.reasoningEfforts ?? [];
+  };
   const needsDirectory = () => !agentAccount() || agentMachine() !== "";
 
   async function start(event: SubmitEvent) {
@@ -98,6 +106,9 @@ export default function NewSession() {
         useWorktree: !agentAccount() && worktree(),
         profileName: profile() || null,
         images: agentAccount() ? [] : attachments.hashes(),
+        systemPrompt: agentAccount() && systemPrompt().trim() ? systemPrompt().trim() : null,
+        reasoningEffort: agentAccount() && effort() ? effort() : null,
+        toolGroup: agentAccount() && agentMachine() ? toolGroup() : null,
       },
     });
     setBusy(false);
@@ -219,6 +230,33 @@ export default function NewSession() {
               </datalist>
             </label>
           </div>
+          <Show when={agentAccount()}>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <Show when={efforts().length > 0}>
+                <label class="block space-y-1">
+                  <span class="text-sm text-muted">Effort</span>
+                  <select class={field} value={effort()} onChange={(event) => setEffort(event.currentTarget.value)}>
+                    <option value="">The model's default</option>
+                    <For each={efforts()}>{(option) => <option value={option}>{option}</option>}</For>
+                  </select>
+                </label>
+              </Show>
+              <Show when={agentMachine()}>
+                <label class="block space-y-1">
+                  <span class="text-sm text-muted">Machine tools</span>
+                  <select class={field} value={toolGroup()} onChange={(event) => setToolGroup(event.currentTarget.value)}>
+                    <option value="full">Read, change and run</option>
+                    <option value="read">Read only</option>
+                    <option value="none">None</option>
+                  </select>
+                </label>
+              </Show>
+            </div>
+            <label class="block space-y-1">
+              <span class="text-sm text-muted">System prompt (optional, added to the built-in one)</span>
+              <textarea class={[field, "min-h-20 resize-y"]} value={systemPrompt()} onInput={(event) => setSystemPrompt(event.currentTarget.value)} />
+            </label>
+          </Show>
           <label class="block space-y-1">
             <span class="text-sm text-muted">Prompt</span>
             <textarea

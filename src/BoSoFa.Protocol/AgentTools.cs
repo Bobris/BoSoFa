@@ -6,6 +6,12 @@ namespace BoSoFa.Protocol;
 /// <summary>The tools of a server agent session that a daemon runs (docs/server-agent.md §6.1).</summary>
 public static class MachineTools
 {
+    /// <summary>Not offered to models: the loop reads the project's instructions with it once, at the start of a session.</summary>
+    public const string ProjectInstructions = "project_instructions";
+
+    /// <summary>How much of a project's instructions a session takes.</summary>
+    public const int ProjectInstructionsLimit = 32 * 1024;
+
     public const string ReadFile = "read_file", ListDir = "list_dir", Glob = "glob", Grep = "grep", WriteFile = "write_file", EditFile = "edit_file",
         ApplyPatch = "apply_patch", Shell = "shell";
 

@@ -1,6 +1,6 @@
 # Server agent: a harness that runs in the server
 
-Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only), 3 (machine tools) 4 (Anthropic) and 6 (OpenCode Go) are done, 6 not yet against the real service; 5 (ChatGPT sign-in) is not built, see §5.2, the rest is planned.
+Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only), 3 (machine tools) 4 (Anthropic), 6 (OpenCode Go) and 7 (system prompts) are done, 6 not yet against the real service; 5 (ChatGPT sign-in) is not built, see §5.2, the rest is planned.
 
 ## 1. What and why
 
@@ -74,7 +74,8 @@ A session with harness `agent` has:
 | Limits | None on steps or cost: a run goes on until the model stops or someone interrupts it, as in CodeAlta (decided 2026-11-09). Tool output is kept inline up to 16 KiB, the rest in a blob; shell commands have a timeout. |
 
 Sessions stay visible only to their creator. Machine tools need the creator to be able to control the machine,
-checked on every call, not only at the start.
+checked on every call, not only at the start. A session asking for more machine tools than its profile allows gets what the
+profile allows.
 
 ## 4. Architecture
 
@@ -379,8 +380,15 @@ The instructions are assembled in this order, so the part shared by many session
    through the daemon when the session has a machine.
 5. **The session's own system prompt**, given when starting it.
 
-The profile editor and the new-session form get a system prompt field. A session's prompt is stored with the session,
-so the transcript shows what the model was told.
+The profile editor and the new-session form have a system prompt field.
+
+The whole text is worked out once, at the start of the session, and stored as an `Instructions` item in the transcript. Every
+later request, also after a failover, sends that same text, because cached prefixes and signed thinking break if the system
+prompt changes under a conversation. So a changed `AGENTS.md` or profile applies to new sessions, and the transcript shows what
+the model was told. Layers 1 and 2 go first as the part shared by many sessions; 3 to 5 follow as the session's own.
+
+`AGENTS.md` is read from the working directory, up to 32 KiB, and a link leading outside it is ignored. If the machine is offline
+at the start, the session goes on without it and says so.
 
 ## 8. Context and cost
 
@@ -504,6 +512,12 @@ so the transcript shows what the model was told.
    - `AgentOpenCodeGoTest` runs against a fake service. No Go key was available, so `LiveOpenCodeGoRunsAToolCall` waits for
      `BOSOFA_TEST_OPENCODE_KEY_FILE` (`BOSOFA_TEST_OPENCODE_MODEL` is optional).
 7. **System prompt and profiles.** The layers of §7, the profile and new-session fields, `AGENTS.md`.
+   *Done (2026-11-09):*
+   - `AgentInstructions` builds the layers; `AgentLoop` stores them once as an `Instructions` item. `Domain.ApplicationGeneration` is 6.
+   - New session fields: system prompt, reasoning effort, machine tools. New profile fields: system prompt and its mode, most tools
+     allowed. The form offers the efforts the provider or model has.
+   - `AgentInstructionsTest` covers the order of the layers, a profile replacing the base, `CLAUDE.md` as the fallback, the text
+     staying the same while files and profiles change, tool groups, and refused settings.
 8. **Context, cost and web.** Compaction, the models.dev snapshot, costs, `web_fetch` with its address checks, and the
    providers' hosted search.
 9. **UI polish.** The model picker, tool-call cards with streamed output, account sign-in flows. Run every flow in the

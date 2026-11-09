@@ -33,7 +33,10 @@ public enum SessionItemKind
     Notice,
 
     /// <summary>What a run changed: <c>Text</c> is the patch, <c>Data</c> the per-file line counts as JSON.</summary>
-    Diff
+    Diff,
+
+    /// <summary>What a server agent session's model was told, fixed when the session starts.</summary>
+    Instructions
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<RuntimeRequestStatus>))]
@@ -68,7 +71,9 @@ public sealed record SessionDto(
     ulong? AccountId,
     string? AccountLabel,
     string? Branch,
-    string? ProfileName);
+    string? ProfileName,
+    string? ReasoningEffort = null,
+    string? ToolGroup = null);
 
 /// <summary>One persisted transcript entry. <c>Data</c> holds JSON details (tool input, run usage) and <c>Ref</c> the
 /// harness's message ID, which live deltas carry too.</summary>
@@ -106,7 +111,10 @@ public sealed record CreateSessionRequest(
     ulong? AccountId = null,
     bool UseWorktree = false,
     string? ProfileName = null,
-    string[]? Images = null);
+    string[]? Images = null,
+    string? SystemPrompt = null,
+    string? ReasoningEffort = null,
+    string? ToolGroup = null);
 
 /// <summary>How a message reaches a session whose turn is still running.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<DispatchMode>))]
@@ -176,6 +184,26 @@ public static class Harnesses
     public static readonly string[] All = [Claude, Codex, OpenCode, Replay, Agent];
 
     public static readonly string[] PermissionModes = ["default", "acceptEdits", "plan", "bypassPermissions"];
+
+    /// <summary>Every level some provider knows; a model that lacks one answers with an error the person sees.</summary>
+    public static readonly string[] ReasoningEfforts = ["low", "medium", "high", "xhigh", "max"];
+
+    /// <summary>How a profile's system prompt combines with the built-in one.</summary>
+    public static readonly string[] SystemPromptModes = ["append", "replace"];
+}
+
+/// <summary>Which of the machine's tools a server agent session gets (docs/server-agent.md §3).</summary>
+public static class AgentToolGroups
+{
+    public const string None = "none", Read = "read", Full = "full";
+    public static readonly string[] All = [None, Read, Full];
+
+    /// <summary>The narrower of the two; a null means no restriction.</summary>
+    public static string Narrower(string? first, string? second)
+    {
+        var (a, b) = (Array.IndexOf(All, first ?? Full), Array.IndexOf(All, second ?? Full));
+        return All[Math.Min(a, b)];
+    }
 }
 
 /// <summary>A transcript item the server's agent loop records. <c>Replay</c> is the loop's own form of it (see

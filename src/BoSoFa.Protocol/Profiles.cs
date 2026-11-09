@@ -25,7 +25,10 @@ public sealed record PublishSkillBundle(string Name, string Version, string Sha2
 public sealed record SkillRef(string Name, string Version);
 
 /// <summary>What sessions of a profile get (plan §5.5).</summary>
-public sealed record ProfileDto(string Name, string? Model, string? PermissionMode, string[] McpServers, SkillRef[] Skills);
+/// <param name="SystemPrompt">For server agent sessions, with <c>SystemPromptMode</c> saying whether it extends or replaces the built-in one.</param>
+/// <param name="MaxToolGroup">The most of a machine's tools a server agent session of this profile may have; null for all.</param>
+public sealed record ProfileDto(string Name, string? Model, string? PermissionMode, string[] McpServers, SkillRef[] Skills, string? SystemPrompt = null,
+    string? SystemPromptMode = null, string? MaxToolGroup = null);
 
 /// <summary>Daemon → server, just in time: everything a session's profile resolves to, secrets included.</summary>
 public sealed record SessionProfileResponse(ResolvedMcpServer[] McpServers, ResolvedSkill[] Skills);

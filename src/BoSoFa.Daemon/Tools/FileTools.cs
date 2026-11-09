@@ -55,6 +55,22 @@ sealed class FileTools(string workingDirectory, bool useRipgrep = true)
         return new(number == 0 ? "The file is empty." : $"The file has only {number} lines.", false);
     }
 
+    /// <summary>The first line is the file's name, the rest its text; empty when the project has neither file.</summary>
+    public async Task<ToolRunResult> ProjectInstructionsAsync(CancellationToken cancellation)
+    {
+        foreach (var name in new[] { "AGENTS.md", "CLAUDE.md" })
+        {
+            if (PathGuard.Resolve([_root], name, _root) is not { } file || !File.Exists(file)) continue;
+            await using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var bytes = new byte[ToolNames.ProjectInstructionsLimit];
+            var count = await stream.ReadAtLeastAsync(bytes, bytes.Length, false, cancellation);
+            if (bytes.AsSpan(0, count).Contains((byte)0)) continue;
+            var text = Encoding.UTF8.GetString(bytes, 0, count);
+            return new($"{name}\n{text}{(stream.Length > count ? "\n[The rest of this file was cut.]" : "")}", false);
+        }
+        return new("", false);
+    }
+
     public ToolRunResult List(ToolArguments arguments)
     {
         var directory = Resolve(arguments.Text("path") ?? ".");

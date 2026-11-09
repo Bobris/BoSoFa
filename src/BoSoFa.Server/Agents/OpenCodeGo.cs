@@ -42,7 +42,8 @@ public static class OpenCodeGo
         var models = JsonNode.Parse(await response.Content.ReadAsStringAsync(cancellation))?["data"] as JsonArray ?? [];
         return models.OfType<JsonObject>()
             .Where(model => Str(model["type"]) == "chat" && Flag(model["capabilities"]?["tools"]?["supported"]) && Str(model["id"]) is { Length: > 0 })
-            .Select(model => new AgentModelDto(Str(model["id"])!, Str(model["name"]) ?? Str(model["id"])!, Long(model["limit"]?["context"]), Long(model["limit"]?["output"])))
+            .Select(model => new AgentModelDto(Str(model["id"])!, Str(model["name"]) ?? Str(model["id"])!, Long(model["limit"]?["context"]), Long(model["limit"]?["output"]),
+                (model["capabilities"]?["reasoning"]?["effort"] as JsonArray ?? []).Select(Str).OfType<string>().ToArray()))
             .OrderBy(model => model.Name, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 

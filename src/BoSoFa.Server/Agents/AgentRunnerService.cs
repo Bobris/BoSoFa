@@ -156,6 +156,9 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
         relay.PublishSession(delta.SessionId, delta);
     }
 
+    /// <summary>Sessions from before tool groups have none recorded.</summary>
+    static string ToolGroupOf(Session session) => session.ToolGroup.Length == 0 ? AgentToolGroups.Full : session.ToolGroup;
+
     AgentMachine? MachineOf(Session session) =>
         session.MachineId == 0 ? null : new AgentMachine(rpc, session.MachineId, session.WorkingDirectory, session.Id, time);
 
@@ -165,7 +168,7 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
         string secret;
         AccountKind kind;
         ResolvedMcpServer[] servers;
-        string? os = null;
+        string? os = null, profilePrompt = null, profileMode = null;
         using (publisher.StartQuery())
         {
             if (Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId) is not { } account || account.OwnerId != session.CreatedById)
@@ -173,9 +176,9 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
             kind = account.Kind;
             if (session.MachineId != 0) os = Ambient.Relation<IMachineTable>().FindByIdOrDefault(session.MachineId)?.Os ?? "an unknown operating system";
             secret = AccountEndpoints.SecretOf(account, protection);
-            servers = session.ProfileName != null && Ambient.Relation<IProfileTable>().FindByIdOrDefault(session.ProfileName) is { } profile
-                ? CatalogEndpoints.ResolveServers(profile, protection)
-                : [];
+            var profile = session.ProfileName == null ? null : Ambient.Relation<IProfileTable>().FindByIdOrDefault(session.ProfileName);
+            servers = profile != null ? CatalogEndpoints.ResolveServers(profile, protection) : [];
+            (profilePrompt, profileMode) = (profile?.SystemPrompt, profile?.SystemPromptMode);
         }
         IModelTurnExecutor executor = kind switch
         {
@@ -187,7 +190,8 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
             _ => throw new AgentSetupException($"The server agent cannot use a {kind} account yet.")
         };
         var (tools, problems) = await AgentToolbox.LoadAsync(Http, servers, MachineOf(session), 
-            offersPatch: kind == AccountKind.OpenAIApiKey || (kind == AccountKind.OpenCodeGoApiKey && OpenCodeGo.OffersPatch(session.Model!)), cancellation);
-        return (new AgentEnvironment(new RetryingTurnExecutor(executor, time), tools, AgentInstructions.For(os, session.WorkingDirectory)), problems);
+            offersPatch: kind == AccountKind.OpenAIApiKey || (kind == AccountKind.OpenCodeGoApiKey && OpenCodeGo.OffersPatch(session.Model!)), ToolGroupOf(session), cancellation);
+        return (new AgentEnvironment(new RetryingTurnExecutor(executor, time), tools, AgentInstructions.Shared(profilePrompt, profileMode),
+            AgentInstructions.Runtime(time.GetUtcNow(), os, session.WorkingDirectory, ToolGroupOf(session))), problems);
     }
 }

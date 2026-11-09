@@ -62,6 +62,15 @@ public sealed class AgentMachine(MachineRpcClient rpc, ulong machineId, string w
         catch (OperationCanceledException) { /* the daemon's own timeout ends it */ }
     }
 
+    /// <summary>The project's instructions, or why they could not be read; all null when it has none.</summary>
+    public async Task<(string? File, string? Text, string? Problem)> ProjectInstructionsAsync(CancellationToken cancellation)
+    {
+        var result = await RunAsync(new($"{sessionId}:project", "tool-project", 0), MachineTools.ProjectInstructions, "{}", 30, null, cancellation);
+        if (result.IsError) return (null, null, result.Text);
+        var split = result.Text.IndexOf('\n');
+        return split < 0 ? (null, null, null) : (result.Text[..split], result.Text[(split + 1)..], null);
+    }
+
     /// <summary>What this run changed; null when nothing did or the machine cannot say.</summary>
     public async Task<AgentItem?> DiffAsync(int run, CancellationToken cancellation) =>
         await rpc.CallAsync(machineId, new ToolDiffRequest(workingDirectory, CheckpointRef(run, "before"), CheckpointRef(run, "after")), cancellation)

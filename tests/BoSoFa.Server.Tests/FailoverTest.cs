@@ -108,10 +108,10 @@ public class FailoverTest(Tests.Azurite azurite, ITestOutputHelper output) : ICl
                 all => all!.Any(item => item.Kind == SessionItemKind.RunEnded));
             Step("the session finished on another node");
             Assert.Equal(
-                [SessionItemKind.User, SessionItemKind.ToolUse, SessionItemKind.ToolResult, SessionItemKind.Assistant, SessionItemKind.RunEnded],
+                [SessionItemKind.User, SessionItemKind.Instructions, SessionItemKind.ToolUse, SessionItemKind.ToolResult, SessionItemKind.Assistant, SessionItemKind.RunEnded],
                 items!.Select(item => item.Kind));
-            Assert.Equal("The answer is 42.", items![2].Text);
-            Assert.Equal("It is 42.", items[3].Text);
+            Assert.Equal("The answer is 42.", items![3].Text);
+            Assert.Equal("It is 42.", items[4].Text);
             Assert.Equal(3, backend.ModelRequests.Count); // once on node-1, twice after it died
             var after = await Eventually(() => second.GetFromJsonAsync<SessionDto>($"/api/v1/sessions/{session.Id}")!, s => s!.Status == SessionStatus.Idle);
             Assert.Equal(SessionStatus.Idle, after!.Status);

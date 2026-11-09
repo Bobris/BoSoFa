@@ -2810,7 +2810,8 @@
           "id",
           "name",
           "contextWindow",
-          "maxOutputTokens"
+          "maxOutputTokens",
+          "reasoningEfforts"
         ],
         "type": "object",
         "properties": {
@@ -2837,6 +2838,12 @@
               "string"
             ],
             "format": "int64"
+          },
+          "reasoningEfforts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -3188,6 +3195,24 @@
             "items": {
               "type": "string"
             }
+          },
+          "systemPrompt": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reasoningEffort": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "toolGroup": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -4388,6 +4413,18 @@
                   "null",
                   "string"
                 ]
+              },
+              "reasoningEffort": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "toolGroup": {
+                "type": [
+                  "null",
+                  "string"
+                ]
               }
             }
           },
@@ -4424,7 +4461,8 @@
                     "ToolResult",
                     "RunEnded",
                     "Notice",
-                    "Diff"
+                    "Diff",
+                    "Instructions"
                   ]
                 },
                 "at": {
@@ -4923,6 +4961,24 @@
             "items": {
               "$ref": "#/components/schemas/SkillRef"
             }
+          },
+          "systemPrompt": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "systemPromptMode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "maxToolGroup": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -5383,6 +5439,18 @@
               "null",
               "string"
             ]
+          },
+          "reasoningEffort": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "toolGroup": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -5456,7 +5524,8 @@
           "ToolResult",
           "RunEnded",
           "Notice",
-          "Diff"
+          "Diff",
+          "Instructions"
         ]
       },
       "SessionProfileResponse": {

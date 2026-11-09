@@ -267,6 +267,26 @@ public class AgentToolHostTest : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ProjectInstructionsPreferAgentsAndStayInTheFolder()
+    {
+        Assert.Equal("", (await Run(Tool.ProjectInstructions)).Text);
+        Write("CLAUDE.md", "from claude");
+        Assert.Equal("CLAUDE.md\nfrom claude", (await Run(Tool.ProjectInstructions)).Text);
+        Write("AGENTS.md", "from agents");
+        Assert.Equal("AGENTS.md\nfrom agents", (await Run(Tool.ProjectInstructions)).Text);
+        Write("AGENTS.md", new string('x', Tool.ProjectInstructionsLimit + 10));
+        var cut = (await Run(Tool.ProjectInstructions)).Text;
+        Assert.EndsWith("[The rest of this file was cut.]", cut);
+        Assert.True(cut.Length < Tool.ProjectInstructionsLimit + 100);
+        if (OperatingSystem.IsWindows()) return; // links need privileges there
+        File.Delete(PathOf("AGENTS.md"));
+        var outside = Path.Combine(_root, "secret.md");
+        await File.WriteAllTextAsync(outside, "secret");
+        File.CreateSymbolicLink(PathOf("AGENTS.md"), outside);
+        Assert.Equal("CLAUDE.md\nfrom claude", (await Run(Tool.ProjectInstructions)).Text); // the link leads outside, so it is skipped
+    }
+
+    [Fact]
     public async Task ShellReportsOutputAndExitCode()
     {
         var ok = await Run(Tool.Shell, ("command", "echo hello"));

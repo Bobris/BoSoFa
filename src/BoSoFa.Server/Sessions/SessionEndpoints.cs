@@ -52,7 +52,7 @@ public static class SessionEndpoints
             session.Harness == Harnesses.Agent && session.MachineId == 0 ? SessionAccess.CanSee(userId, session) : machine != null && MachineAccess.CanControl(userId, machine),
             session.AccountId == 0 ? null : session.AccountId,
             session.AccountId == 0 ? null : Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId)?.Label,
-            session.Branch, session.ProfileName);
+            session.Branch, session.ProfileName, session.ReasoningEffort, session.ToolGroup.Length == 0 ? null : session.ToolGroup);
     }
 
     static RuntimeRequestDto ToDto(RuntimeRequest request) => new(request.Id, request.SessionId, request.ToolName,
@@ -131,6 +131,10 @@ public static class SessionEndpoints
         var (imagesJson, problem) = await ImagesJsonAsync(request.Images, blobs, http.RequestAborted);
         if (problem != null) return TypedResults.BadRequest(problem);
         var isAgent = request.Harness == Harnesses.Agent;
+        if (!isAgent && (request.SystemPrompt != null || request.ReasoningEffort != null || request.ToolGroup != null))
+            return TypedResults.BadRequest("Only the server agent takes a system prompt, an effort or a tool group.");
+        if (isAgent && request.ReasoningEffort != null && !Harnesses.ReasoningEfforts.Contains(request.ReasoningEffort)) return TypedResults.BadRequest("Unknown reasoning effort.");
+        if (isAgent && request.ToolGroup != null && !AgentToolGroups.All.Contains(request.ToolGroup)) return TypedResults.BadRequest("Unknown tool group.");
         if (isAgent && request.UseWorktree) return TypedResults.BadRequest("The server agent cannot use a worktree yet.");
         if (isAgent && request.MachineId != 0 && string.IsNullOrWhiteSpace(request.WorkingDirectory))
             return TypedResults.BadRequest("A session on a machine needs a working directory.");
@@ -156,7 +160,8 @@ public static class SessionEndpoints
             WorkingDirectory = request.WorkingDirectory, Prompt = request.Prompt,
             PermissionMode = permissionMode ?? "default", Model = model, AccountId = request.AccountId ?? 0,
             UseWorktree = request.UseWorktree, ProfileName = request.ProfileName, ImagesJson = imagesJson,
-            RunnerNodeId = isAgent ? presence.NodeId : "", RunnerPeerUrl = isAgent ? presence.PeerUrl : ""
+            RunnerNodeId = isAgent ? presence.NodeId : "", RunnerPeerUrl = isAgent ? presence.PeerUrl : "",
+            SystemPrompt = request.SystemPrompt, ReasoningEffort = request.ReasoningEffort, ToolGroup = request.ToolGroup
         });
     }
 

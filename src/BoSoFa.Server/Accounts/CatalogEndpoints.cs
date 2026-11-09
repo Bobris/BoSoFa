@@ -91,7 +91,7 @@ public static class CatalogEndpoints
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using var query = publisher.StartQuery();
         return Ambient.Relation<IProfileTable>().Select(profile => new ProfileDto(profile.Name, profile.Model, profile.PermissionMode,
-            Strings(profile.McpServers), Skills(profile.Skills))).ToArray();
+            Strings(profile.McpServers), Skills(profile.Skills), profile.SystemPrompt, profile.SystemPromptMode, profile.MaxToolGroup)).ToArray();
     }
 
     static async Task<Results<NoContent, NotFound, ForbidHttpResult, BadRequest<string>>> SaveProfileAsync(ProfileDto request,
@@ -99,12 +99,16 @@ public static class CatalogEndpoints
     {
         if (request.PermissionMode != null && !Harnesses.PermissionModes.Contains(request.PermissionMode))
             return TypedResults.BadRequest("Unknown permission mode.");
+        if (request.SystemPromptMode != null && !Harnesses.SystemPromptModes.Contains(request.SystemPromptMode))
+            return TypedResults.BadRequest("A system prompt either appends or replaces.");
+        if (request.MaxToolGroup != null && !AgentToolGroups.All.Contains(request.MaxToolGroup)) return TypedResults.BadRequest("Unknown tool group.");
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         return Result(await publisher.PublishAndWaitAsync(new ProfileSaved
         {
             UserId = http.User.UserId() ?? 0, Name = request.Name, Model = request.Model, PermissionMode = request.PermissionMode,
             McpServers = Json(request.McpServers),
-            Skills = JsonSerializer.Serialize(request.Skills, ProtocolJsonContext.Default.SkillRefArray)
+            Skills = JsonSerializer.Serialize(request.Skills, ProtocolJsonContext.Default.SkillRefArray), SystemPrompt = request.SystemPrompt,
+            SystemPromptMode = request.SystemPromptMode, MaxToolGroup = request.MaxToolGroup
         }, http.RequestAborted));
     }
 

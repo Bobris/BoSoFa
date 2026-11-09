@@ -3345,6 +3345,7 @@ export interface components {
             contextWindow: null | number | string;
             /** Format: int64 */
             maxOutputTokens: null | number | string;
+            reasoningEfforts: string[];
         };
         AnswerRuntimeRequest: {
             allow: boolean;
@@ -3430,6 +3431,9 @@ export interface components {
             useWorktree: boolean;
             profileName?: null | string;
             images?: null | string[];
+            systemPrompt?: null | string;
+            reasoningEffort?: null | string;
+            toolGroup?: null | string;
         };
         DaemonRolloutDto: {
             /** Format: uint64 */
@@ -3719,12 +3723,14 @@ export interface components {
                 accountLabel: null | string;
                 branch: null | string;
                 profileName: null | string;
+                reasoningEffort?: null | string;
+                toolGroup?: null | string;
             };
             items: {
                 /** Format: int64 */
                 seq: number | string;
                 /** @enum {unknown} */
-                kind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff";
+                kind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff" | "Instructions";
                 /** Format: date-time */
                 at: string;
                 text: string;
@@ -3841,6 +3847,9 @@ export interface components {
             permissionMode: null | string;
             mcpServers: string[];
             skills: components["schemas"]["SkillRef"][];
+            systemPrompt?: null | string;
+            systemPromptMode?: null | string;
+            maxToolGroup?: null | string;
         };
         PublishHarnessRelease: {
             harness: string;
@@ -3946,6 +3955,8 @@ export interface components {
             accountLabel: null | string;
             branch: null | string;
             profileName: null | string;
+            reasoningEffort?: null | string;
+            toolGroup?: null | string;
         };
         SessionItemDto: {
             /** Format: int64 */
@@ -3961,7 +3972,7 @@ export interface components {
             ref: null | string;
         };
         /** @enum {unknown} */
-        SessionItemKind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff";
+        SessionItemKind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff" | "Instructions";
         SessionProfileResponse: {
             mcpServers: components["schemas"]["ResolvedMcpServer"][];
             skills: components["schemas"]["ResolvedSkill"][];

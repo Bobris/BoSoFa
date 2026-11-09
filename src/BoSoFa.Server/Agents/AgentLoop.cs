@@ -10,7 +10,8 @@ using BTDB.Replication.EventSourcing;
 namespace BoSoFa.Server.Agents;
 
 /// <summary>What one pass of the loop reads.</summary>
-sealed record AgentView(Session Session, AgentRunner Runner, List<SessionItem> Items, List<RuntimeRequest> Requests)
+/// <param name="MachineUsable">The creator may still use the session's machine.</param>
+sealed record AgentView(Session Session, AgentRunner Runner, List<SessionItem> Items, List<RuntimeRequest> Requests, bool MachineUsable)
 {
     /// <summary>The call's place in the transcript. Providers' ids are not enough: some models use <c>call_0</c> at every step.</summary>
     public long SeqOf(ToolCall call) => Items.Last(item => item.Kind == SessionItemKind.ToolUse && item.ToolUseId == call.Id).Seq;
@@ -23,7 +24,9 @@ sealed record AgentView(Session Session, AgentRunner Runner, List<SessionItem> I
 }
 
 /// <summary>Credentials and tools of one loop instance, which end with it.</summary>
-sealed record AgentEnvironment(IModelTurnExecutor Executor, AgentToolbox Tools, string Instructions);
+/// <param name="SharedInstructions">The built-in prompt and the profile's.</param>
+/// <param name="RuntimeContext">Date, machine and tools, as of now.</param>
+sealed record AgentEnvironment(IModelTurnExecutor Executor, AgentToolbox Tools, string SharedInstructions, string RuntimeContext);
 
 /// <summary>The session cannot run at all; the person is told and the run ends.</summary>
 sealed class AgentSetupException(string message) : Exception(message);
@@ -98,7 +101,8 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                 }
             }
             if (state.OpenCalls.Count > 0) await RunToolAsync(view, state.OpenCalls[0], environment, suspectCall, pulse, stopping);
-            else await CallModelAsync(view, state, environment, stopping);
+            else if (InstructionsOf(view) is { } instructions) await CallModelAsync(view, state, environment, instructions, stopping);
+            else await RecordInstructionsAsync(view, environment, stopping);
         }
     }
 
@@ -110,7 +114,9 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             return null;
         var items = Ambient.Relation<ISessionItemTable>().ListById(sessionId, new AdvancedEnumeratorParam<long>(EnumerationOrder.Ascending, 0,
             KeyProposition.Excluded, 0, KeyProposition.Ignored)).ToList();
-        return new(session, runner, items, Ambient.Relation<IRuntimeRequestTable>().ListById(sessionId).ToList());
+        var usable = session.MachineId != 0 && Ambient.Relation<IMachineTable>().FindByIdOrDefault(session.MachineId) is { } machine &&
+                     MachineAccess.CanControl(session.CreatedById, machine);
+        return new(session, runner, items, Ambient.Relation<IRuntimeRequestTable>().ListById(sessionId).ToList(), usable);
     }
 
     /// <summary>Puts the stored form of large items back in place.</summary>
@@ -133,9 +139,10 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
 
     const string BlobPrefix = "blob:";
 
-    async Task<string> StoredFormAsync(ConversationItem item, CancellationToken cancellation)
+    Task<string> StoredFormAsync(ConversationItem item, CancellationToken cancellation) => StoredFormAsync(AgentConversation.Serialize(item), cancellation);
+
+    async Task<string> StoredFormAsync(string json, CancellationToken cancellation)
     {
-        var json = AgentConversation.Serialize(item);
         if (json.Length <= ItemReport.InlineLimit) return json;
         using var content = new MemoryStream(Encoding.UTF8.GetBytes(json));
         var (file, sha256, _) = await BlobHash.SpoolAsync(content, long.MaxValue, cancellation);
@@ -203,11 +210,30 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                runner.NodeId != context.NodeId || runner.InterruptRequested;
     }
 
-    async Task CallModelAsync(AgentView view, AgentConversationState state, AgentEnvironment environment, CancellationToken stopping)
+    static AgentInstructionsRecord? InstructionsOf(AgentView view) =>
+        view.Items.LastOrDefault(item => item.Kind == SessionItemKind.Instructions)?.Replay is { } replay
+            ? JsonSerializer.Deserialize(replay, ServerJsonContext.Default.AgentInstructionsRecord)
+            : null;
+
+    /// <summary>Works out what the model is told, once: the date and the project's files must not change under a running conversation.</summary>
+    async Task RecordInstructionsAsync(AgentView view, AgentEnvironment environment, CancellationToken stopping)
+    {
+        var items = new List<AgentItem>();
+        (string? File, string? Text, string? Problem) project = default;
+        if (view.MachineUsable && context.MachineOf(view.Session) is { } machine) project = await machine.ProjectInstructionsAsync(stopping);
+        if (project.Problem != null) items.Add(new(SessionItemKind.Notice, $"The project's instructions could not be read: {project.Problem}", IsError: true));
+        var record = new AgentInstructionsRecord(environment.SharedInstructions,
+            AgentInstructions.Session(environment.RuntimeContext, project.File, project.Text, view.Session.SystemPrompt));
+        items.Insert(0, new(SessionItemKind.Instructions, record.Shared + "\n\n" + record.Session,
+            Replay: await StoredFormAsync(JsonSerializer.Serialize(record, ServerJsonContext.Default.AgentInstructionsRecord), stopping)));
+        await RecordAsync(view, items, null, stopping);
+    }
+
+    async Task CallModelAsync(AgentView view, AgentConversationState state, AgentEnvironment environment, AgentInstructionsRecord instructions, CancellationToken stopping)
     {
         var itemRef = $"agent-{view.Session.LastSeq}";
-        var request = new TurnRequest(view.Session.Model!, environment.Instructions, state.Conversation,
-            environment.Tools.SpecsFor(view.Session.PermissionMode), sessionId.ToString());
+        var request = new TurnRequest(view.Session.Model!, instructions.Shared, state.Conversation,
+            environment.Tools.SpecsFor(view.Session.PermissionMode), sessionId.ToString(), instructions.Session, view.Session.ReasoningEffort);
         TurnResponse response;
         try
         {
@@ -274,6 +300,11 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         if (kind == AgentToolKind.Unknown)
         {
             await RecordAsync(view, [Result(call, $"There is no tool named {call.Name}.", true)], null, stopping);
+            return;
+        }
+        if (environment.Tools.RunsOnMachine(call.Name) && !view.MachineUsable)
+        {
+            await RecordAsync(view, [Result(call, "The person who started this session can no longer use its machine.", true)], null, stopping);
             return;
         }
         JsonObject arguments;

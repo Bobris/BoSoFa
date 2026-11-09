@@ -70,7 +70,9 @@ public class AgentOpenCodeGoTest
         await using var h = await AgentSessionTest.Harness.StartAsync();
         var account = await AddAccountAsync(h);
         var models = await h.Boris.GetFromJsonAsync<AgentModelDto[]>($"/api/v1/accounts/{account.Id}/models");
-        Assert.Equal([new("glm-5.3", "GLM-5.3", 1000000, 384000), new("qwen3.8-max", "Qwen3.8 Max", 1000000, 384000)], models!);
+        Assert.Equal([("glm-5.3", "GLM-5.3", 1000000L, 384000L), ("qwen3.8-max", "Qwen3.8 Max", 1000000L, 384000L)],
+            models!.Select(model => (model.Id, model.Name, model.ContextWindow!.Value, model.MaxOutputTokens!.Value)));
+        Assert.Equal(["low", "high"], models![0].ReasoningEfforts);
         Assert.Equal("", h.Backend.GoModelListAuthorizations.Single()); // the list is public, so the key stays home
 
         using var other = h.Server.Client();

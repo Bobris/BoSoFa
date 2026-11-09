@@ -56,7 +56,9 @@ public class AgentSessionTest
             return (await response.Content.ReadFromJsonAsync<SessionDto>())!;
         }
 
-        public Task<SessionItemDto[]> ItemsAsync(ulong id) => Boris.GetFromJsonAsync<SessionItemDto[]>($"/api/v1/sessions/{id}/items")!;
+        /// <summary>The transcript as the loop's tests see it: without the item that records the system prompt.</summary>
+        public async Task<SessionItemDto[]> ItemsAsync(ulong id) => (await AllItemsAsync(id)).Where(item => item.Kind != SessionItemKind.Instructions).ToArray();
+        public Task<SessionItemDto[]> AllItemsAsync(ulong id) => Boris.GetFromJsonAsync<SessionItemDto[]>($"/api/v1/sessions/{id}/items")!;
         public Task<SessionItemDto[]> RunEndedAsync(ulong id, int count = 1) => Eventually(() => ItemsAsync(id), items => items.Count(item => item.Kind == SessionItemKind.RunEnded) >= count);
         public Task<RuntimeRequestDto> RequestAsync(ulong id) =>
             Eventually(async () => (await Boris.GetFromJsonAsync<RuntimeRequestDto[]>($"/api/v1/sessions/{id}/requests"))!.FirstOrDefault()!, request => request != null);
@@ -118,7 +120,7 @@ public class AgentSessionTest
         var third = h.Backend.ModelRequests.ElementAt(2);
         Assert.Equal(["function_call", "function_call_output", "message"], OfType(third, "function_call").Concat(OfType(third, "function_call_output")).Concat(OfType(third, "message").Take(1))
             .Select(item => item["type"]!.GetValue<string>()));
-        Assert.Equal(3, OfType(third, "message").Count()); // two questions and one answer
+        Assert.Equal(3, OfType(third, "message").Count(message => (string?)message["role"] != "developer")); // two questions and one answer
 
         // Opaque provider data stays on the server.
         Assert.DoesNotContain("replay", await h.Boris.GetStringAsync($"/api/v1/sessions/{session.Id}/items"), StringComparison.OrdinalIgnoreCase);

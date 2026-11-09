@@ -93,6 +93,7 @@ public sealed partial class AgentToolbox
     readonly Dictionary<string, (McpHttpClient? Http, ResolvedMcpServer? Stdio, string Tool)> _mcp = [];
     AgentMachine? _machine;
     bool _offersPatch;
+    string _toolGroup = AgentToolGroups.Full;
 
     static JsonObject Schema(params (string Name, string Type, string Description, bool Required)[] properties)
     {
@@ -109,10 +110,11 @@ public sealed partial class AgentToolbox
     /// <summary>Connects to every server. One that fails is left out and named in the returned problems: the rest still work.</summary>
     /// <param name="machine">The session's machine; null: no machine tools, and stdio servers have nowhere to run.</param>
     /// <param name="offersPatch">The model was trained on <c>apply_patch</c>.</param>
+    /// <param name="toolGroup">Which of the machine's tools the session has.</param>
     public static async Task<(AgentToolbox Toolbox, List<string> Problems)> LoadAsync(HttpClient http, IEnumerable<ResolvedMcpServer> servers, AgentMachine? machine,
-        bool offersPatch, CancellationToken cancellation)
+        bool offersPatch, string toolGroup, CancellationToken cancellation)
     {
-        var toolbox = new AgentToolbox { _machine = machine, _offersPatch = offersPatch };
+        var toolbox = new AgentToolbox { _machine = machine, _offersPatch = offersPatch, _toolGroup = toolGroup };
         var problems = new List<string>();
         foreach (var server in servers)
         {
@@ -143,12 +145,17 @@ public sealed partial class AgentToolbox
         return name.Length <= LongestToolName ? name : name[..LongestToolName];
     }
 
-    IEnumerable<ToolSpec> ChangingTools() => _machine == null ? [] : _offersPatch ? [WriteFile, EditFile, ApplyPatch, Shell] : [WriteFile, EditFile, Shell];
+    IEnumerable<ToolSpec> ReadingTools() => _machine == null || _toolGroup == AgentToolGroups.None ? [] : MachineRead;
+
+    IEnumerable<ToolSpec> ChangingTools() => _machine == null || _toolGroup != AgentToolGroups.Full ? [] : _offersPatch ? [WriteFile, EditFile, ApplyPatch, Shell] : [WriteFile, EditFile, Shell];
+
+    /// <summary>The tool runs on the session's machine, so its creator must still be allowed to use that machine.</summary>
+    public bool RunsOnMachine(string name) => _machine != null && (!_mcp.TryGetValue(name, out var route) || route.Stdio != null);
 
     /// <summary>In <c>plan</c> mode only tools that change nothing are offered.</summary>
     public IReadOnlyList<ToolSpec> SpecsFor(string permissionMode)
     {
-        IEnumerable<ToolSpec> reading = _machine == null ? Own : [..Own, ..MachineRead];
+        IEnumerable<ToolSpec> reading = [..Own, ..ReadingTools()];
         return permissionMode == "plan" ? reading.ToList() : [..reading, ..ChangingTools(), .._mcpSpecs];
     }
 
@@ -156,7 +163,7 @@ public sealed partial class AgentToolbox
     {
         if (name == NotifyTool) return AgentToolKind.Notify;
         if (name == AskTool) return AgentToolKind.Ask;
-        if (_machine != null && MachineRead.Any(spec => spec.Name == name)) return AgentToolKind.MachineRead;
+        if (ReadingTools().Any(spec => spec.Name == name)) return AgentToolKind.MachineRead;
         if (permissionMode == "plan") return AgentToolKind.Unknown;
         if (_mcp.ContainsKey(name)) return AgentToolKind.Mcp;
         if (!ChangingTools().Any(spec => spec.Name == name)) return AgentToolKind.Unknown;

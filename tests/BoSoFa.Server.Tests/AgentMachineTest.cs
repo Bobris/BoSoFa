@@ -13,7 +13,7 @@ namespace BoSoFa.Server.Tests;
 /// <summary>Server agent sessions whose tools run on a real daemon, against a fake model provider (docs/server-agent.md §6).</summary>
 public class AgentMachineTest(ITestOutputHelper output)
 {
-    sealed class Machine : IAsyncDisposable
+    internal sealed class Machine : IAsyncDisposable
     {
         public AgentSessionTest.Harness H = null!;
         public string Root = null!, Work = null!;
@@ -145,7 +145,7 @@ public class AgentMachineTest(ITestOutputHelper output)
         var tools = AgentSessionTest.Tools(m.H.Backend.ModelRequests.First());
         Assert.Contains(Tool.Shell, tools);
         Assert.Contains(Tool.ApplyPatch, tools);
-        var instructions = m.H.Backend.ModelRequests.First()["instructions"]!.GetValue<string>();
+        var instructions = AgentSessionTest.Input(m.H.Backend.ModelRequests.First())[0]!["content"]![0]!["text"]!.GetValue<string>();
         Assert.Contains(m.Work, instructions);
         Assert.DoesNotContain("no machine", instructions);
     }

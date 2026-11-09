@@ -50,7 +50,7 @@ public sealed record CodexUsageResult(bool SignedIn, string? Plan, CodexWindow[]
 public sealed record AccountUsageDto(UsageWindow? FiveHour, UsageWindow? SevenDay, DateTime UpdatedAt);
 
 /// <summary>A model a provider account can run, for the new-session form.</summary>
-public sealed record AgentModelDto(string Id, string Name, long? ContextWindow, long? MaxOutputTokens);
+public sealed record AgentModelDto(string Id, string Name, long? ContextWindow, long? MaxOutputTokens, string[] ReasoningEfforts);
 
 public sealed record CreateHarnessAccountRequest(AccountKind Kind, string Label, string Secret);
 

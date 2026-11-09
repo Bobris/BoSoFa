@@ -86,6 +86,9 @@ export default function Catalog() {
 
   const [profileName, setProfileName] = createSignal("");
   const [profileModel, setProfileModel] = createSignal("");
+  const [profilePrompt, setProfilePrompt] = createSignal("");
+  const [profilePromptMode, setProfilePromptMode] = createSignal("append");
+  const [profileTools, setProfileTools] = createSignal("");
   const [chosenServers, setChosenServers] = createSignal<string[]>([]);
   const [chosenSkills, setChosenSkills] = createSignal<string[]>([]);
   const toggle = (list: string[], value: string, on: boolean) => (on ? [...list, value] : list.filter((item) => item !== value));
@@ -96,6 +99,9 @@ export default function Catalog() {
         name: profileName().trim(),
         model: profileModel().trim() || null,
         permissionMode: null,
+        systemPrompt: profilePrompt().trim() || null,
+        systemPromptMode: profilePrompt().trim() ? profilePromptMode() : null,
+        maxToolGroup: profileTools() || null,
         mcpServers: chosenServers(),
         skills: chosenSkills().map((key) => {
           const [name, version] = key.split("@");
@@ -105,6 +111,8 @@ export default function Catalog() {
     });
     if (report("Saving the profile", response)) {
       setProfileName("");
+      setProfilePrompt("");
+      setProfileTools("");
       setChosenServers([]);
       setChosenSkills([]);
       refresh(profiles);
@@ -135,6 +143,21 @@ export default function Catalog() {
             <form class="space-y-2 border-t border-line pt-3" onSubmit={addProfile}>
               <input class={field} required placeholder="Name" value={profileName()} onInput={(e) => setProfileName(e.currentTarget.value)} />
               <input class={field} placeholder="Model (optional)" value={profileModel()} onInput={(e) => setProfileModel(e.currentTarget.value)} />
+              <textarea
+                class={[field, "min-h-20 resize-y"]}
+                placeholder="System prompt for server agent sessions (optional)"
+                value={profilePrompt()}
+                onInput={(e) => setProfilePrompt(e.currentTarget.value)}
+              />
+              <select class={field} value={profilePromptMode()} onChange={(e) => setProfilePromptMode(e.currentTarget.value)}>
+                <option value="append">Add to the built-in system prompt</option>
+                <option value="replace">Replace the built-in system prompt</option>
+              </select>
+              <select class={field} value={profileTools()} onChange={(e) => setProfileTools(e.currentTarget.value)}>
+                <option value="">Server agent may use all of a machine's tools</option>
+                <option value="read">Server agent may only read a machine</option>
+                <option value="none">Server agent gets no machine tools</option>
+              </select>
               <For each={servers()} keyed={(server) => server.name}>
                 {(server) => (
                   <label class="flex items-center gap-2 text-sm">

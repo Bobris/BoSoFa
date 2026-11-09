@@ -110,6 +110,7 @@ public sealed class AgentToolHost : IAsyncDisposable
             var files = new FileTools(request.WorkingDirectory, _useRipgrep);
             return request.Tool switch
             {
+                ToolNames.ProjectInstructions => await files.ProjectInstructionsAsync(timeout.Token),
                 ToolNames.ReadFile => await files.ReadAsync(arguments, timeout.Token),
                 ToolNames.ListDir => files.List(arguments),
                 ToolNames.Glob => files.Glob(arguments, timeout.Token),

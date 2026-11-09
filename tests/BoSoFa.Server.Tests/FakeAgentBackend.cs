@@ -196,7 +196,7 @@ sealed class FakeAgentBackend : IAsyncDisposable
         GoModelListAuthorizations.Enqueue(http.Request.Headers.Authorization.ToString());
         static JsonObject Model(string id, string name, string type, bool tools) => new()
         {
-            ["id"] = id, ["name"] = name, ["type"] = type, ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["supported"] = tools } },
+            ["id"] = id, ["name"] = name, ["type"] = type, ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["supported"] = tools }, ["reasoning"] = new JsonObject { ["supported"] = true, ["effort"] = new JsonArray("low", "high") } },
             ["limit"] = new JsonObject { ["context"] = 1000000, ["output"] = 384000 }
         };
         http.Response.ContentType = "application/json";
