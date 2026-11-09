@@ -117,7 +117,7 @@ function Item(props: { item: SessionItem }) {
       <Match when={props.item.kind === "Assistant"}>
         <div class="whitespace-pre-wrap leading-relaxed">{props.item.text}</div>
       </Match>
-      <Match when={props.item.kind === "Thinking"}>
+      <Match when={props.item.kind === "Thinking" && props.item.text}>
         <details class="text-sm text-muted">
           <summary class="cursor-pointer select-none">Thinking</summary>
           <div class="mt-1 whitespace-pre-wrap italic">{props.item.text}</div>

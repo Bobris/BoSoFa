@@ -47,6 +47,9 @@ public sealed class AgentOptions
 {
     /// <summary>Another address for OpenAI's Responses API, such as a company gateway; empty uses OpenAI's own.</summary>
     public string OpenAIEndpoint { get; set; } = "";
+
+    /// <summary>Another address for Anthropic's Messages API; empty uses Anthropic's own.</summary>
+    public string AnthropicEndpoint { get; set; } = "";
 }
 
 public sealed class ClusterOptions

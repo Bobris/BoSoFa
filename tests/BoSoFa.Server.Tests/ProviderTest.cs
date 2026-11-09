@@ -276,6 +276,71 @@ public class ProviderTest
         }
     }
 
+    internal sealed class LiveAnthropicFactAttribute : FactAttribute
+    {
+        public LiveAnthropicFactAttribute()
+        {
+            if (Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_KEY_FILE") is not { Length: > 0 } file || !File.Exists(file))
+                Skip = "Set BOSOFA_TEST_ANTHROPIC_KEY_FILE to a file with an Anthropic API key to call the real API.";
+        }
+    }
+
+    /// <summary>The real Messages API: the signed thinking of the first step must be accepted back with the tool's result.</summary>
+    [LiveAnthropicFact]
+    public async Task LiveAnthropicKeepsThinkingAcrossAToolCall()
+    {
+        var key = File.ReadAllText(Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_KEY_FILE")!).Trim();
+        var model = Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_MODEL") is { Length: > 0 } chosen ? chosen : "claude-opus-5-5";
+        using var http = new HttpClient();
+        var executor = new RetryingTurnExecutor(AnthropicMessagesExecutor.WithApiKey(http, key), TimeProvider.System);
+        List<ConversationItem> conversation = [new UserMessage("Use the add tool to add 1234 and 4321, then answer with the sum only.")];
+        var calls = 0;
+        for (var step = 0; step < 6; step++)
+        {
+            var response = await executor.ExecuteAsync(Request(model, conversation), _ => ValueTask.CompletedTask, default);
+            conversation.AddRange(response.Output);
+            if (response.Stop != StopReason.ToolCalls)
+            {
+                Assert.True(calls > 0, "The model never called the tool.");
+                Assert.Contains("5555", conversation.OfType<AssistantMessage>().Last().Text);
+                return;
+            }
+            foreach (var call in response.Output.OfType<ToolCall>())
+            {
+                calls++;
+                var arguments = JsonNode.Parse(call.Arguments)!;
+                conversation.Add(new ToolResult(call.Id, ((int)arguments["a"]! + (int)arguments["b"]!).ToString()));
+            }
+        }
+        Assert.Fail("The model did not finish.");
+    }
+
+    [Theory]
+    [InlineData("claude-opus-5-5", true)]
+    [InlineData("claude-sonnet-4-6", true)]
+    [InlineData("claude-opus-5", true)]
+    [InlineData("claude-haiku-4-5", false)]
+    [InlineData("claude-opus-4-5-20251101", false)]
+    [InlineData("claude-sonnet-4-20250514", false)]
+    public void AdaptiveThinkingIsForTheModelsThatHaveIt(string model, bool adaptive)
+    {
+        var origin = new ModelOrigin(AnthropicMessagesExecutor.ApiName, "e", model);
+        var plain = AnthropicMessagesExecutor.Body(Request(model, [new UserMessage("hi")]), origin);
+        Assert.Equal(adaptive, plain["thinking"] != null);
+        if (adaptive) Assert.Equal(("adaptive", "summarized"), ((string)plain["thinking"]!["type"]!, (string)plain["thinking"]!["display"]!));
+        Assert.Null(plain["output_config"]); // the model's own default, until a session can choose
+        Assert.Equal(adaptive, AnthropicMessagesExecutor.Body(Request(model, [new UserMessage("hi")], "high"), origin)["output_config"] != null);
+    }
+
+    [Fact]
+    public void ToolArgumentsStreamEagerlyOnlyWhereAsked()
+    {
+        var origin = new ModelOrigin(AnthropicMessagesExecutor.ApiName, "e", "claude-opus-5-5");
+        var tools = Request("claude-opus-5-5", [new UserMessage("hi")]);
+        Assert.Null(AnthropicMessagesExecutor.Body(tools, origin)["tools"]![0]!["eager_input_streaming"]);
+        Assert.True((bool)AnthropicMessagesExecutor.Body(tools, origin, eagerToolInput: true)["tools"]![0]!["eager_input_streaming"]!);
+    }
+
     [LiveOpenAIFact]
     public async Task LiveOpenAIRunsAToolCallRoundTrip()
     {

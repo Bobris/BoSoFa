@@ -70,7 +70,8 @@ public sealed record TurnUsage(long InputTokens, long CachedInputTokens, long Ca
 }
 
 /// <summary>The model's output of one call, in order, and what it cost.</summary>
-public sealed record TurnResponse(IReadOnlyList<ConversationItem> Output, TurnUsage Usage, StopReason Stop);
+/// <param name="StopDetail">Why the provider refused, when it says.</param>
+public sealed record TurnResponse(IReadOnlyList<ConversationItem> Output, TurnUsage Usage, StopReason Stop, string? StopDetail = null);
 
 public enum TurnDeltaKind
 {

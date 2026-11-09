@@ -233,13 +233,18 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                     items.Add(new(SessionItemKind.ToolUse, Summary(call.Arguments), call.Id, call.Name, call.Arguments, Replay: await StoredFormAsync(call, stopping)));
                     break;
             }
+        var stopNote = response.Stop switch
+        {
+            StopReason.MaxTokens => "The answer was cut off at the model's output limit.",
+            StopReason.Refused => "The provider refused to answer" + (response.StopDetail is { Length: > 0 } detail ? $": {detail}" : "."),
+            _ => null
+        };
         if (!items.Any(item => item.Kind is SessionItemKind.Assistant or SessionItemKind.ToolUse))
         {
-            await FinishAsync(view, state, "failed", true, "The model gave no answer.", false, stopping);
+            await FinishAsync(view, state, "failed", true, stopNote ?? "The model gave no answer.", false, stopping);
             return;
         }
-        if (response.Stop == StopReason.MaxTokens) items.Add(new(SessionItemKind.Notice, "The answer was cut off at the model's output limit.", IsError: true));
-        if (response.Stop == StopReason.Refused) items.Add(new(SessionItemKind.Notice, "The provider refused to answer.", IsError: true));
+        if (stopNote != null) items.Add(new(SessionItemKind.Notice, stopNote, IsError: true));
         await RecordAsync(view, items, response.Usage, stopping);
     }
 

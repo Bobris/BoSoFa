@@ -57,6 +57,8 @@ export default function NewSession() {
   const [harness, setHarness] = createSignal("claude");
   const agentAccounts = () => accounts().filter((a) => a.servesAgent);
   const agentAccount = () => (harness().startsWith("agent:") ? harness().slice("agent:".length) : undefined);
+  const modelExample = () =>
+    agentAccounts().find((a) => String(a.id) === agentAccount())?.kind === "AnthropicApiKey" ? "claude-opus-5-5" : "gpt-5.4-mini";
   const [directory, setDirectory] = createSignal(remembered(lastDirectoryKey));
   const [mode, setMode] = createSignal("default");
   const [model, setModel] = createSignal("");
@@ -200,7 +202,7 @@ export default function NewSession() {
               <input
                 class={field}
                 required={agentAccount() !== undefined}
-                placeholder={agentAccount() ? "gpt-5.4-mini" : "sonnet, opus, haiku…"}
+                placeholder={agentAccount() ? modelExample() : "sonnet, opus, haiku…"}
                 value={model()}
                 onInput={(event) => setModel(event.currentTarget.value)}
               />

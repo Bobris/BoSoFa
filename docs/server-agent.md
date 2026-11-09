@@ -1,6 +1,6 @@
 # Server agent: a harness that runs in the server
 
-Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only) and 3 (machine tools) are done, the rest is planned.
+Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only), 3 (machine tools) and 4 (Anthropic) are done, step 4 not yet against the real API, the rest is planned.
 
 ## 1. What and why
 
@@ -249,10 +249,16 @@ This uses a person's own subscription for their own sessions only. An account is
 - `POST https://api.anthropic.com/v1/messages`, with `x-api-key`, `anthropic-version` and `stream: true`. For OpenCode
   Go, the Go base URL with its key.
 - Tool calls as `tool_use` blocks, results as `tool_result` blocks. Parallel results are merged into one user message.
-- Thinking: adaptive thinking with effort. Signed thinking blocks are replayed to the same model. A refused signature
-  is retried once with the thinking sent as text, as CodeAlta does.
-- Prompt caching: up to four `cache_control` breakpoints, on the tools, the system prompt, the last message, and the
-  message that ended the previous request.
+- Thinking: adaptive thinking from the 4.6 models on, with `display: "summarized"` so a person sees something during
+  it; older models get none. Signed thinking blocks are replayed unchanged to the same model. The history must stay
+  append-only for that, and the loop's is. If a signature is still refused (say, the tool list changed after a restart),
+  the call is made again without the thinking blocks, which the rest of that loop then leaves out too.
+- Prompt caching: three `cache_control` breakpoints, on the tools, the system prompt and the last message. Each step
+  adds only a few blocks, well inside the API's 20-position lookback, so the previous request's entry is always found.
+- Tool arguments stream eagerly (`eager_input_streaming`) on Anthropic's own endpoint, so a large `write_file` shows no
+  long silence. The API then does not check them, and the loop reports bad JSON to the model and runs no tool from a
+  response cut off by `max_tokens` or a refusal.
+- A refusal is shown with the reason the API gives. No automatic fallback: a person chose the model.
 - JSON Schemas with a root-level `anyOf`/`oneOf` are merged first, because the API refuses them.
 - Streaming events:
   - `message_start`, `message_stop`
@@ -260,6 +266,8 @@ This uses a person's own subscription for their own sessions only. An account is
   - `message_delta` (usage, stop reason)
   - `error`
 - Only Anthropic API keys. The `claude setup-token` subscription tokens stay for Claude Code on daemons.
+- Claude Max, Ultra and Team plans include monthly API credits, spent through an API key of the Console organization linked
+  to the plan under Settings > Billing on claude.ai. That key is an ordinary Anthropic API key here.
 
 ### 5.5 Models, limits and prices
 
@@ -469,6 +477,11 @@ so the transcript shows what the model was told.
    - Not done: worktrees for agent sessions are refused, and images (attached or read from a file) do not reach the
      model yet. Both wait for later steps.
 4. **Anthropic Messages.** Thinking, caching, schema fixes. Accounts: Anthropic API key.
+   *Done (2026-11-09), except for a run against the real API:*
+   - Anthropic API key accounts appear as harnesses like OpenAI's. `apply_patch` stays OpenAI-only.
+   - `AgentAnthropicTest` runs whole sessions against a fake Messages API written from the documented events.
+   - No Anthropic key was available, so nothing has called the real API. `LiveAnthropicKeepsThinkingAcrossAToolCall` does
+     once `BOSOFA_TEST_ANTHROPIC_KEY_FILE` names a file with a key (`BOSOFA_TEST_ANTHROPIC_MODEL` is optional).
 5. **OpenAI subscription.** PKCE sign-in from the desktop app and the web paste fallback, token refresh as one event,
    the ChatGPT request rules. *Done when* a person signs in and runs a session on their plan.
 6. **OpenCode Go.** The account kind, the model list, its headers, native API per model.

@@ -181,6 +181,8 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
         {
             AccountKind.OpenAIApiKey => OpenAIResponsesExecutor.WithApiKey(Http, secret,
                 options.Agent.OpenAIEndpoint is { Length: > 0 } endpoint ? new Uri(endpoint) : null),
+            AccountKind.AnthropicApiKey => AnthropicMessagesExecutor.WithApiKey(Http, secret,
+                options.Agent.AnthropicEndpoint is { Length: > 0 } endpoint ? new Uri(endpoint) : null),
             _ => throw new AgentSetupException($"The server agent cannot use a {kind} account yet.")
         };
         var (tools, problems) = await AgentToolbox.LoadAsync(Http, servers, MachineOf(session), offersPatch: kind == AccountKind.OpenAIApiKey, cancellation);

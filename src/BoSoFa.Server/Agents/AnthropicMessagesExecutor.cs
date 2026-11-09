@@ -2,30 +2,37 @@ using System.Net.ServerSentEvents;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace BoSoFa.Server.Agents;
 
 /// <summary>
 /// One call of the Anthropic Messages API (docs/server-agent.md §5.4), streamed. Consecutive items of one role become one
-/// message, so parallel tool results share a user message. Signed thinking blocks go back only to the same origin. Three
-/// cache breakpoints: the shared system prompt, the last tool, and the end of the conversation so far.
+/// message, so parallel tool results share a user message. Signed thinking blocks go back only to the same origin, and the loop's
+/// history is append-only, which is what those signatures check. Three cache breakpoints: the shared system prompt, the last tool,
+/// and the end of the conversation so far.
 /// </summary>
-public sealed class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Action<HttpRequestMessage, TurnRequest> authorize,
-    string provider = "Anthropic") : IModelTurnExecutor
+/// <param name="eagerToolInput">Stream tool arguments as they are written. The API then no longer checks them, so the loop's own
+/// handling of bad arguments applies; endpoints that only imitate the API may refuse the field.</param>
+public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Action<HttpRequestMessage, TurnRequest> authorize,
+    string provider = "Anthropic", bool eagerToolInput = false, int defaultMaxOutputTokens = AnthropicMessagesExecutor.DefaultMaxOutputTokens) : IModelTurnExecutor
 {
     public const string ApiName = "anthropic-messages";
 
     /// <summary>The version every Anthropic-compatible endpoint knows; the Claude API takes it too.</summary>
     public const string ApiVersion = "2023-06-01";
 
-    /// <summary>The Messages API needs an output limit; this one fits every current model.</summary>
-    public const int DefaultMaxOutputTokens = 16384;
+    /// <summary>The Messages API needs an output limit. Streaming has no timeout to fear, so the model gets room; this fits every current one.</summary>
+    public const int DefaultMaxOutputTokens = 64000;
+
+    /// <summary>For other models behind the same API, whose limits are lower and not known yet.</summary>
+    public const int CompatibleMaxOutputTokens = 16384;
 
     public static readonly Uri AnthropicEndpoint = new("https://api.anthropic.com/v1/messages");
     public static readonly Uri OpenCodeGoEndpoint = new("https://opencode.ai/inference/go/anthropic/v1/messages");
 
     public static AnthropicMessagesExecutor WithApiKey(HttpClient http, string apiKey, Uri? endpoint = null) =>
-        new(http, endpoint ?? AnthropicEndpoint, (message, _) => message.Headers.TryAddWithoutValidation("x-api-key", apiKey));
+        new(http, endpoint ?? AnthropicEndpoint, (message, _) => message.Headers.TryAddWithoutValidation("x-api-key", apiKey), eagerToolInput: true);
 
     /// <summary>OpenCode Go's Messages route: its key, and the stable session id it asks for in <c>x-opencode-session</c>.</summary>
     public static AnthropicMessagesExecutor ForOpenCodeGo(HttpClient http, string apiKey, Uri? endpoint = null) =>
@@ -33,17 +40,33 @@ public sealed class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Act
         {
             message.Headers.TryAddWithoutValidation("x-api-key", apiKey);
             message.Headers.TryAddWithoutValidation("x-opencode-session", request.SessionId);
-        }, "OpenCode Go");
+        }, "OpenCode Go", defaultMaxOutputTokens: CompatibleMaxOutputTokens);
 
     public string Api => ApiName;
     public string Endpoint { get; } = endpoint.ToString();
 
+    /// <summary>A signature was refused once in this conversation, so its thinking is no longer sent back.</summary>
+    bool _withoutThinking;
+
     public async Task<TurnResponse> ExecuteAsync(TurnRequest request, Func<TurnDelta, ValueTask> onDelta, CancellationToken cancellation)
     {
+        try { return await CallAsync(request, onDelta, cancellation); }
+        catch (ModelProviderException problem) when (!_withoutThinking && problem is { Status: 400 } && problem.Message.Contains("signature", StringComparison.OrdinalIgnoreCase) &&
+                                                     request.Conversation.OfType<ReasoningItem>().Any())
+        {
+            // A changed system prompt or tool list after a restart invalidates them. The conversation still holds without its thinking.
+            _withoutThinking = true;
+            return await CallAsync(request, onDelta, cancellation);
+        }
+    }
+
+    async Task<TurnResponse> CallAsync(TurnRequest request, Func<TurnDelta, ValueTask> onDelta, CancellationToken cancellation)
+    {
         var origin = new ModelOrigin(Api, Endpoint, request.Model);
+        var body = Body(request, origin, !_withoutThinking, eagerToolInput, defaultMaxOutputTokens);
         using var message = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
-            Content = new StringContent(Body(request, origin).ToJsonString(), Encoding.UTF8, "application/json")
+            Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json")
         };
         message.Headers.Accept.ParseAdd("text/event-stream");
         message.Headers.TryAddWithoutValidation("anthropic-version", ApiVersion);
@@ -56,7 +79,8 @@ public sealed class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Act
     static JsonObject Ephemeral() => new() { ["type"] = "ephemeral" };
 
     /// <summary>The request body; public for tests.</summary>
-    public static JsonObject Body(TurnRequest request, ModelOrigin origin)
+    public static JsonObject Body(TurnRequest request, ModelOrigin origin, bool replayThinking = true, bool eagerToolInput = false,
+        int defaultMaxOutputTokens = DefaultMaxOutputTokens)
     {
         var system = new JsonArray((JsonNode)new JsonObject
         {
@@ -64,33 +88,57 @@ public sealed class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Act
         });
         if (!string.IsNullOrWhiteSpace(request.SessionInstructions))
             system.Add((JsonNode)new JsonObject { ["type"] = "text", ["text"] = request.SessionInstructions });
-        var messages = Messages(request.Conversation, origin);
+        var messages = Messages(request.Conversation, origin, replayThinking);
         if (messages.LastOrDefault()?["content"] is JsonArray { Count: > 0 } last && last[^1] is JsonObject lastBlock)
             lastBlock["cache_control"] = Ephemeral();
         var body = new JsonObject
         {
             ["model"] = request.Model,
-            ["max_tokens"] = request.MaxOutputTokens ?? DefaultMaxOutputTokens,
+            ["max_tokens"] = request.MaxOutputTokens ?? defaultMaxOutputTokens,
             ["system"] = system,
             ["messages"] = messages,
             ["stream"] = true
         };
         if (request.Tools.Count > 0)
         {
-            var tools = new JsonArray(request.Tools.Select(tool => (JsonNode)new JsonObject
+            var tools = new JsonArray(request.Tools.Select(tool =>
             {
-                ["name"] = tool.Name, ["description"] = tool.Description, ["input_schema"] = Schema(tool.InputSchema)
+                var definition = new JsonObject { ["name"] = tool.Name, ["description"] = tool.Description, ["input_schema"] = Schema(tool.InputSchema) };
+                if (eagerToolInput) definition["eager_input_streaming"] = true;
+                return (JsonNode)definition;
             }).ToArray());
             ((JsonObject)tools[^1]!)["cache_control"] = Ephemeral();
             body["tools"] = tools;
         }
-        if (request.ReasoningEffort != null)
+        var generation = GenerationOf(request.Model);
+        if (generation == ClaudeGeneration.Adaptive || (generation == ClaudeGeneration.NotClaude && request.ReasoningEffort != null))
         {
+            // Without "summarized", current models send empty thinking and a person sees only a long pause.
             body["thinking"] = new JsonObject { ["type"] = "adaptive", ["display"] = "summarized" };
-            body["output_config"] = new JsonObject { ["effort"] = request.ReasoningEffort };
+            if (request.ReasoningEffort != null) body["output_config"] = new JsonObject { ["effort"] = request.ReasoningEffort };
         }
         return body;
     }
+
+    enum ClaudeGeneration
+    {
+        NotClaude,
+
+        /// <summary>Before the 4.6 models: no adaptive thinking and no effort.</summary>
+        Older,
+        Adaptive
+    }
+
+    static ClaudeGeneration GenerationOf(string model)
+    {
+        if (ClaudeModel().Match(model) is not { Success: true } match) return ClaudeGeneration.NotClaude;
+        var major = int.Parse(match.Groups[1].ValueSpan);
+        var minor = match.Groups[2].Success ? int.Parse(match.Groups[2].ValueSpan) : 0;
+        return major > 4 || (major == 4 && minor >= 6) ? ClaudeGeneration.Adaptive : ClaudeGeneration.Older;
+    }
+
+    [GeneratedRegex(@"^claude-[a-z]+-(\d+)(?:-(\d{1,2}))?(?:-|$)")]
+    private static partial Regex ClaudeModel();
 
     /// <summary>The API refuses a root-level <c>anyOf</c>/<c>oneOf</c>; their object branches are merged into one object whose
     /// properties are all optional, as CodeAlta does.</summary>
@@ -112,7 +160,7 @@ public sealed class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Act
         return copy;
     }
 
-    static JsonArray Messages(IReadOnlyList<ConversationItem> conversation, ModelOrigin origin)
+    static JsonArray Messages(IReadOnlyList<ConversationItem> conversation, ModelOrigin origin, bool replayThinking)
     {
         var messages = new JsonArray();
         JsonArray? content = null;
@@ -142,7 +190,7 @@ public sealed class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Act
                 case AssistantMessage { Text.Length: > 0 } assistant:
                     Add("assistant", new JsonObject { ["type"] = "text", ["text"] = assistant.Text });
                     break;
-                case ReasoningItem reasoning when reasoning.Origin == origin && ProviderHttp.ParseObject(reasoning.ProviderData) is { } block:
+                case ReasoningItem reasoning when replayThinking && reasoning.Origin == origin && ProviderHttp.ParseObject(reasoning.ProviderData) is { } block:
                     Add("assistant", block);
                     break;
                 case ToolCall call:
@@ -174,7 +222,7 @@ public sealed class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Act
     {
         var blocks = new SortedDictionary<int, Block>();
         long input = 0, cacheRead = 0, cacheWrite = 0, output = 0;
-        string? stopReason = null;
+        string? stopReason = null, stopDetail = null;
         await foreach (var item in SseParser.Create(stream).EnumerateAsync(cancellation))
         {
             if (item.Data is not { Length: > 0 } data) continue;
@@ -222,10 +270,11 @@ public sealed class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Act
                     break;
                 case "message_delta":
                     stopReason = Str(eventData["delta"]?["stop_reason"]) ?? stopReason;
+                    stopDetail = Str(eventData["delta"]?["stop_details"]?["explanation"]) ?? Str(eventData["delta"]?["stop_details"]?["category"]) ?? stopDetail;
                     if (eventData["usage"]?["output_tokens"] is { } outputTokens) output = Long(outputTokens);
                     break;
                 case "message_stop":
-                    return Finish(blocks.Values, origin, new(input + cacheRead + cacheWrite, cacheRead, cacheWrite, output, 0), stopReason);
+                    return Finish(blocks.Values, origin, new(input + cacheRead + cacheWrite, cacheRead, cacheWrite, output, 0), stopReason, stopDetail);
                 case "error":
                     var error = eventData["error"];
                     var message = Str(error?["message"]) ?? "The stream reported an error.";
@@ -235,7 +284,7 @@ public sealed class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Act
         throw new ModelProviderException(ProviderFailure.Transient, $"{provider}'s stream ended before the answer was complete.");
     }
 
-    static TurnResponse Finish(IEnumerable<Block> blocks, ModelOrigin origin, TurnUsage usage, string? stopReason)
+    static TurnResponse Finish(IEnumerable<Block> blocks, ModelOrigin origin, TurnUsage usage, string? stopReason, string? stopDetail)
     {
         var conversation = new List<ConversationItem>();
         foreach (var block in blocks)
@@ -266,7 +315,7 @@ public sealed class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Act
             "refusal" => StopReason.Refused,
             _ => conversation.OfType<ToolCall>().Any() ? StopReason.ToolCalls : StopReason.EndTurn
         };
-        return new(conversation, usage, stop);
+        return new(conversation, usage, stop, stop == StopReason.Refused ? stopDetail : null);
     }
 
     static string? Str(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;

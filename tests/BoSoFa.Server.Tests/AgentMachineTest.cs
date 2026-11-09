@@ -312,6 +312,22 @@ public class AgentMachineTest
     }
 
     [Fact]
+    public async Task ApplyPatchIsOfferedOnlyToModelsTrainedOnIt()
+    {
+        await using var m = await Machine.StartAsync();
+        var account = await (await m.H.Boris.PostAsJsonAsync("/api/v1/accounts", new CreateHarnessAccountRequest(AccountKind.AnthropicApiKey, "My Claude API", "sk-ant-api03-testtesttesttesttesttesttest")))
+            .Content.ReadFromJsonAsync<HarnessAccountDto>();
+        m.H.AccountId = account!.Id;
+        m.H.Backend.AnthropicAnswer("Done.");
+        var response = await m.H.Boris.PostAsJsonAsync("/api/v1/sessions", new CreateSessionRequest(m.Id, Harnesses.Agent, m.Work, "Go.", null, "claude-opus-5-5", m.H.AccountId));
+        response.EnsureSuccessStatusCode();
+        await m.H.RunEndedAsync((await response.Content.ReadFromJsonAsync<SessionDto>())!.Id);
+        var offered = AgentSessionTest.Tools(m.H.Backend.ModelRequests.First());
+        Assert.Contains(Tool.EditFile, offered);
+        Assert.DoesNotContain(Tool.ApplyPatch, offered);
+    }
+
+    [Fact]
     public async Task ANoMachineSessionStillGetsNoMachineTools()
     {
         await using var h = await AgentSessionTest.Harness.StartAsync();

@@ -29,6 +29,7 @@ sealed class FakeAgentBackend : IAsyncDisposable
     FakeAgentBackend(WebApplication app) => _app = app;
 
     public string ResponsesUrl => Address + "/v1/responses";
+    public string MessagesUrl => Address + "/v1/messages";
     public string McpUrl => Address + "/mcp";
     string Address => _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
 
@@ -38,6 +39,7 @@ sealed class FakeAgentBackend : IAsyncDisposable
         var app = builder.Build();
         var backend = new FakeAgentBackend(app);
         app.MapPost("/v1/responses", backend.ModelAsync);
+        app.MapPost("/v1/messages", backend.ModelAsync);
         app.MapPost("/mcp", backend.McpAsync);
         await app.StartAsync();
         return backend;
@@ -69,6 +71,55 @@ sealed class FakeAgentBackend : IAsyncDisposable
         }
         catch (Exception problem) when (problem is OperationCanceledException or IOException) { return; }
         await Completed(http, [Message(text)], false);
+    });
+
+    static JsonObject Block(int index, JsonObject block) => new() { ["type"] = "content_block_start", ["index"] = index, ["content_block"] = block };
+    static JsonObject Delta(int index, JsonObject delta) => new() { ["type"] = "content_block_delta", ["index"] = index, ["delta"] = delta };
+
+    Task AnthropicStream(HttpContext http, string stopReason, params JsonObject[] events) => Task.Run(async () =>
+    {
+        await StartStream(http);
+        await WriteEvent(http, new JsonObject { ["type"] = "message_start", ["message"] = new JsonObject { ["usage"] = new JsonObject { ["input_tokens"] = 10, ["cache_read_input_tokens"] = 4, ["output_tokens"] = 1 } } });
+        foreach (var item in events) await WriteEvent(http, item);
+        var delta = new JsonObject { ["stop_reason"] = stopReason };
+        if (stopReason == "refusal") delta["stop_details"] = new JsonObject { ["type"] = "refusal", ["category"] = "cyber", ["explanation"] = "It looks like an attack." };
+        await WriteEvent(http, new JsonObject { ["type"] = "message_delta", ["delta"] = delta, ["usage"] = new JsonObject { ["output_tokens"] = 5 } });
+        await WriteEvent(http, new JsonObject { ["type"] = "message_stop" });
+    });
+
+    static async Task WriteEvent(HttpContext http, JsonObject data)
+    {
+        await http.Response.WriteAsync($"event: {data["type"]}\ndata: {data.ToJsonString()}\n\n", http.RequestAborted);
+        await http.Response.Body.FlushAsync(http.RequestAborted);
+    }
+
+    /// <summary>A Messages API answer in text.</summary>
+    public void AnthropicAnswer(string text) => _script.Enqueue(http => AnthropicStream(http, "end_turn",
+        Block(0, new JsonObject { ["type"] = "text", ["text"] = "" }), Delta(0, new JsonObject { ["type"] = "text_delta", ["text"] = text })));
+
+    /// <summary>A Messages API step: signed thinking, then a tool call whose input arrives in two pieces.</summary>
+    public void AnthropicThinkAndCall(string thinking, string signature, string id, string name, string arguments) => _script.Enqueue(http => AnthropicStream(http, "tool_use",
+        Block(0, new JsonObject { ["type"] = "thinking", ["thinking"] = "" }),
+        Delta(0, new JsonObject { ["type"] = "thinking_delta", ["thinking"] = thinking }),
+        Delta(0, new JsonObject { ["type"] = "signature_delta", ["signature"] = signature }),
+        Block(1, new JsonObject { ["type"] = "tool_use", ["id"] = id, ["name"] = name, ["input"] = new JsonObject() }),
+        Delta(1, new JsonObject { ["type"] = "input_json_delta", ["partial_json"] = arguments[..(arguments.Length / 2)] }),
+        Delta(1, new JsonObject { ["type"] = "input_json_delta", ["partial_json"] = arguments[(arguments.Length / 2)..] })));
+
+    public void AnthropicRefuse() => _script.Enqueue(http => AnthropicStream(http, "refusal"));
+
+    /// <summary>A Messages API step cut off while it was writing a tool call, which must not run.</summary>
+    public void AnthropicCutOffCall(string id, string name, string arguments) => _script.Enqueue(http => AnthropicStream(http, "max_tokens",
+        Block(0, new JsonObject { ["type"] = "text", ["text"] = "" }), Delta(0, new JsonObject { ["type"] = "text_delta", ["text"] = "Writing it." }),
+        Block(1, new JsonObject { ["type"] = "tool_use", ["id"] = id, ["name"] = name, ["input"] = new JsonObject() }),
+        Delta(1, new JsonObject { ["type"] = "input_json_delta", ["partial_json"] = arguments })));
+
+    /// <summary>A Messages API error body, as a refused signature gets.</summary>
+    public void AnthropicFail(int status, string type, string message) => _script.Enqueue(async http =>
+    {
+        http.Response.StatusCode = status;
+        http.Response.ContentType = "application/json";
+        await http.Response.WriteAsync(new JsonObject { ["type"] = "error", ["error"] = new JsonObject { ["type"] = type, ["message"] = message } }.ToJsonString());
     });
 
     public void Fail(int status, string code, string message) => _script.Enqueue(async http =>
@@ -125,7 +176,7 @@ sealed class FakeAgentBackend : IAsyncDisposable
     {
         using var reader = new StreamReader(http.Request.Body, Encoding.UTF8);
         ModelRequests.Enqueue((JsonNode.Parse(await reader.ReadToEndAsync()) as JsonObject)!);
-        ModelAuthorizations.Enqueue(http.Request.Headers.Authorization.ToString());
+        ModelAuthorizations.Enqueue(http.Request.Headers.TryGetValue("x-api-key", out var apiKey) ? apiKey.ToString() : http.Request.Headers.Authorization.ToString());
         _modelCalled.Release();
         if (_script.TryDequeue(out var step)) await step(http);
         else await Completed(http, [Message("The script ended.")]);

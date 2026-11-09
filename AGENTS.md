@@ -36,8 +36,8 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 - Single node without Azure: `deploy/compose.yaml` ([docs/deploy-single-node.md](docs/deploy-single-node.md)).
 - Sessions are visible only to their creator (`SessionAccess.CanSee`).
 - Server agent (`src/BoSoFa.Server/Agents`, [docs/server-agent.md](docs/server-agent.md)): harness `agent`, whose loop runs on a server node and keeps all its state in the transcript; its machine tools run in `src/BoSoFa.Daemon/Tools`. CI uses recorded streams in
-  `tests/fixtures/providers`. The live OpenAI test runs with `BOSOFA_TEST_OPENAI_KEY_FILE=<file with the key>` (and optionally
-  `BOSOFA_TEST_OPENAI_MODEL`); never print or commit a key.
+  `tests/fixtures/providers`. The live tests run with `BOSOFA_TEST_OPENAI_KEY_FILE=<file with the key>` and `BOSOFA_TEST_ANTHROPIC_KEY_FILE`
+  (and optionally `BOSOFA_TEST_OPENAI_MODEL`, `BOSOFA_TEST_ANTHROPIC_MODEL`); never print or commit a key.
 - Distribution: computers install both products from the server's `/install` page and update from it. A desktop package:
   `pnpm --dir web build`, then `dotnet publish src/BoSoFa.Desktop -c Release -r osx-arm64 -p:BoSoFaPackage=true -p:Version=<v>`
   writes `artifacts/package/bosofa-desktop-<rid>.tar.gz` (`.zip` on Windows).

@@ -60,7 +60,7 @@ public static partial class AccountSecrets
         kind is AccountKind.OpenAIApiKey ? Harnesses.Codex : Harnesses.Claude;
 
     /// <summary>Whether the server's own loop can run on this account (docs/server-agent.md).</summary>
-    public static bool ServesAgent(AccountKind kind) => kind is AccountKind.OpenAIApiKey;
+    public static bool ServesAgent(AccountKind kind) => kind is AccountKind.OpenAIApiKey or AccountKind.AnthropicApiKey;
 
     /// <summary>A loose shape check that catches pasting the wrong thing; the provider has the final word.</summary>
     public static bool LooksValid(AccountKind kind, string secret) => kind switch
