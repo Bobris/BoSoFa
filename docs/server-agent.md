@@ -1,6 +1,6 @@
 # Server agent: a harness that runs in the server
 
-Status: plan (2026-11-09), milestone M9 in [plan.md](plan.md). Nothing is built yet.
+Status: milestone M9 in [plan.md](plan.md); step 1 (the providers, alone) is done, the rest is planned.
 
 ## 1. What and why
 
@@ -402,6 +402,22 @@ so the transcript shows what the model was told.
 1. **Providers, alone.** The Responses and Messages clients with SSE parsing, the fake provider server and recorded
    streams, and the opt-in live OpenAI test. *Done when* a tool call goes round trip against the real OpenAI API with
    the test key.
+   *Done (2026-11-09):*
+   - The code is in `src/BoSoFa.Server/Agents`:
+     - `IModelTurnExecutor` and its contracts;
+     - `OpenAIResponsesExecutor`, for an API key and OpenCode Go;
+     - `AnthropicMessagesExecutor`, for an API key and OpenCode Go;
+     - `RetryingTurnExecutor`;
+     - error classification.
+   - `ProviderTest` covers them with fake streams:
+     - two OpenAI streams recorded from the real API;
+     - Anthropic streams written from its documented events, since there is no Anthropic key to record with yet.
+   - The live test (`BOSOFA_TEST_OPENAI_KEY_FILE`, `BOSOFA_TEST_OPENAI_MODEL`) ran the tool loop to its answer on
+     gpt-5.4-nano, gpt-5.4-mini and gpt-5.5.
+   - Learned from the real API:
+     - replayed output items must drop `id` and `status`: with `store: false` there is nothing to resolve them against;
+     - non-reasoning models accept `include: reasoning.encrypted_content` too;
+     - a model may call a tool several times at once (gpt-5.4-mini did), so the loop must answer every call of a step.
 2. **The loop, MCP only.** `AgentLoop`, `AgentRunner` with claims and failover, items and usage, deltas through
    `LiveHub` and `LiveRelay`, steer, interrupt, stop, approvals, BoSoFa tools, HTTP MCP servers. Accounts: OpenAI API
    key. *Done when* a session with no machine answers through an HTTP MCP server, and survives its node being killed

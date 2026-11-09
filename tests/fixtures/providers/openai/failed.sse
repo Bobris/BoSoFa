@@ -1,0 +1,6 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_failed","status":"in_progress","output":[]},"sequence_number":0}
+
+event: response.failed
+data: {"type":"response.failed","response":{"id":"resp_failed","status":"failed","output":[],"error":{"code":"context_length_exceeded","message":"Your input exceeds the context window of this model."}},"sequence_number":1}
+

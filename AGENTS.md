@@ -35,6 +35,9 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
   `bosofad`, `BoSoFa` or `bosofa` in anything people see. `BoSoFa:Branding` renames the UI only. See [docs/branding.md](docs/branding.md).
 - Single node without Azure: `deploy/compose.yaml` ([docs/deploy-single-node.md](docs/deploy-single-node.md)).
 - Sessions are visible only to their creator (`SessionAccess.CanSee`).
+- Server agent providers (`src/BoSoFa.Server/Agents`, [docs/server-agent.md](docs/server-agent.md)): CI uses recorded streams in
+  `tests/fixtures/providers`. The live OpenAI test runs with `BOSOFA_TEST_OPENAI_KEY_FILE=<file with the key>` (and optionally
+  `BOSOFA_TEST_OPENAI_MODEL`); never print or commit a key.
 - Distribution: computers install both products from the server's `/install` page and update from it. A desktop package:
   `pnpm --dir web build`, then `dotnet publish src/BoSoFa.Desktop -c Release -r osx-arm64 -p:BoSoFaPackage=true -p:Version=<v>`
   writes `artifacts/package/bosofa-desktop-<rid>.tar.gz` (`.zip` on Windows).
