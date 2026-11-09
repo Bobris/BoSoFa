@@ -170,7 +170,19 @@ public static class Harnesses
     /// <summary>Plays a recorded Claude Code transcript; only on daemons started with <c>--replay-fixture</c>.</summary>
     public const string Replay = "replay";
 
-    public static readonly string[] All = [Claude, Codex, OpenCode, Replay];
+    /// <summary>The server's own loop (docs/server-agent.md); it runs on a server node and needs no machine.</summary>
+    public const string Agent = "agent";
+
+    public static readonly string[] All = [Claude, Codex, OpenCode, Replay, Agent];
 
     public static readonly string[] PermissionModes = ["default", "acceptEdits", "plan", "bypassPermissions"];
 }
+
+/// <summary>A transcript item the server's agent loop records. <c>Replay</c> is the loop's own form of it (see
+/// <c>SessionItem.Replay</c>); the other fields are what people see.</summary>
+public sealed record AgentItem(SessionItemKind Kind, string Text, string? ToolUseId = null, string? ToolName = null,
+    string? Data = null, bool IsError = false, string? Ref = null, string? Replay = null);
+
+/// <summary>What the agent loop keeps of a person's message: the whole text when the shown one is cut, and whether it
+/// waits for the running turn to end instead of steering it.</summary>
+public sealed record AgentUserReplay(string? Text, bool Queued);

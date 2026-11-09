@@ -28,7 +28,8 @@ public sealed record HarnessAccountDto(
     DateTime CreatedAt,
     DateTime? ExpiresAt,
     string SecretHint,
-    AccountUsageDto? Usage = null);
+    AccountUsageDto? Usage = null,
+    bool ServesAgent = false);
 
 /// <summary>One limit window of a subscription. <c>Utilization</c> runs from 0 to 1.</summary>
 public sealed record UsageWindow(double Utilization, DateTime? ResetsAt, string? Status);
@@ -57,6 +58,9 @@ public static partial class AccountSecrets
     /// <summary>The harness an account serves.</summary>
     public static string HarnessOf(AccountKind kind) =>
         kind is AccountKind.OpenAIApiKey ? Harnesses.Codex : Harnesses.Claude;
+
+    /// <summary>Whether the server's own loop can run on this account (docs/server-agent.md).</summary>
+    public static bool ServesAgent(AccountKind kind) => kind is AccountKind.OpenAIApiKey;
 
     /// <summary>A loose shape check that catches pasting the wrong thing; the provider has the final word.</summary>
     public static bool LooksValid(AccountKind kind, string secret) => kind switch

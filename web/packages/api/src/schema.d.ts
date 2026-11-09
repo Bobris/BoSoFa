@@ -3548,6 +3548,8 @@ export interface components {
             expiresAt: null | string;
             secretHint: string;
             usage?: null | components["schemas"]["AccountUsageDto"];
+            /** @default false */
+            servesAgent: boolean;
         };
         HarnessArtifact: {
             platform: string;
@@ -3622,6 +3624,8 @@ export interface components {
             sessionId: number | string;
             ref: string;
             text: string;
+            /** @default false */
+            reset: boolean;
         };
         LiveServerMessageLiveError: {
             /** @enum {string} */

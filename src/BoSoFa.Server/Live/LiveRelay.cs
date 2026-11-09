@@ -15,33 +15,48 @@ namespace BoSoFa.Server.Live;
 /// Ephemeral deltas and terminal output between nodes (plan §4.2). Only the node holding a daemon's WebSocket receives them. Another
 /// node whose live clients watch one of that machine's sessions opens one streaming request to the owner,
 /// <c>GET /internal/live/machines/{id}</c> with the peer key, and fans what arrives out to its own subscribers. Deltas
-/// lost while switching owners are not recovered; the final items come through the event log anyway.
+/// lost while switching owners are not recovered; the final items come through the event log anyway. An agent session has no
+/// daemon: the node running its loop is the source, through <c>/internal/live/sessions/{id}</c>.
 /// </summary>
 public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options, ILogger<LiveRelay> logger)
     : IAsyncDisposable
 {
     public const string PathPrefix = "/internal/live/machines/";
+    public const string SessionPathPrefix = "/internal/live/sessions/";
+
+    /// <summary>What deltas come from: a machine's daemon, or the node running an agent session.</summary>
+    readonly record struct Source(bool IsSession, ulong Id);
     static readonly HttpClient Http = PeerHttp.CreateClient();
 
     readonly LiveHub _hub = hub;
     readonly BtdbNode _node = node;
     readonly ILogger _logger = logger;
-    readonly ConcurrentDictionary<ulong, ConcurrentDictionary<Channel<LiveServerMessage>, byte>> _outgoing = new();
-    readonly ConcurrentDictionary<ulong, Follower> _following = new();
+    readonly ConcurrentDictionary<Source, ConcurrentDictionary<Channel<LiveServerMessage>, byte>> _outgoing = new();
+    readonly ConcurrentDictionary<Source, Follower> _following = new();
     readonly CancellationTokenSource _stopping = new();
 
     public string? PeerKey => options.Cluster?.PeerKey;
     string NodeId => options.Cluster?.NodeId ?? "single-node";
 
     /// <summary>Owner side: a delta of a daemon connected here, for every node that follows this machine.</summary>
-    public void Publish(ulong machineId, LiveServerMessage message)
+    public void Publish(ulong machineId, LiveServerMessage message) => Publish(new Source(false, machineId), message);
+
+    /// <summary>Runner side: a delta of an agent session running here, for every node whose clients watch it.</summary>
+    public void PublishSession(ulong sessionId, LiveServerMessage message) => Publish(new Source(true, sessionId), message);
+
+    void Publish(Source source, LiveServerMessage message)
     {
-        if (_outgoing.TryGetValue(machineId, out var streams))
+        if (_outgoing.TryGetValue(source, out var streams))
             foreach (var stream in streams.Keys) stream.Writer.TryWrite(message);
     }
 
     /// <summary>Owner side: the internal endpoint. Streams this machine's deltas as JSON lines until the caller leaves.</summary>
-    public async Task ServeAsync(HttpContext http, ulong machineId)
+    public Task ServeAsync(HttpContext http, ulong machineId) => ServeAsync(http, new Source(false, machineId));
+
+    /// <summary>Runner side: the internal endpoint for one agent session.</summary>
+    public Task ServeSessionAsync(HttpContext http, ulong sessionId) => ServeAsync(http, new Source(true, sessionId));
+
+    async Task ServeAsync(HttpContext http, Source source)
     {
         if (PeerKey is not { } key || !Authorized(http, key))
         {
@@ -52,7 +67,7 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
         {
             FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true
         });
-        var streams = _outgoing.GetOrAdd(machineId, _ => new());
+        var streams = _outgoing.GetOrAdd(source, _ => new());
         streams[channel] = 0;
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, _stopping.Token);
         try
@@ -88,14 +103,33 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
             : null;
     }
 
+    string? RunnerPeerUrl(ulong sessionId)
+    {
+        if (_node.Publisher is not { } publisher) return null;
+        using var query = publisher.StartQuery();
+        return Ambient.Relation<IAgentRunnerTable>().FindByIdOrDefault(sessionId) is { } runner &&
+               runner.NodeId != NodeId && runner.PeerUrl.Length > 0
+            ? runner.PeerUrl
+            : null;
+    }
+
+    string? SourcePeerUrl(Source source) => source.IsSession ? RunnerPeerUrl(source.Id) : OwnerPeerUrl(source.Id);
+
+    static string SourcePath(Source source) => (source.IsSession ? SessionPathPrefix : PathPrefix) + source.Id;
+
     /// <summary>Following side: while the lease is held, this node receives the machine's deltas from whichever node
     /// holds its daemon (nothing to do when that is this node, or in single-node mode).</summary>
-    public IDisposable Follow(ulong machineId)
+    public IDisposable Follow(ulong machineId) => Follow(new Source(false, machineId));
+
+    /// <summary>Following side for an agent session: deltas from whichever node runs it.</summary>
+    public IDisposable FollowSession(ulong sessionId) => Follow(new Source(true, sessionId));
+
+    IDisposable Follow(Source source)
     {
         if (options.Cluster == null) return NoLease.Instance;
         while (true)
         {
-            var follower = _following.GetOrAdd(machineId, id => new Follower(this, id));
+            var follower = _following.GetOrAdd(source, id => new Follower(this, id));
             if (follower.TryAcquire()) return new Lease(follower);
         }
     }
@@ -103,7 +137,13 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
     /// <summary>The machine's presence changed: a follower reconnects to the new owner (or stops relaying).</summary>
     public void PresenceChanged(ulong machineId)
     {
-        if (_following.TryGetValue(machineId, out var follower)) follower.Wake();
+        if (_following.TryGetValue(new Source(false, machineId), out var follower)) follower.Wake();
+    }
+
+    /// <summary>Another node runs this agent session now, or none does.</summary>
+    public void SessionRunnerChanged(ulong sessionId)
+    {
+        if (_following.TryGetValue(new Source(true, sessionId), out var follower)) follower.Wake();
     }
 
     public async ValueTask DisposeAsync()
@@ -132,17 +172,17 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
     sealed class Follower
     {
         readonly LiveRelay _relay;
-        readonly ulong _machineId;
+        readonly Source _source;
         readonly object _lock = new();
         readonly CancellationTokenSource _stop;
         CancellationTokenSource _current = new();
         int _leases;
         bool _closed;
 
-        public Follower(LiveRelay relay, ulong machineId)
+        public Follower(LiveRelay relay, Source source)
         {
             _relay = relay;
-            _machineId = machineId;
+            _source = source;
             _stop = CancellationTokenSource.CreateLinkedTokenSource(relay._stopping.Token);
             Done = Task.Run(RunAsync);
         }
@@ -166,7 +206,7 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
                 if (--_leases > 0) return;
                 _closed = true;
             }
-            _relay._following.TryRemove(new KeyValuePair<ulong, Follower>(_machineId, this));
+            _relay._following.TryRemove(new KeyValuePair<Source, Follower>(_source, this));
             _stop.Cancel();
         }
 
@@ -194,22 +234,21 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
                 using (attempt)
                     try
                     {
-                        if (_relay.OwnerPeerUrl(_machineId) is { } owner) await RelayAsync(owner, attempt.Token);
+                        if (_relay.SourcePeerUrl(_source) is { } owner) await RelayAsync(owner, attempt.Token);
                         await Task.Delay(TimeSpan.FromSeconds(1), attempt.Token); // retry, or wait for a presence change
                     }
                     catch (Exception exception) when (exception is OperationCanceledException or IOException or
                                                           HttpRequestException)
                     {
                         if (!cancellation.IsCancellationRequested && exception is not OperationCanceledException)
-                            _relay._logger.LogDebug("Relay of machine {MachineId} failed: {Error}", _machineId,
-                                exception.Message);
+                            _relay._logger.LogDebug("Relay of {Source} failed: {Error}", _source, exception.Message);
                     }
             }
         }
 
         async Task RelayAsync(string owner, CancellationToken cancellation)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, owner.TrimEnd('/') + PathPrefix + _machineId);
+            using var request = new HttpRequestMessage(HttpMethod.Get, owner.TrimEnd('/') + SourcePath(_source));
             request.Headers.Authorization = new("Bearer", _relay.PeerKey);
             using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
             response.EnsureSuccessStatusCode();
@@ -222,10 +261,10 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
                             _relay._hub.Delta(delta);
                             break;
                         case LiveTerminalOutput output:
-                            _relay._hub.Terminal(_machineId, output.TerminalId, output);
+                            _relay._hub.Terminal(_source.Id, output.TerminalId, output);
                             break;
                         case LiveTerminalExited exited:
-                            _relay._hub.Terminal(_machineId, exited.TerminalId, exited);
+                            _relay._hub.Terminal(_source.Id, exited.TerminalId, exited);
                             break;
                     }
         }

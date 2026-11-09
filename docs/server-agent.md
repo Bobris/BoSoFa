@@ -1,6 +1,6 @@
 # Server agent: a harness that runs in the server
 
-Status: milestone M9 in [plan.md](plan.md); step 1 (the providers, alone) is done, the rest is planned.
+Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers) and 2 (the loop, MCP only) are done, the rest is planned.
 
 ## 1. What and why
 
@@ -103,20 +103,24 @@ that cross to the daemon go into `BoSoFa.Protocol`.
 
 ### 4.2 Who runs a session, and surviving a dead node
 
-- **Ownership.** One node runs a session's loop at a time. A new relation `AgentRunner(SessionId, NodeId, ClaimedAt)`
-  records it, written by an `AgentRunClaimed` event, the same pattern as `MachinePresence`. The node that handles the
-  person's message claims the session if nobody runs it; a message for a session another node runs is forwarded to it
-  on the peer port, like machine RPC.
-- **Failover.** When a node leaves, the leader expires its rows (as `NodePresenceExpired` does), and another node claims
-  each running session and resumes it from its items.
+- **Ownership.** One node runs a session's loop at a time, recorded in the relation `AgentRunner`, which exists only
+  while the session has work. The event carrying a person's message names the node that handled it, and the handler
+  claims the session for that node if nobody runs it.
+- **No forwarding.** A message for a session another node runs is simply an event: every node applies it, and the node
+  running the session sees the change. Interrupt, stop and approval answers reach it the same way.
+- **Failover.** While a node leads, it claims the sessions of nodes that left the cluster (`AgentRunClaimed`) and resumes
+  them from their items. A node that restarts finds its own rows.
+- **Fencing.** Every write of the loop names the row's `Version`. A repeated write, or one from a node that lost the
+  session, is refused.
 - **Durable steps.** Each model response is stored as items in one event before any of its tools run, and each tool
   result is stored before the next model call. The transcript is therefore the loop's state; nothing else must
-  survive.
+  survive. Each pass of `AgentLoop` reads it and does the one thing it says is due.
 - **Resuming after a crash.**
   - A model call that was streaming is asked again.
-  - A tool call that has no result is not run again: its effect is unknown. It gets the result "The server restarted
-    while this ran; whether it took effect is unknown," and the model decides what to do.
-  - A pending approval stays pending.
+  - The first tool call without a result is not run again: its effect is unknown. It gets the result "The server
+    restarted while this ran; whether it took effect is unknown," and the model decides what to do. Later calls of that
+    step had not started and run normally (tools run one at a time).
+  - A pending approval stays pending, and the call runs once it is answered.
 - **Single node.** The same code; the claim always succeeds.
 
 ### 4.3 Transcript and items
@@ -124,22 +128,26 @@ that cross to the daemon go into `BoSoFa.Protocol`.
 The existing items fit: `User`, `Assistant`, `Thinking`, `ToolUse`, `ToolResult`, `RunEnded`, `Notice`, `Diff`. They
 need:
 
-- Provider-opaque data on `Thinking` and `Assistant` items: OpenAI `encrypted_content` and item ids, Anthropic thinking
-  signatures, plus the provider, model and transport it came from. Kept in the item's data as JSON (in a blob above the
-  inline limit). It never reaches the browser.
-- Usage on each step: input, output, cache read, cache write and reasoning tokens, and cost. The run total goes into
-  `RunEnded`, as for daemon harnesses.
-- Tool results above 16 KiB stored as a blob, with the model given the first 16 KiB and a note on how to read more (the
-  `read_file` tool with an offset, for machine tools).
+- `SessionItem.Replay`, the loop's own form of an item: OpenAI `encrypted_content`, Anthropic thinking signatures, whole
+  tool arguments, the provider, model and transport it came from, and whether a person's message was queued. It is JSON,
+  or a blob reference above the inline limit, and it never reaches the browser.
+- Usage on each step, in the event that records it: input, output, cache read, cache write and reasoning tokens. The run
+  total goes into `RunEnded`, as for daemon harnesses. Cost follows in step 8.
+- Tool results are kept to 16 KiB, and the model reads that part with a note of how much was cut. Machine tools can offer
+  more with `read_file` and an offset (step 3).
+
+A person's message is stored when it arrives, which can be between a tool call and its result. `AgentConversation` places
+it where the model may see it: a steering message after the step's tool results, a queued one after the current run.
 
 The event log is kept forever, so the size per step matters: deltas stay ephemeral, and large payloads go to blobs, as
 they already do.
 
 ### 4.4 Live deltas
 
-The runner publishes text, thinking and tool-output deltas to `LiveHub`. `LiveRelay` follows machines today. It gains a
-second kind of source, a session's runner node, so a browser connected to another node still sees the stream. Lost
-deltas cost nothing: the final items come through the event log.
+The runner publishes the answer's text to `LiveHub`; reasoning and tool output follow in step 9. `LiveRelay` follows two
+kinds of source, a machine's daemon and a session's runner node, so a browser connected to another node still sees the
+stream. A retried call sends a delta with `Reset`, which drops what was shown. Lost deltas cost nothing: the final items
+come through the event log.
 
 ## 5. Providers
 
@@ -292,7 +300,8 @@ the same guard file browsing uses.
 - **Stdio MCP servers** need a process. With a machine, the daemon starts them in the session's working directory and
   passes `tools/list` and `tools/call` through a new RPC (decided 2026-11-09). Without a machine, the session cannot
   use them, and starting it says so.
-- Tools are named `mcp__<server>__<tool>`, with the server's schema passed through. Results keep text and images.
+- Tools are named `mcp__<server>__<tool>`, with the server's schema passed through. Results keep text; images are named
+  in the text until the provider contracts carry them.
 
 ### 6.3 Web access
 
@@ -318,7 +327,7 @@ same tools the daemon's MCP endpoint gives daemon harnesses, implemented in the 
 
 The existing runtime requests and permission modes:
 
-- **Read tools, web access, and MCP tools the profile marks safe** need no approval.
+- **Read tools and web access** need no approval, nor will MCP tools a profile marks safe (step 7).
 - **Writes** need approval unless the mode is `acceptEdits`.
 - **Shell and other MCP tools** need approval unless the mode is `bypassPermissions`.
 - **`plan`** offers read tools only.
@@ -366,8 +375,8 @@ so the transcript shows what the model was told.
   - delta kinds for tool output.
 - **Domain** (raises `ApplicationGeneration`):
   - `AgentRunner`;
-  - session fields: system prompt, tool group, reasoning effort, limits;
-  - events `AgentRunClaimed`, `AgentStepRecorded`, `AgentToolCompleted`, `AccountTokensRefreshed`;
+  - session fields: system prompt, tool group, reasoning effort;
+  - events `AgentItemsRecorded`, `AgentApprovalRaised`, `AgentRunFinished`, `AgentRunClaimed`, `AccountTokensRefreshed`;
   - profile fields: system prompt and mode, most tool group allowed, model default.
 - **`SessionCreated`** allows no machine for `agent` sessions. Every other harness still needs one.
 - **API:**
@@ -422,6 +431,18 @@ so the transcript shows what the model was told.
    `LiveHub` and `LiveRelay`, steer, interrupt, stop, approvals, BoSoFa tools, HTTP MCP servers. Accounts: OpenAI API
    key. *Done when* a session with no machine answers through an HTTP MCP server, and survives its node being killed
    in the cluster test.
+   *Done (2026-11-09):*
+   - `AgentLoop`, `AgentRunnerService`, `AgentConversation`, `AgentToolbox` and `McpHttpClient` in `src/BoSoFa.Server/Agents`;
+     `AgentRunner` and the loop's events in `src/BoSoFa.Server.Domain/Agents.cs`.
+   - The new-session form lists each OpenAI account as a harness under its label, with "No machine (MCP only)". Images
+     are refused for now.
+   - `AgentSessionTest` runs a real server against a fake provider and MCP server: approvals and their denial, plan and
+     bypass modes, `ask_user` and `notify_user`, interrupt, steer and queue, provider failure, stop, reasoning larger than
+     an item, and a restart during a model call, a tool and a pending approval.
+   - `AnAgentSessionSurvivesItsNodeBeingKilled` kills the node mid-answer in a three-process cluster, while a client on
+     another node follows the text through the relay.
+   - `LiveOpenAIAnswersThroughAnMcpServer` ran the whole loop on the real API (gpt-5.4-nano and gpt-5.5), and a session
+     was started and answered in the browser.
 3. **Machine tools.** `ToolRpc` in the daemon (read, list, glob, grep, write, edit, apply_patch, shell) with timeouts,
    cancellation, streamed output, de-duplication and diffs; stdio MCP through the daemon. *Done when* the agent fixes
    a failing test on a real machine with approvals on.

@@ -80,7 +80,7 @@ public static class Domain
 {
     /// <summary>Raise this with every change to persisted relations: a node of a higher generation takes over from older
     /// nodes and publishes its schema, and older builds can never lead again (BTDB <c>Doc/ReplicationHosting.md</c>).</summary>
-    public const ulong ApplicationGeneration = 4;
+    public const ulong ApplicationGeneration = 5;
 
     /// <summary>Every relation of the server database; InitializeRelations registers them under leader authority.</summary>
     public static readonly Type[] Relations =
@@ -90,7 +90,8 @@ public static class Domain
         typeof(IMachinePresenceTable), typeof(IHarnessAccountTable), typeof(IHarnessAccountUsageTable),
         typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable), typeof(IMcpServerTable),
         typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable), typeof(IAuditEntryTable),
-        typeof(IDaemonReleaseTable), typeof(IDesktopReleaseTable), typeof(IMachineUpdatePolicyTable), typeof(IDaemonRolloutTable), typeof(IDaemonRolloutMachineTable), typeof(IDesktopSessionTable)
+        typeof(IDaemonReleaseTable), typeof(IDesktopReleaseTable), typeof(IMachineUpdatePolicyTable), typeof(IDaemonRolloutTable), typeof(IDaemonRolloutMachineTable), typeof(IDesktopSessionTable),
+        typeof(IAgentRunnerTable)
     ];
 
     public static EventDispatcher CreateDispatcher(IDomainSignals signals) => new EventDispatcher()
@@ -127,5 +128,9 @@ public static class Domain
         .Register(new DaemonRolloutTickedHandler(signals))
         .Register(new DesktopSessionStartedHandler())
         .Register(new DesktopSessionRefreshedHandler())
-        .Register(new DesktopSessionRevokedHandler());
+        .Register(new DesktopSessionRevokedHandler())
+        .Register(new AgentItemsRecordedHandler(signals))
+        .Register(new AgentApprovalRaisedHandler(signals))
+        .Register(new AgentRunFinishedHandler(signals))
+        .Register(new AgentRunClaimedHandler(signals));
 }

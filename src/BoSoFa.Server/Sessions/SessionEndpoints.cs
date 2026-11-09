@@ -15,6 +15,7 @@ namespace BoSoFa.Server.Sessions;
 public static class SessionEndpoints
 {
     const int PageSize = 500;
+    const string NoAgentImages = "The server agent cannot take images yet.";
 
     public static void MapSessionEndpoints(this WebApplication app)
     {
@@ -39,7 +40,8 @@ public static class SessionEndpoints
         return new(session.Id, session.MachineId, machine?.Name ?? "", session.Harness, session.WorkingDirectory,
             session.Title, session.Status, session.CreatedById, creator?.Name ?? "", session.CreatedAt, session.UpdatedAt,
             session.LastSeq, session.Model, session.PermissionMode, session.CostUsd,
-            machine != null && MachineAccess.CanControl(userId, machine), session.AccountId == 0 ? null : session.AccountId,
+            session.Harness == Harnesses.Agent ? SessionAccess.CanSee(userId, session) : machine != null && MachineAccess.CanControl(userId, machine),
+            session.AccountId == 0 ? null : session.AccountId,
             session.AccountId == 0 ? null : Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId)?.Label,
             session.Branch, session.ProfileName);
     }
@@ -115,10 +117,13 @@ public static class SessionEndpoints
     }
 
     static async Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> CreateSessionAsync(
-        CreateSessionRequest request, BtdbNode node, IBlobStore blobs, HttpContext http)
+        CreateSessionRequest request, BtdbNode node, IBlobStore blobs, MachinePresenceService presence, HttpContext http)
     {
         var (imagesJson, problem) = await ImagesJsonAsync(request.Images, blobs, http.RequestAborted);
         if (problem != null) return TypedResults.BadRequest(problem);
+        var isAgent = request.Harness == Harnesses.Agent;
+        if (isAgent && request.MachineId != 0) return TypedResults.BadRequest("The server agent does not run on a machine yet.");
+        if (isAgent && imagesJson.Length > 0) return TypedResults.BadRequest(NoAgentImages);
         // The request's own choices win over the profile's defaults.
         string? model = request.Model, permissionMode = request.PermissionMode;
         if (request.ProfileName is { } name)
@@ -128,25 +133,37 @@ public static class SessionEndpoints
             var profile = Ambient.Relation<IProfileTable>().FindByIdOrDefault(name);
             model ??= profile?.Model;
             permissionMode ??= profile?.PermissionMode;
+            if (isAgent && profile != null && JsonSerializer.Deserialize(profile.McpServers, ProtocolJsonContext.Default.StringArray)!
+                    .Any(server => Ambient.Relation<IMcpServerTable>().FindByIdOrDefault(server)?.Transport != McpTransport.Http))
+                return TypedResults.BadRequest("This profile has MCP servers that run on a machine, and this session has none.");
         }
+        if (isAgent && string.IsNullOrWhiteSpace(model)) return TypedResults.BadRequest("The server agent needs a model.");
+        if (isAgent && request.AccountId is null or 0) return TypedResults.BadRequest("The server agent needs a provider account.");
         return await RunAsync(node, http, new SessionCreated
         {
             MachineId = request.MachineId, UserId = http.User.UserId() ?? 0, Harness = request.Harness,
             WorkingDirectory = request.WorkingDirectory, Prompt = request.Prompt,
             PermissionMode = permissionMode ?? "default", Model = model, AccountId = request.AccountId ?? 0,
-            UseWorktree = request.UseWorktree, ProfileName = request.ProfileName, ImagesJson = imagesJson
+            UseWorktree = request.UseWorktree, ProfileName = request.ProfileName, ImagesJson = imagesJson,
+            RunnerNodeId = isAgent ? presence.NodeId : "", RunnerPeerUrl = isAgent ? presence.PeerUrl : ""
         });
     }
 
     static async Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> SendMessageAsync(ulong id,
-        SendMessageRequest request, BtdbNode node, IBlobStore blobs, HttpContext http)
+        SendMessageRequest request, BtdbNode node, IBlobStore blobs, MachinePresenceService presence, HttpContext http)
     {
         var (imagesJson, problem) = await ImagesJsonAsync(request.Images, blobs, http.RequestAborted);
         if (problem != null) return TypedResults.BadRequest(problem);
+        if (imagesJson.Length > 0)
+        {
+            var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+            using var query = publisher.StartQuery();
+            if (Ambient.Relation<ISessionTable>().FindByIdOrDefault(id)?.Harness == Harnesses.Agent) return TypedResults.BadRequest(NoAgentImages);
+        }
         return await RunAsync(node, http, new SessionMessageSent
         {
             SessionId = id, UserId = http.User.UserId() ?? 0, Text = request.Text, Mode = request.Mode ?? DispatchMode.Queue,
-            ImagesJson = imagesJson
+            ImagesJson = imagesJson, RunnerNodeId = presence.NodeId, RunnerPeerUrl = presence.PeerUrl
         });
     }
 
@@ -212,15 +229,16 @@ public static class SessionEndpoints
                 switch (message)
                 {
                     case LiveSubscribe subscribe:
-                        ulong? machineId;
+                        Session? followed;
                         using (publisher.StartQuery())
-                            machineId = Visible(subscribe.SessionId, http)?.MachineId;
-                        if (machineId is not { } machine)
+                            followed = Visible(subscribe.SessionId, http);
+                        if (followed == null)
                         {
                             subscriber.Enqueue(new LiveError(subscribe.SessionId, "Session not found."));
                             break;
                         }
-                        if (!relays.ContainsKey(subscribe.SessionId)) relays[subscribe.SessionId] = relay.Follow(machine);
+                        if (!relays.ContainsKey(subscribe.SessionId))
+                            relays[subscribe.SessionId] = followed.Harness == Harnesses.Agent ? relay.FollowSession(followed.Id) : relay.Follow(followed.MachineId);
                         subscriber.Subscribe(subscribe.SessionId, subscribe.AfterSeq);
                         break;
                     case LiveUnsubscribe unsubscribe:

@@ -28,10 +28,14 @@ public static class AccountEndpoints
     internal static HarnessAccountDto ToDto(HarnessAccount account) => new(account.Id, account.Kind,
         AccountSecrets.HarnessOf(account.Kind), account.Label, account.OwnerId,
         Ambient.Relation<IUserTable>().FindByIdOrDefault(account.OwnerId)?.Name ?? "", account.CreatedAt,
-        account.ExpiresAt, account.SecretHint, AccountUsages.Of(account.Id));
+        account.ExpiresAt, account.SecretHint, AccountUsages.Of(account.Id), AccountSecrets.ServesAgent(account.Kind));
 
     static IDataProtector Protector(IDataProtectionProvider protection, string secretId) =>
         protection.CreateProtector(Purpose, secretId);
+
+    /// <summary>An account's secret, for the server's own agent loop; it stays in memory on this node.</summary>
+    internal static string SecretOf(HarnessAccount account, IDataProtectionProvider protection) =>
+        Protector(protection, account.SecretId).Unprotect(account.ProtectedSecret);
 
     static async Task<HarnessAccountDto[]> ListAsync(BtdbNode node, HttpContext http)
     {

@@ -3787,6 +3787,10 @@
                 "$ref": "#/components/schemas/AccountUsageDto"
               }
             ]
+          },
+          "servesAgent": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -4127,6 +4131,10 @@
           },
           "text": {
             "type": "string"
+          },
+          "reset": {
+            "type": "boolean",
+            "default": false
           }
         }
       },

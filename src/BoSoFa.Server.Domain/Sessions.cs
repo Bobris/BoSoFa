@@ -61,6 +61,10 @@ public class SessionItem
     public bool IsError { get; set; }
     public string? Ref { get; set; }
 
+    /// <summary>The agent loop's own form of this item, kept whole for the next model call: JSON, or <c>blob:</c> and a
+    /// hash above the inline limit. It holds provider-opaque data, so it never leaves the server.</summary>
+    public string? Replay { get; set; }
+
     public SessionItemDto ToDto() => new(Seq, Kind, At, Text, ToolUseId, ToolName, Data, IsError, Ref);
 }
 
@@ -86,6 +90,9 @@ public class RuntimeRequest
     public DateTime RaisedAt { get; set; }
     public ulong AnsweredById { get; set; }
     public DateTime? AnsweredAt { get; set; }
+
+    /// <summary>What the person added to an agent session's request; the loop passes it to the model.</summary>
+    public string? Answer { get; set; }
 }
 
 public interface IRuntimeRequestTable : IRelation<RuntimeRequest>
@@ -126,6 +133,12 @@ public interface IDomainSignals
     /// <summary>The machine's connection is now <paramref name="connectionId"/> (null: none). A node holding a different
     /// connection of that machine closes it.</summary>
     void MachinePresenceChanged(ulong machineId, string? connectionId);
+
+    /// <summary>An agent session changed; the node running it looks at what to do next.</summary>
+    void AgentSessionChanged(ulong sessionId);
+
+    /// <summary>The node running an agent session changed, or none runs it any more.</summary>
+    void AgentRunnerChanged(ulong sessionId);
 }
 
 public enum CommandOutcome
@@ -159,6 +172,11 @@ public class SessionCreated : EventWithResult<SessionCommandResult>
 
     /// <summary>The prompt's images as JSON (<see cref="PromptImage"/>[]); empty without any.</summary>
     public string ImagesJson { get; set; } = "";
+
+    /// <summary>For an agent session: the node handling this request, which runs the session.</summary>
+    public string RunnerNodeId { get; set; } = "";
+
+    public string RunnerPeerUrl { get; set; } = "";
 }
 
 public class SessionMessageSent : EventWithResult<SessionCommandResult>
@@ -170,6 +188,11 @@ public class SessionMessageSent : EventWithResult<SessionCommandResult>
 
     /// <summary>The message's images as JSON (<see cref="PromptImage"/>[]); empty without any.</summary>
     public string ImagesJson { get; set; } = "";
+
+    /// <summary>For an agent session that nothing runs right now: the node handling this request takes it.</summary>
+    public string RunnerNodeId { get; set; } = "";
+
+    public string RunnerPeerUrl { get; set; } = "";
 }
 
 public class SessionInterruptRequested : EventWithResult<SessionCommandResult>
@@ -227,13 +250,13 @@ static class Sessions
 
 
     public static long AppendItem(Session session, SessionItemKind kind, DateTime at, string text, string? toolUseId = null,
-        string? toolName = null, string? data = null, bool isError = false, string? itemRef = null)
+        string? toolName = null, string? data = null, bool isError = false, string? itemRef = null, string? replay = null)
     {
         session.LastSeq++;
         Ambient.Relation<ISessionItemTable>().Insert(new()
         {
             SessionId = session.Id, Seq = session.LastSeq, Kind = kind, At = at, Text = Cut(text), ToolUseId = toolUseId,
-            ToolName = toolName, Data = data == null ? null : Cut(data), IsError = isError, Ref = itemRef
+            ToolName = toolName, Data = data == null ? null : Cut(data), IsError = isError, Ref = itemRef, Replay = replay
         });
         return session.LastSeq;
     }
@@ -257,7 +280,23 @@ static class Sessions
         session.UpdatedAt = when;
         Ambient.Relation<ISessionTable>().Update(session);
         var id = session.Id;
-        Ambient.RegisterPostCommit(() => signals.SessionChanged(id));
+        var isAgent = session.Harness == Harnesses.Agent;
+        Ambient.RegisterPostCommit(() =>
+        {
+            signals.SessionChanged(id);
+            if (isAgent) signals.AgentSessionChanged(id);
+        });
+    }
+
+    public static void CancelPending(Session session, DateTime when)
+    {
+        var requests = Ambient.Relation<IRuntimeRequestTable>();
+        foreach (var request in requests.ListById(session.Id).Where(r => r.Status == RuntimeRequestStatus.Pending).ToList())
+        {
+            request.Status = RuntimeRequestStatus.Cancelled;
+            request.AnsweredAt = when;
+            requests.Update(request);
+        }
     }
 
     /// <summary>The session and its machine when the user may control it: their own session, on a machine they may still use.
@@ -266,6 +305,7 @@ static class Sessions
     {
         var session = Ambient.Relation<ISessionTable>().FindByIdOrDefault(sessionId);
         if (session == null || !SessionAccess.CanSee(userId, session)) return (null, null, CommandOutcome.NotFound);
+        if (session.Harness == Harnesses.Agent && session.MachineId == 0) return (session, null, CommandOutcome.Ok);
         var machine = Ambient.Relation<IMachineTable>().FindByIdOrDefault(session.MachineId);
         if (machine == null) return (null, null, CommandOutcome.NotFound);
         return MachineAccess.CanControl(userId, machine) ? (session, machine, CommandOutcome.Ok) : (null, null, CommandOutcome.Forbidden);
@@ -282,13 +322,46 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
 {
     public SessionCommandResult? Validate(SessionCreated ev) =>
         string.IsNullOrWhiteSpace(ev.Prompt) || ev.Prompt.Length > Sessions.MaximumPromptLength ||
-        string.IsNullOrWhiteSpace(ev.WorkingDirectory) || !Harnesses.All.Contains(ev.Harness) ||
-        !Harnesses.PermissionModes.Contains(ev.PermissionMode)
+        !Harnesses.All.Contains(ev.Harness) || !Harnesses.PermissionModes.Contains(ev.PermissionMode) ||
+        (ev.Harness == Harnesses.Agent
+            ? ev.MachineId != 0 || string.IsNullOrWhiteSpace(ev.Model) || ev.AccountId == 0 || ev.RunnerNodeId.Length == 0
+            : string.IsNullOrWhiteSpace(ev.WorkingDirectory))
             ? new() { Outcome = CommandOutcome.Invalid }
             : null;
 
+    /// <summary>A session the server's own loop runs: no machine, the creator's provider account, and a profile that needs no
+    /// process on a machine.</summary>
+    SessionCommandResult ConsumeAgent(SessionCreated ev)
+    {
+        var account = Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(ev.AccountId);
+        if (account == null) return new() { Outcome = CommandOutcome.NotFound };
+        if (account.OwnerId != ev.UserId) return new() { Outcome = CommandOutcome.Forbidden };
+        if (!AccountSecrets.ServesAgent(account.Kind)) return new() { Outcome = CommandOutcome.Invalid };
+        if (ev.ProfileName != null)
+        {
+            if (Ambient.Relation<IProfileTable>().FindByIdOrDefault(ev.ProfileName) is not { } profile) return new() { Outcome = CommandOutcome.NotFound };
+            var servers = Ambient.Relation<IMcpServerTable>();
+            if (JsonSerializer.Deserialize(profile.McpServers, ProtocolJsonContext.Default.StringArray)!
+                .Any(name => servers.FindByIdOrDefault(name) is not { Transport: McpTransport.Http }))
+                return new() { Outcome = CommandOutcome.Invalid };
+        }
+        var session = new Session
+        {
+            Id = Ambient.AllocateId(), CreatedById = ev.UserId, Harness = ev.Harness, Title = Sessions.TitleOf(ev.Prompt),
+            PermissionMode = ev.PermissionMode, Model = ev.Model!.Trim(), Status = SessionStatus.Running, CreatedAt = ev.When,
+            UpdatedAt = ev.When, AccountId = ev.AccountId, ProfileName = ev.ProfileName
+        };
+        Ambient.Relation<ISessionTable>().Insert(session);
+        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, replay: AgentRunners.UserReplay(ev.Prompt, false));
+        AgentRunners.Claim(signals, session, ev.RunnerNodeId, ev.RunnerPeerUrl, ev.When);
+        Sessions.Changed(signals, session, ev.When);
+        Audit.Record(ev.When, ev.UserId, "session.created", $"session {session.Id}", $"{ev.Harness} with {session.Model}");
+        return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
+    }
+
     public SessionCommandResult Consume(SessionCreated ev)
     {
+        if (ev.Harness == Harnesses.Agent) return ConsumeAgent(ev);
         var machine = Ambient.Relation<IMachineTable>().FindByIdOrDefault(ev.MachineId);
         if (machine == null) return new() { Outcome = CommandOutcome.NotFound };
         if (!MachineAccess.CanControl(ev.UserId, machine)) return new() { Outcome = CommandOutcome.Forbidden };
@@ -335,6 +408,14 @@ public sealed class SessionMessageSentHandler(IDomainSignals signals)
         var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId);
         if (session == null) return new() { Outcome = outcome };
         if (session.Status is SessionStatus.Stopped) return new() { Outcome = CommandOutcome.Invalid };
+        if (session.Harness == Harnesses.Agent)
+        {
+            if (ev.RunnerNodeId.Length == 0) return new() { Outcome = CommandOutcome.Invalid };
+            Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text, replay: AgentRunners.UserReplay(ev.Text, ev.Mode == DispatchMode.Queue));
+            AgentRunners.Claim(signals, session, ev.RunnerNodeId, ev.RunnerPeerUrl, ev.When);
+            Sessions.Changed(signals, session, ev.When);
+            return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
+        }
         Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text, data: Sessions.ImagesData(ev.ImagesJson));
         Sessions.IssueCommand(signals, machine!.Id, new SendMessageCommand(session.Id, ev.Text, ev.Mode, Sessions.Images(ev.ImagesJson)), ev.When);
         Sessions.Changed(signals, session, ev.When);
@@ -351,6 +432,18 @@ public sealed class SessionInterruptRequestedHandler(IDomainSignals signals)
     {
         var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId);
         if (session == null) return new() { Outcome = outcome };
+        if (session.Harness == Harnesses.Agent)
+        {
+            // Kept in the row, so a node taking over still honors it.
+            var runners = Ambient.Relation<IAgentRunnerTable>();
+            if (runners.FindByIdOrDefault(session.Id) is { InterruptRequested: false } runner)
+            {
+                runner.InterruptRequested = true;
+                runners.Update(runner);
+                Sessions.Changed(signals, session, ev.When);
+            }
+            return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
+        }
         Sessions.IssueCommand(signals, machine!.Id, new InterruptCommand(session.Id), ev.When);
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }
@@ -365,6 +458,15 @@ public sealed class SessionStopRequestedHandler(IDomainSignals signals)
     {
         var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId);
         if (session == null) return new() { Outcome = outcome };
+        if (session.Harness == Harnesses.Agent)
+        {
+            if (Ambient.Relation<IAgentRunnerTable>().RemoveById(session.Id)) AgentRunners.RunnerChanged(signals, session.Id);
+            Sessions.CancelPending(session, ev.When);
+            session.Status = SessionStatus.Stopped;
+            Sessions.Changed(signals, session, ev.When);
+            Audit.Record(ev.When, ev.UserId, "session.stopped", $"session {session.Id}");
+            return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
+        }
         Sessions.IssueCommand(signals, machine!.Id, new StopSessionCommand(session.Id), ev.When);
         Audit.Record(ev.When, ev.UserId, "session.stopped", $"session {session.Id}");
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
@@ -389,8 +491,15 @@ public sealed class RuntimeRequestAnsweredHandler(IDomainSignals signals)
         request.AnsweredById = ev.UserId;
         request.AnsweredAt = ev.When;
         requests.Update(request);
-        Sessions.IssueCommand(signals, machine!.Id,
-            new AnswerApprovalCommand(session.Id, request.Key, ev.Allow, ev.Message), ev.When);
+        if (session.Harness == Harnesses.Agent)
+        {
+            request.Answer = ev.Message;
+            requests.Update(request);
+            if (!requests.ListById(session.Id).Any(other => other.Status == RuntimeRequestStatus.Pending)) session.Status = SessionStatus.Running;
+        }
+        else
+            Sessions.IssueCommand(signals, machine!.Id,
+                new AnswerApprovalCommand(session.Id, request.Key, ev.Allow, ev.Message), ev.When);
         Sessions.Changed(signals, session, ev.When);
         Audit.Record(ev.When, ev.UserId, ev.Allow ? "approval.allowed" : "approval.denied", $"session {session.Id}", request.ToolName);
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
@@ -461,7 +570,7 @@ public sealed class DaemonReportsReceivedHandler(IDomainSignals signals) : IEven
                 if (status.Error != null) Sessions.AppendItem(session, SessionItemKind.Notice, when, status.Error, isError: true);
                 // Approvals only wait inside a turn; a daemon that restarted cannot answer the old ones any more.
                 if (status.Status is SessionStatus.Idle or SessionStatus.Stopped or SessionStatus.Failed)
-                    CancelPending(session, when);
+                    Sessions.CancelPending(session, when);
                 break;
             case RunEndedReport ended:
                 session.CostUsd += ended.CostUsd;
@@ -497,17 +606,6 @@ public sealed class DaemonReportsReceivedHandler(IDomainSignals signals) : IEven
                     all.Update(pending);
                 }
                 break;
-        }
-    }
-
-    static void CancelPending(Session session, DateTime when)
-    {
-        var requests = Ambient.Relation<IRuntimeRequestTable>();
-        foreach (var request in requests.ListById(session.Id).Where(r => r.Status == RuntimeRequestStatus.Pending).ToList())
-        {
-            request.Status = RuntimeRequestStatus.Cancelled;
-            request.AnsweredAt = when;
-            requests.Update(request);
         }
     }
 }

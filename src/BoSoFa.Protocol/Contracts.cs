@@ -41,6 +41,8 @@ public static class ProtocolVersion
 [JsonSerializable(typeof(DaemonMessage))]
 [JsonSerializable(typeof(MachineCommand))]
 [JsonSerializable(typeof(PromptImage[]))]
+[JsonSerializable(typeof(AgentItem[]))]
+[JsonSerializable(typeof(AgentUserReplay))]
 [JsonSerializable(typeof(AccountUsageDto))]
 [JsonSerializable(typeof(OutboxRecord))]
 [JsonSerializable(typeof(OutboxRecord[]))]

@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace BoSoFa.Server.Agents;
 
@@ -10,6 +11,12 @@ namespace BoSoFa.Server.Agents;
 public sealed record ModelOrigin(string Api, string Endpoint, string Model);
 
 /// <summary>One entry of the conversation, as the loop stores it.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "t")]
+[JsonDerivedType(typeof(UserMessage), "user")]
+[JsonDerivedType(typeof(AssistantMessage), "assistant")]
+[JsonDerivedType(typeof(ReasoningItem), "reasoning")]
+[JsonDerivedType(typeof(ToolCall), "call")]
+[JsonDerivedType(typeof(ToolResult), "result")]
 public abstract record ConversationItem;
 
 /// <summary>What the person wrote.</summary>

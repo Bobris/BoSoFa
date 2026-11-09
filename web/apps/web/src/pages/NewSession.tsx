@@ -53,7 +53,10 @@ export default function NewSession() {
   const [account, setAccount] = createSignal("");
   // The replay plays Claude Code, so it takes Claude accounts.
   const usable = () => accounts().filter((a) => a.harness === (harness() === "replay" ? "claude" : harness()));
+  // Each provider account is its own choice of harness, under the name its owner gave it: "agent:<account id>".
   const [harness, setHarness] = createSignal("claude");
+  const agentAccounts = () => accounts().filter((a) => a.servesAgent);
+  const agentAccount = () => (harness().startsWith("agent:") ? harness().slice("agent:".length) : undefined);
   const [directory, setDirectory] = createSignal(remembered(lastDirectoryKey));
   const [mode, setMode] = createSignal("default");
   const [model, setModel] = createSignal("");
@@ -69,16 +72,20 @@ export default function NewSession() {
     setBusy(true);
     const { data, response, error: problem } = await api.POST("/api/v1/sessions", {
       body: {
-        machineId: Number(selected()),
-        harness: harness(),
-        workingDirectory: directory().trim(),
+        machineId: agentAccount() ? 0 : Number(selected()),
+        harness: agentAccount() ? "agent" : harness(),
+        workingDirectory: agentAccount() ? "" : directory().trim(),
         prompt: prompt(),
         permissionMode: profile() && mode() === "default" ? null : mode(), // the profile's own default applies
         model: model().trim() || null,
-        accountId: usable().some((a) => String(a.id) === account()) ? Number(account()) : null,
-        useWorktree: worktree(),
+        accountId: agentAccount()
+          ? Number(agentAccount())
+          : usable().some((a) => String(a.id) === account())
+            ? Number(account())
+            : null,
+        useWorktree: !agentAccount() && worktree(),
         profileName: profile() || null,
-        images: attachments.hashes(),
+        images: agentAccount() ? [] : attachments.hashes(),
       },
     });
     setBusy(false);
@@ -86,11 +93,12 @@ export default function NewSession() {
       setError(typeof problem === "string" ? problem : `Starting the session failed (${response.status}).`);
       return;
     }
-    try {
-      localStorage.setItem(lastDirectoryKey, directory().trim());
-    } catch {
-      /* private mode */
-    }
+    if (!agentAccount())
+      try {
+        localStorage.setItem(lastDirectoryKey, directory().trim());
+      } catch {
+        /* private mode */
+      }
     navigate(paths.sessions(Number(data.id))());
   }
 
@@ -101,7 +109,7 @@ export default function NewSession() {
       <form class="mx-auto max-w-2xl space-y-4" onSubmit={start}>
         <h1 class="text-xl font-semibold">New session</h1>
         <Show
-          when={machines().length > 0}
+          when={machines().length > 0 || agentAccounts().length > 0}
           fallback={
             <p class="text-sm text-muted">
               You have no machines yet. Run <code class="font-mono">{branding().daemon} enroll --server {location.origin}</code> on
@@ -112,7 +120,15 @@ export default function NewSession() {
           <div class="grid gap-4 sm:grid-cols-2">
             <label class="block space-y-1">
               <span class="text-sm text-muted">Machine</span>
-              <select class={field} value={selected()} onChange={(event) => setMachine(event.currentTarget.value)}>
+              <select
+                class={field}
+                disabled={agentAccount() !== undefined}
+                value={agentAccount() ? "" : selected()}
+                onChange={(event) => setMachine(event.currentTarget.value)}
+              >
+                <Show when={agentAccount()}>
+                  <option value="">No machine (MCP only)</option>
+                </Show>
                 <For each={machines()}>
                   {(option) => (
                     <option value={String(option.id)}>
@@ -130,6 +146,7 @@ export default function NewSession() {
                 <option value="codex">Codex</option>
                 <option value="opencode">OpenCode</option>
                 <option value="replay">Replay (recorded transcript)</option>
+                <For each={agentAccounts()}>{(option) => <option value={`agent:${option.id}`}>{option.label}</option>}</For>
               </select>
             </label>
           </div>
@@ -142,27 +159,29 @@ export default function NewSession() {
               </For>
             </select>
           </label>
-          <label class="block space-y-1">
-            <span class="text-sm text-muted">Account</span>
-            <select class={field} value={account()} onChange={(event) => setAccount(event.currentTarget.value)}>
-              <option value="">The machine's own sign-in</option>
-              <For each={usable()}>{(option) => <option value={String(option.id)}>{option.label}</option>}</For>
-            </select>
-          </label>
-          <label class="block space-y-1">
-            <span class="text-sm text-muted">Working directory on the machine</span>
-            <input
-              class={[field, "font-mono"]}
-              required
-              placeholder="/Users/me/src/project"
-              value={directory()}
-              onInput={(event) => setDirectory(event.currentTarget.value)}
-            />
-          </label>
-          <label class="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={worktree()} onChange={(event) => setWorktree(event.currentTarget.checked)} />
-            Run in a new git worktree, on its own bosofa/… branch
-          </label>
+          <Show when={!agentAccount()}>
+            <label class="block space-y-1">
+              <span class="text-sm text-muted">Account</span>
+              <select class={field} value={account()} onChange={(event) => setAccount(event.currentTarget.value)}>
+                <option value="">The machine's own sign-in</option>
+                <For each={usable()}>{(option) => <option value={String(option.id)}>{option.label}</option>}</For>
+              </select>
+            </label>
+            <label class="block space-y-1">
+              <span class="text-sm text-muted">Working directory on the machine</span>
+              <input
+                class={[field, "font-mono"]}
+                required
+                placeholder="/Users/me/src/project"
+                value={directory()}
+                onInput={(event) => setDirectory(event.currentTarget.value)}
+              />
+            </label>
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={worktree()} onChange={(event) => setWorktree(event.currentTarget.checked)} />
+              Run in a new git worktree, on its own bosofa/… branch
+            </label>
+          </Show>
           <div class="grid gap-4 sm:grid-cols-2">
             <label class="block space-y-1">
               <span class="text-sm text-muted">Permissions</span>
@@ -171,10 +190,11 @@ export default function NewSession() {
               </select>
             </label>
             <label class="block space-y-1">
-              <span class="text-sm text-muted">Model (optional)</span>
+              <span class="text-sm text-muted">{agentAccount() ? "Model" : "Model (optional)"}</span>
               <input
                 class={field}
-                placeholder="sonnet, opus, haiku…"
+                required={agentAccount() !== undefined}
+                placeholder={agentAccount() ? "gpt-5.4-mini" : "sonnet, opus, haiku…"}
                 value={model()}
                 onInput={(event) => setModel(event.currentTarget.value)}
               />
@@ -192,12 +212,19 @@ export default function NewSession() {
               onDrop={attachments.onDrop}
             />
           </label>
-          <AttachmentStrip attachments={attachments} />
+          <Show when={!agentAccount()}>
+            <AttachmentStrip attachments={attachments} />
+          </Show>
           <div class="flex items-center gap-3">
             <button
               type="submit"
               class="rounded-md bg-accent px-4 py-2 font-medium text-white disabled:opacity-50"
-              disabled={busy() || !selected() || !directory().trim() || !prompt().trim() || attachments.uploading()}
+              disabled={
+                busy() ||
+                !prompt().trim() ||
+                attachments.uploading() ||
+                (agentAccount() ? !model().trim() : !selected() || !directory().trim())
+              }
             >
               Start
             </button>

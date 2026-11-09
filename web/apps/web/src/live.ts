@@ -87,7 +87,8 @@ export function createLiveSession(sessionId: number) {
           if (state.items.some((item) => item.ref === message.ref)) break; // arrived after its final item
           setState((s) => {
             const draft = s.drafts.find((d) => d.ref === message.ref);
-            if (draft) draft.text += message.text;
+            if (draft && message.reset) draft.text = message.text;
+            else if (draft) draft.text += message.text;
             else s.drafts.push({ ref: message.ref, text: message.text });
           });
           break;

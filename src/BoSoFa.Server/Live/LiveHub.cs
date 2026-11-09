@@ -127,7 +127,7 @@ public sealed class LiveHub
 }
 
 /// <summary>Domain post-commit reactions of this node.</summary>
-public sealed class DomainSignals(DaemonConnections connections, LiveHub hub, LiveRelay relay) : IDomainSignals
+public sealed class DomainSignals(DaemonConnections connections, LiveHub hub, LiveRelay relay, BoSoFa.Server.Agents.AgentRunnerService agents) : IDomainSignals
 {
     public void MachineCommandsIssued(ulong machineId) => connections.Get(machineId)?.WakeCommands();
 
@@ -138,4 +138,8 @@ public sealed class DomainSignals(DaemonConnections connections, LiveHub hub, Li
         connections.Supersede(machineId, connectionId);
         relay.PresenceChanged(machineId);
     }
+
+    public void AgentSessionChanged(ulong sessionId) => agents.Wake(sessionId);
+
+    public void AgentRunnerChanged(ulong sessionId) => relay.SessionRunnerChanged(sessionId);
 }

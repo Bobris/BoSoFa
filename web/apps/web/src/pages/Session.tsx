@@ -364,12 +364,13 @@ function SessionView(props: { id: number }) {
               </Show>
             </div>
             <p class="text-sm text-muted">
-              {session().machineName} · {session().harness}
+              {session().machineName || "No machine"} · {session().harness}
               <Show when={session().model}>{(model) => <> · {model()}</>}</Show>
               <Show when={session().accountLabel}>{(account) => <> · {account()}</>}</Show>
               <Show when={session().profileName}>{(profile) => <> · {profile()}</>}</Show>
               <Show when={session().branch}>{(branch) => <> · <span class="font-mono">{branch()}</span></>}</Show> ·{" "}
-              <span class="font-mono">{session().workingDirectory}</span> · {session().permissionMode}
+              <Show when={session().workingDirectory}>{(directory) => <><span class="font-mono">{directory()}</span> · </>}</Show>
+              {session().permissionMode}
               <Show when={Number(session().costUsd) > 0}> · ${Number(session().costUsd).toFixed(4)}</Show>
             </p>
           </header>

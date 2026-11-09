@@ -108,6 +108,18 @@ public static class CatalogEndpoints
         }, http.RequestAborted));
     }
 
+    /// <summary>A profile's MCP servers with their secrets decrypted. Must run inside a query scope.</summary>
+    internal static ResolvedMcpServer[] ResolveServers(Profile profile, IDataProtectionProvider protection)
+    {
+        var servers = new List<ResolvedMcpServer>();
+        foreach (var serverName in Strings(profile.McpServers))
+            if (Ambient.Relation<IMcpServerTable>().FindByIdOrDefault(serverName) is { } server)
+                servers.Add(new(server.Name, server.Transport, server.Command, Strings(server.Args), server.Url,
+                    JsonSerializer.Deserialize(protection.CreateProtector(Purpose, server.SecretId).Unprotect(server.ProtectedSecrets),
+                        ProtocolJsonContext.Default.DictionaryStringString)!));
+        return servers.ToArray();
+    }
+
     /// <summary>The profile of a session on this machine, secrets decrypted; never stored or logged on the way.</summary>
     static async Task<Results<Ok<SessionProfileResponse>, NotFound, ForbidHttpResult>> ResolveAsync(ulong id, BtdbNode node,
         IDataProtectionProvider protection, HttpContext http)
@@ -119,14 +131,9 @@ public static class CatalogEndpoints
         if (session.MachineId != http.User.MachineId() || session.Status == SessionStatus.Stopped) return TypedResults.Forbid();
         if (session.ProfileName is not { } name || Ambient.Relation<IProfileTable>().FindByIdOrDefault(name) is not { } profile)
             return TypedResults.NotFound();
-        var servers = new List<ResolvedMcpServer>();
-        foreach (var serverName in Strings(profile.McpServers))
-            if (Ambient.Relation<IMcpServerTable>().FindByIdOrDefault(serverName) is { } server)
-                servers.Add(new(server.Name, server.Transport, server.Command, Strings(server.Args), server.Url,
-                    JsonSerializer.Deserialize(protection.CreateProtector(Purpose, server.SecretId).Unprotect(server.ProtectedSecrets),
-                        ProtocolJsonContext.Default.DictionaryStringString)!));
+        var servers = ResolveServers(profile, protection);
         var skills = Skills(profile.Skills).Select(skill => Ambient.Relation<ISkillBundleTable>().FindByIdOrDefault(skill.Name, skill.Version))
             .Where(skill => skill != null).Select(skill => new ResolvedSkill(skill!.Name, skill.Version, skill.Sha256)).ToArray();
-        return TypedResults.Ok(new SessionProfileResponse(servers.ToArray(), skills));
+        return TypedResults.Ok(new SessionProfileResponse(servers, skills));
     }
 }

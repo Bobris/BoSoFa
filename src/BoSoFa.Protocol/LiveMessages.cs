@@ -42,8 +42,9 @@ public abstract record LiveServerMessage;
 public sealed record LiveSessionUpdate(SessionDto Session, SessionItemDto[] Items, RuntimeRequestDto[] Requests)
     : LiveServerMessage;
 
-/// <summary>Streamed text for the assistant message <c>Ref</c>; discard it once an item with that ref arrives.</summary>
-public sealed record LiveDelta(ulong SessionId, string Ref, string Text) : LiveServerMessage;
+/// <summary>Streamed text for the assistant message <c>Ref</c>; discard it once an item with that ref arrives. With
+/// <c>Reset</c>, first drop what came for that ref so far: the model is being asked again.</summary>
+public sealed record LiveDelta(ulong SessionId, string Ref, string Text, bool Reset = false) : LiveServerMessage;
 
 public sealed record LiveError(ulong SessionId, string Message) : LiveServerMessage;
 

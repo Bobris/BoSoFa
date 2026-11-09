@@ -105,6 +105,8 @@ public static class ServerApp
         builder.AddBoSoFaTelemetry(nodeId);
         builder.Services.AddSingleton<MachinePresenceService>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<MachinePresenceService>());
+        builder.Services.AddSingleton<BoSoFa.Server.Agents.AgentRunnerService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<BoSoFa.Server.Agents.AgentRunnerService>());
 
         var app = builder.Build();
         app.Services.GetRequiredService<BtdbNode>().Attach(app.Services);
@@ -139,6 +141,8 @@ public static class ServerApp
             app.MapBTDBEventLog();
             app.MapGet(LiveRelay.PathPrefix + "{machineId}",
                 (HttpContext http, ulong machineId, LiveRelay relay) => relay.ServeAsync(http, machineId));
+            app.MapGet(LiveRelay.SessionPathPrefix + "{sessionId}",
+                (HttpContext http, ulong sessionId, LiveRelay relay) => relay.ServeSessionAsync(http, sessionId));
             app.MapPost(MachineRpcClient.PathPrefix + "{machineId}/rpc",
                 (HttpContext http, ulong machineId, MachineRpcClient rpc) => rpc.ServeAsync(http, machineId));
             app.MapMethods(PollEndpoints.PeerPrefix + "{machineId}/{connection}/{action}", ["GET", "POST"],

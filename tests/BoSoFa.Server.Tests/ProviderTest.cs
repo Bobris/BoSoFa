@@ -267,7 +267,7 @@ public class ProviderTest
 
     /// <summary>Runs only with <c>BOSOFA_TEST_OPENAI_KEY_FILE</c> naming a file that holds an OpenAI API key; the key is never
     /// printed. <c>BOSOFA_TEST_OPENAI_MODEL</c> picks the model (gpt-5.4-nano by default).</summary>
-    sealed class LiveOpenAIFactAttribute : FactAttribute
+    internal sealed class LiveOpenAIFactAttribute : FactAttribute
     {
         public LiveOpenAIFactAttribute()
         {

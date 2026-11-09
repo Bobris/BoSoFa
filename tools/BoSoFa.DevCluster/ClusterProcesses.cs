@@ -20,7 +20,7 @@ public sealed class NodeProcess : IAsyncDisposable
     /// <param name="root">Each node keeps its data and log below it.</param>
     /// <param name="mainPort">The port for clients and peers alike; 0 picks a free one.</param>
     public NodeProcess(string root, string nodeId, string azure, string container, int mainPort = 0,
-        string environment = "Development")
+        string environment = "Development", string[]? extraArguments = null)
     {
         NodeId = nodeId;
         MainUrl = new($"http://127.0.0.1:{(mainPort == 0 ? FreePort() : mainPort)}");
@@ -34,7 +34,8 @@ public sealed class NodeProcess : IAsyncDisposable
             "--BoSoFa:DataDirectory", data, "--BoSoFa:DevLogin", "true", "--BoSoFa:FlushToDisk", "false",
             "--BoSoFa:WebRoot", Path.Combine(data, "no-web-root"), "--BoSoFa:Cluster:NodeId", nodeId,
             "--BoSoFa:Cluster:PeerUrl", PeerUrl, "--BoSoFa:Cluster:PeerKey", "test-peer-key",
-            "--BoSoFa:Cluster:Azure:ConnectionString", azure, "--BoSoFa:Cluster:Azure:Container", container
+            "--BoSoFa:Cluster:Azure:ConnectionString", azure, "--BoSoFa:Cluster:Azure:Container", container,
+            ..extraArguments ?? []
         ];
         Start();
     }

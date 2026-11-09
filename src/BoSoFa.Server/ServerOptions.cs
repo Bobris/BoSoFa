@@ -36,8 +36,17 @@ public sealed class ServerOptions
     /// <summary>The names the web page and the desktop app show for this server (white labeling).</summary>
     public BrandingOptions Branding { get; set; } = new();
 
+    public AgentOptions Agent { get; set; } = new();
+
     /// <summary>Set to run this server as one node of a cluster; null is single-node mode.</summary>
     public ClusterOptions? Cluster { get; set; }
+}
+
+/// <summary>The server's own agent loop (docs/server-agent.md).</summary>
+public sealed class AgentOptions
+{
+    /// <summary>Another address for OpenAI's Responses API, such as a company gateway; empty uses OpenAI's own.</summary>
+    public string OpenAIEndpoint { get; set; } = "";
 }
 
 public sealed class ClusterOptions
