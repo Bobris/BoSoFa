@@ -22,8 +22,8 @@ namespace BoSoFa.Protocol;
 public abstract record DaemonMessage;
 
 /// <summary>First message of the daemon after connecting.</summary>
-public sealed record HelloMessage(string DaemonVersion, int ProtocolVersion, string Os, string Arch, string HostName)
-    : DaemonMessage;
+public sealed record HelloMessage(string DaemonVersion, int ProtocolVersion, string Os, string Arch, string HostName,
+    Guid? InstanceId = null, MachineResources? Resources = null) : DaemonMessage;
 
 /// <summary>The server's answer to <see cref="HelloMessage"/>. Every unacknowledged command follows it.</summary>
 public sealed record WelcomeMessage(ulong MachineId, string ServerVersion) : DaemonMessage;

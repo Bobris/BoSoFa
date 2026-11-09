@@ -116,4 +116,68 @@ public partial class MachineTest
         // A daemon token is not a person's session.
         Assert.Equal(HttpStatusCode.Unauthorized, (await authorized.GetAsync("/api/v1/me")).StatusCode);
     }
+
+    [Fact]
+    public async Task ADaemonKeepsItsIdentityShowsWhatItHasAndItsOwnerNamesIt()
+    {
+        await using var server = await TestServer.StartAsync();
+        using var boris = await SignIn(server, "boris@example.com");
+        using var alice = await SignIn(server, "alice@example.com");
+        var dataDir = Path.Combine(server.DataDirectory, "daemon");
+        var store = new DaemonStore(dataDir);
+        var instanceId = store.InstanceId();
+        Assert.Equal(instanceId, new DaemonStore(dataDir).InstanceId()); // kept in the data folder
+
+        async Task<(string UserCode, Task<int> Enrolling)> StartAsync()
+        {
+            var output = new StringWriter();
+            var synchronized = TextWriter.Synchronized(output);
+            File.Delete(Path.Combine(dataDir, "daemon.json")); // enrolled from scratch, as after a reset; the identity stays
+            var enrolling = Cli.RunAsync(["enroll", "--server", server.BaseAddress.ToString(), "--data-dir", dataDir], synchronized, synchronized);
+            var code = await Eventually(() => Task.FromResult(CodePattern().Match(output.ToString())), m => m.Success || enrolling.IsCompleted);
+            Assert.True(code.Success, output.ToString());
+            return (code.Groups[1].Value, enrolling);
+        }
+
+        // The approver sees the daemon's identity and what the computer has, and names the machine.
+        var (first, enrolling) = await StartAsync();
+        var enrollment = (await boris.GetFromJsonAsync<EnrollmentDto>($"/api/v1/enrollments/{first}"))!;
+        Assert.Equal(instanceId, enrollment.InstanceId);
+        Assert.True(enrollment.Resources is { Processors: > 0, MemoryBytes: > 0, DiskBytes: > 0, Platform.Length: > 0 }, enrollment.Resources?.ToString());
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await boris.PostAsync($"/api/v1/enrollments/{first}/approve?name=%20", null)).StatusCode);
+        var machine = (await (await boris.PostAsync($"/api/v1/enrollments/{first}/approve?name={Uri.EscapeDataString(" Build box ")}", null))
+            .Content.ReadFromJsonAsync<MachineDto>())!;
+        Assert.Equal(0, await enrolling.WaitAsync(Timeout));
+        Assert.Equal(("Build box", instanceId), (machine.Name, machine.InstanceId));
+        Assert.NotNull(machine.Resources);
+
+        // Only the owner renames it.
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await alice.PutAsJsonAsync($"/api/v1/machines/{machine.Id}/name", new RenameMachineRequest("Mine now"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await boris.PutAsJsonAsync($"/api/v1/machines/{machine.Id}/name", new RenameMachineRequest(new string('x', 101)))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await boris.PutAsJsonAsync($"/api/v1/machines/{machine.Id}/name", new RenameMachineRequest("Studio"))).StatusCode);
+
+        // Enrolled again by the same owner, the daemon gets its machine back, name and all.
+        var (second, enrollingAgain) = await StartAsync();
+        var back = (await (await boris.PostAsync($"/api/v1/enrollments/{second}/approve", null)).Content.ReadFromJsonAsync<MachineDto>())!;
+        Assert.Equal(0, await enrollingAgain.WaitAsync(Timeout));
+        Assert.Equal((machine.Id, "Studio"), (back.Id, back.Name));
+        Assert.Single((await boris.GetFromJsonAsync<MachineDto[]>("/api/v1/machines"))!);
+
+        // Online, its owner measures it now; nobody else may.
+        var state = store.LoadState()!;
+        using var key = store.LoadOrCreateKey();
+        using var stop = new CancellationTokenSource();
+        var running = new DaemonLink(state, key, TextWriter.Null, instanceId: instanceId).RunAsync(stop.Token);
+        await Eventually(() => boris.GetFromJsonAsync<MachineDto[]>("/api/v1/machines")!, m => m![0].Online);
+        var now = (await boris.GetFromJsonAsync<MachineResources>($"/api/v1/machines/{machine.Id}/resources"))!;
+        Assert.True(now is { MemoryBytes: > 0, MemoryAvailableBytes: > 0, DiskFreeBytes: > 0 }, now.ToString());
+        Assert.True(now.MemoryAvailableBytes <= now.MemoryBytes && now.DiskFreeBytes <= now.DiskBytes, now.ToString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await alice.GetAsync($"/api/v1/machines/{machine.Id}/resources")).StatusCode);
+        await stop.CancelAsync();
+        await running.WaitAsync(Timeout);
+    }
 }

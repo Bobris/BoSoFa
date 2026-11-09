@@ -176,7 +176,7 @@ namespace BoSoFa.Daemon
             using var key = store.LoadOrCreateKey();
             using var client = new ServerClient(server);
             var started = await client.StartEnrollmentAsync(new(name, DaemonStore.OsName(), DaemonStore.ArchName(), Version,
-                DaemonStore.PublicKey(key)), cancellation);
+                DaemonStore.PublicKey(key), store.InstanceId(), MachineInventory.Measure()), cancellation);
             output.WriteLine($"To add this machine, open {started.VerificationUri}");
             output.WriteLine($"and approve the code {started.UserCode} (valid until {started.ExpiresAt.ToLocalTime():t}).");
             while (true)
@@ -218,7 +218,7 @@ namespace BoSoFa.Daemon
                     switchRequested = true;
                     switching.Cancel();
                 };
-                var link = new DaemonLink(state, key, output, outbox, host, transport);
+                var link = new DaemonLink(state, key, output, outbox, host, transport, store.InstanceId());
                 if (Environment.GetEnvironmentVariable(Service.Launcher.LaunchedVariable) == "1")
                 {
                     var versions = new Service.VersionStore(Path.GetFullPath(store.Directory));

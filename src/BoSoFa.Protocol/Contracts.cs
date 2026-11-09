@@ -35,6 +35,8 @@ public static class ProtocolVersion
 [JsonSerializable(typeof(DaemonTokenRequest))]
 [JsonSerializable(typeof(DaemonTokenResponse))]
 [JsonSerializable(typeof(MachineDto))]
+[JsonSerializable(typeof(MachineResources))]
+[JsonSerializable(typeof(RenameMachineRequest))]
 [JsonSerializable(typeof(MachineDto[]))]
 [JsonSerializable(typeof(DaemonMessage))]
 [JsonSerializable(typeof(MachineCommand))]

@@ -961,7 +961,9 @@ export interface paths {
         put?: never;
         post: {
             parameters: {
-                query?: never;
+                query?: {
+                    name?: string;
+                };
                 header?: never;
                 path: {
                     userCode: string;
@@ -977,6 +979,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["MachineDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
                     };
                 };
                 /** @description Conflict */
@@ -1020,6 +1031,114 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["MachineDto"][];
                     };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/machines/{id}/name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RenameMachineRequest"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/machines/{id}/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MachineResources"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -3335,6 +3454,9 @@ export interface components {
             /** Format: date-time */
             expiresAt: string;
             status: components["schemas"]["EnrollStatus"];
+            /** Format: uuid */
+            instanceId?: null | string;
+            resources?: null | components["schemas"]["MachineResources"];
         };
         EnrollPollRequest: {
             enrollmentId: string;
@@ -3350,6 +3472,9 @@ export interface components {
             arch: string;
             daemonVersion: string;
             publicKey: string;
+            /** Format: uuid */
+            instanceId?: null | string;
+            resources?: null | components["schemas"]["MachineResources"];
         };
         EnrollStartResponse: {
             enrollmentId: string;
@@ -3617,6 +3742,25 @@ export interface components {
             harnesses: components["schemas"]["InstalledHarness"][];
             /** @default false */
             canControl: boolean;
+            /** Format: uuid */
+            instanceId?: null | string;
+            resources?: null | components["schemas"]["MachineResources"];
+        };
+        MachineResources: {
+            platform: string;
+            /** Format: int32 */
+            processors: number | string;
+            /** Format: int64 */
+            memoryBytes: number | string;
+            /** Format: int64 */
+            memoryAvailableBytes: number | string;
+            diskPath: string;
+            /** Format: int64 */
+            diskBytes: number | string;
+            /** Format: int64 */
+            diskFreeBytes: number | string;
+            /** Format: date-time */
+            measuredAt: string;
         };
         McpServerDto: {
             name: string;
@@ -3674,6 +3818,9 @@ export interface components {
             /** Format: date-time */
             publishedAt: string;
             rids: string[];
+        };
+        RenameMachineRequest: {
+            name: string;
         };
         ResolvedMcpServer: {
             name: string;

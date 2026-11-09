@@ -1,4 +1,4 @@
-import { api, getPlatform, uploadBlob, type FileEntry } from "@bosofa/api";
+import { api, getPlatform, uploadBlob, type FileEntry, type Machine } from "@bosofa/api";
 import { useNavigate, useParams } from "@solidjs/router";
 import Limit from "../components/Limit";
 import Terminals from "../components/Terminals";
@@ -6,6 +6,7 @@ import { createEffect, createMemo, createSignal, For, Loading, refresh, Show } f
 import { paths } from "../router";
 import { fetchMe } from "../session";
 import { branding } from "../branding";
+import MachineFacts from "../components/MachineFacts";
 
 type Listing = { path: string | null; parent: string | null; entries: FileEntry[]; truncated: boolean; error?: string };
 
@@ -208,6 +209,83 @@ function Files(props: { machineId: number; onTerminalHere: (directory: string) =
   );
 }
 
+/** Name, identity and what the computer has: measured now while it is online, as last known otherwise. */
+function Details(props: { machine: Machine; onRenamed: () => void }) {
+  const [editing, setEditing] = createSignal(false);
+  const [name, setName] = createSignal("");
+  const [problem, setProblem] = createSignal<string>();
+  const live = createMemo(async () => {
+    if (!props.machine.online) return undefined;
+    const { data } = await api.GET("/api/v1/machines/{id}/resources", { params: { path: { id: Number(props.machine.id) } } });
+    return data ?? undefined;
+  });
+
+  async function rename(event: SubmitEvent) {
+    event.preventDefault();
+    const { response, error } = await api.PUT("/api/v1/machines/{id}/name", {
+      params: { path: { id: Number(props.machine.id) } },
+      body: { name: name().trim() },
+    });
+    if (!response.ok) return setProblem(typeof error === "string" ? error : `Renaming failed (${response.status}).`);
+    setProblem(undefined);
+    setEditing(false);
+    props.onRenamed();
+  }
+
+  return (
+    <section class="space-y-3 rounded-lg border border-line bg-panel p-4">
+      <Show
+        when={editing()}
+        fallback={
+          <div class="flex items-center gap-3">
+            <h1 class="text-lg font-medium">{props.machine.name}</h1>
+            <button
+              class="text-xs text-muted hover:underline"
+              onClick={() => {
+                setName(props.machine.name);
+                setEditing(true);
+              }}
+            >
+              Rename
+            </button>
+            <span class="ml-auto flex items-center gap-2 text-xs text-muted">
+              <span class={["inline-block size-2 rounded-full", props.machine.online ? "bg-green-500" : "bg-line"]} />
+              {props.machine.online ? "Online" : "Offline"}
+              <Show when={props.machine.online}>
+                <button class="hover:underline" onClick={() => refresh(live)}>
+                  Measure again
+                </button>
+              </Show>
+            </span>
+          </div>
+        }
+      >
+        <form class="flex items-center gap-2" onSubmit={rename}>
+          <input
+            class="flex-1 rounded-md border border-line bg-transparent px-3 py-1.5 text-sm"
+            maxlength={100}
+            value={name()}
+            onInput={(event) => setName(event.currentTarget.value)}
+          />
+          <button type="submit" class="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white" disabled={!name().trim()}>
+            Save
+          </button>
+          <button type="button" class="text-sm text-muted hover:underline" onClick={() => setEditing(false)}>
+            Cancel
+          </button>
+        </form>
+        <Show when={problem()}>{(message) => <p class="text-sm text-red-600">{message()}</p>}</Show>
+      </Show>
+      <Show
+        when={live() ?? props.machine.resources}
+        fallback={<p class="text-sm text-muted">This machine's daemon does not report what it has yet.</p>}
+      >
+        {(resources) => <MachineFacts resources={resources()} instanceId={props.machine.instanceId} live={!!live()} />}
+      </Show>
+    </section>
+  );
+}
+
 export default function MachinePage() {
   const params = useParams<{ id: string }>();
   const machineId = () => Number(params.id);
@@ -227,7 +305,13 @@ export default function MachinePage() {
 
   return (
     <div class="space-y-4">
-      <h1 class="text-lg font-medium">{machine()?.name ?? "Machine"}</h1>
+      <Show when={machine()} fallback={<h1 class="text-lg font-medium">Machine</h1>}>
+        {(found) => (
+          <Loading fallback={<h1 class="text-lg font-medium">{found().name}</h1>}>
+            <Details machine={found()} onRenamed={() => refresh(machine)} />
+          </Loading>
+        )}
+      </Show>
       <Loading fallback={null}>
         <CodexLimits machineId={machineId()} />
       </Loading>

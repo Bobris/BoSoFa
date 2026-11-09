@@ -31,10 +31,11 @@ public sealed class DaemonPump(DaemonConnections connections, BtdbNode node, Liv
         await publisher.PublishAsync(new MachineConnected
         {
             MachineId = machineId, NodeId = presence.NodeId, ConnectionId = connection.ConnectionId, PeerUrl = presence.PeerUrl,
-            DaemonVersion = hello.DaemonVersion, HostName = hello.HostName
+            DaemonVersion = hello.DaemonVersion, HostName = hello.HostName, InstanceId = hello.InstanceId ?? Guid.Empty,
+            ResourcesJson = MachineEndpoints.ResourcesJson(hello.Resources)
         }, cancellation);
         connection.Registered = true;
-        logger.LogInformation("Machine {MachineId} connected ({HostName}, bosofad {Version})", machineId, hello.HostName,
+        logger.LogInformation("Machine {MachineId} connected ({HostName}, daemon {Version})", machineId, hello.HostName,
             hello.DaemonVersion);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         Task? commands = null;

@@ -17,6 +17,7 @@ namespace BoSoFa.Protocol;
 [JsonDerivedType(typeof(TerminalResizeRequest), "terminalResize")]
 [JsonDerivedType(typeof(TerminalCloseRequest), "terminalClose")]
 [JsonDerivedType(typeof(CodexUsageRequest), "codexUsage")]
+[JsonDerivedType(typeof(MachineResourcesRequest), "resources")]
 public abstract record MachineRpc;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "k")]
@@ -31,7 +32,13 @@ public abstract record MachineRpc;
 [JsonDerivedType(typeof(TerminalListResult), "terminalList")]
 [JsonDerivedType(typeof(TerminalAttachResult), "terminalAttach")]
 [JsonDerivedType(typeof(CodexUsageResult), "codexUsage")]
+[JsonDerivedType(typeof(MachineResourcesResult), "resources")]
 public abstract record MachineRpcResult;
+
+/// <summary>Measure the computer now: free memory and disk change all the time, so they are asked for, not reported.</summary>
+public sealed record MachineResourcesRequest : MachineRpc;
+
+public sealed record MachineResourcesResult(MachineResources Resources) : MachineRpcResult;
 
 /// <summary>Why a call did not work, for people to read.</summary>
 public sealed record RpcFailure(string Message) : MachineRpcResult;

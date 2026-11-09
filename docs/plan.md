@@ -193,6 +193,9 @@ bosofad update [--check]         # also triggered remotely by the server
 
 - At enrollment the daemon generates an ECDSA P-256 key, protected by DPAPI on Windows and by mode 0600 on macOS/Linux. Its public key is registered on the server as a `Machine`.
 - Authentication is challenge, then signature, then a short-lived (15 min) access token, sent as a bearer on the WebSocket and HTTP calls. This is simpler than signing every request and still never stores a long-lived secret on the server side.
+- Each daemon makes a GUID once (`instance-id` in its data folder) and sends it when it enrolls and on every connect. Enrolled again for the same owner (after a reset, or with a new key), it gets its machine back, name and all; a machine enrolled by an older daemon learns its GUID when the daemon connects (decided 2026-11-09).
+- The approver names the machine on the enrollment page (the host name by default), and its owner can rename it.
+- The daemon measures the computer: platform, processors, memory (total and available) and the disk holding the home folder (total and free). It sends one measurement when it enrolls and when it connects, shown while the machine is offline; the machine page asks a running daemon for fresh figures (`GET /api/v1/machines/{id}/resources`, a machine RPC), so no periodic events reach the log, which is kept forever.
 
 ### 5.3 Transport and buffering
 

@@ -19,7 +19,7 @@ public enum DaemonTransport
 /// is away. Over it go the server's commands (applied by the <see cref="SessionHost"/>, then acknowledged), the
 /// outbox (sent in order, forgotten once acknowledged, sent again after a reconnect) and live deltas.</summary>
 public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Outbox? outbox = null, SessionHost? host = null,
-    DaemonTransport transport = DaemonTransport.Auto)
+    DaemonTransport transport = DaemonTransport.Auto, Guid? instanceId = null)
 {
     public static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(15);
     static readonly TimeSpan MaximumBackoff = TimeSpan.FromSeconds(30);
@@ -71,7 +71,8 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
     async Task ConnectOnceAsync(CancellationToken cancellation)
     {
         using var client = new ServerClient(state.Server);
-        var hello = new HelloMessage(Cli.Version, ProtocolVersion.Current, DaemonStore.OsName(), DaemonStore.ArchName(), Environment.MachineName);
+        var hello = new HelloMessage(Cli.Version, ProtocolVersion.Current, DaemonStore.OsName(), DaemonStore.ArchName(), Environment.MachineName,
+            instanceId, MachineInventory.Measure());
         var token = await client.GetTokenAsync(state.MachineId, key, cancellation);
         IDaemonChannel channel;
         using var socket = new ClientWebSocket();
@@ -175,7 +176,9 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
             {
                 try
                 {
-                    var result = terminal ?? (_host == null
+                    var result = terminal ?? (call.Request is MachineResourcesRequest
+                        ? new MachineResourcesResult(MachineInventory.Measure())
+                        : _host == null
                         ? new RpcFailure("This daemon cannot do that.")
                         : call.Request is CodexUsageRequest
                             ? await _host.CodexUsageAsync()

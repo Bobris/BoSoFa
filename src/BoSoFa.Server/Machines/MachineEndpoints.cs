@@ -34,6 +34,8 @@ public static class MachineEndpoints
         api.MapGet("/enrollments/{userCode}", GetEnrollmentAsync);
         api.MapPost("/enrollments/{userCode}/approve", ApproveEnrollmentAsync);
         api.MapGet("/machines", ListMachinesAsync);
+        api.MapPut("/machines/{id}/name", RenameMachineAsync);
+        api.MapGet("/machines/{id}/resources", MeasureMachineAsync);
         api.MapPost("/machines/{id}/harnesses", InstallHarnessAsync);
         api.MapGet("/harness-releases", ListReleasesAsync);
         api.MapPost("/harness-releases", PublishReleaseAsync);
@@ -71,7 +73,8 @@ public static class MachineEndpoints
             {
                 Key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_'),
                 UserCode = NewUserCode(), Name = request.Name.Trim(), Os = request.Os, Arch = request.Arch,
-                DaemonVersion = request.DaemonVersion, PublicKey = request.PublicKey
+                DaemonVersion = request.DaemonVersion, PublicKey = request.PublicKey, InstanceId = request.InstanceId ?? Guid.Empty,
+                ResourcesJson = ResourcesJson(request.Resources)
             };
             var result = await publisher.PublishAndWaitAsync(started, http.RequestAborted);
             if (result.Accepted)
@@ -121,15 +124,19 @@ public static class MachineEndpoints
         if (Ambient.Relation<IEnrollmentTable>().FindByUserCodeOrDefault(NormalizeCode(userCode)) is not { } enrollment)
             return TypedResults.NotFound();
         return TypedResults.Ok(new EnrollmentDto(enrollment.UserCode, enrollment.Name, enrollment.Os, enrollment.Arch,
-            enrollment.DaemonVersion, enrollment.ExpiresAt, enrollment.StatusAt(time.GetUtcNow().UtcDateTime)));
+            enrollment.DaemonVersion, enrollment.ExpiresAt, enrollment.StatusAt(time.GetUtcNow().UtcDateTime),
+            enrollment.InstanceId == Guid.Empty ? null : enrollment.InstanceId, Resources(enrollment.ResourcesJson)));
     }
 
-    static async Task<Results<Ok<MachineDto>, Conflict<string>>> ApproveEnrollmentAsync(string userCode, BtdbNode node,
-        HttpContext http)
+    /// <param name="name">What to call the machine; its host name when absent.</param>
+    static async Task<Results<Ok<MachineDto>, Conflict<string>, BadRequest<string>>> ApproveEnrollmentAsync(string userCode,
+        string? name, BtdbNode node, HttpContext http)
     {
+        if (name != null && MachineNames.Clean(name) == null)
+            return TypedResults.BadRequest($"A machine name has 1 to {MachineNames.MaximumLength} characters.");
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         var result = await publisher.PublishAndWaitAsync(
-            new EnrollmentApproved { UserCode = NormalizeCode(userCode), ApproverId = http.User.UserId() ?? 0 },
+            new EnrollmentApproved { UserCode = NormalizeCode(userCode), ApproverId = http.User.UserId() ?? 0, Name = name },
             http.RequestAborted);
         if (result.Status != EnrollStatus.Approved) return TypedResults.Conflict($"The enrollment is {result.Status}.");
         using var query = publisher.StartQuery();
@@ -143,6 +150,56 @@ public static class MachineEndpoints
         var userId = http.User.UserId() ?? 0;
         return Ambient.Relation<IMachineTable>().Select(machine => ToDto(machine) with { CanControl = MachineAccess.CanControl(userId, machine) })
             .OrderBy(machine => machine.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    static async Task<Results<NoContent, NotFound, ForbidHttpResult, BadRequest<string>>> RenameMachineAsync(ulong id,
+        RenameMachineRequest request, BtdbNode node, HttpContext http)
+    {
+        if (MachineNames.Clean(request.Name) == null)
+            return TypedResults.BadRequest($"A machine name has 1 to {MachineNames.MaximumLength} characters.");
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        return CommandResult(await publisher.PublishAndWaitAsync(new MachineRenamed
+        {
+            MachineId = id, UserId = http.User.UserId() ?? 0, Name = request.Name
+        }, http.RequestAborted));
+    }
+
+    /// <summary>Measures the machine now; its owner only. Nothing is stored: the figures change all the time.</summary>
+    static async Task<Results<Ok<MachineResources>, NotFound, ForbidHttpResult, BadRequest<string>>> MeasureMachineAsync(ulong id,
+        BtdbNode node, MachineRpcClient rpc, HttpContext http)
+    {
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        using (publisher.StartQuery())
+        {
+            if (Ambient.Relation<IMachineTable>().FindByIdOrDefault(id) is not { } machine) return TypedResults.NotFound();
+            if (!MachineAccess.CanControl(http.User.UserId() ?? 0, machine)) return TypedResults.Forbid();
+        }
+        return await rpc.CallAsync(id, new MachineResourcesRequest(), http.RequestAborted) switch
+        {
+            MachineResourcesResult measured => TypedResults.Ok(Clean(measured.Resources)),
+            RpcFailure failure => TypedResults.BadRequest(failure.Message),
+            _ => TypedResults.BadRequest("The daemon gave an unexpected answer.")
+        };
+    }
+
+    /// <summary>What a daemon says about itself, bounded before it is stored or shown.</summary>
+    static MachineResources Clean(MachineResources resources) => resources with
+    {
+        Platform = resources.Platform.Length > 200 ? resources.Platform[..200] : resources.Platform,
+        DiskPath = resources.DiskPath.Length > 500 ? resources.DiskPath[..500] : resources.DiskPath,
+        Processors = Math.Max(0, resources.Processors), MemoryBytes = Math.Max(0, resources.MemoryBytes),
+        MemoryAvailableBytes = Math.Max(0, resources.MemoryAvailableBytes), DiskBytes = Math.Max(0, resources.DiskBytes),
+        DiskFreeBytes = Math.Max(0, resources.DiskFreeBytes)
+    };
+
+    internal static string ResourcesJson(MachineResources? resources) =>
+        resources == null ? "" : JsonSerializer.Serialize(Clean(resources), ProtocolJsonContext.Default.MachineResources);
+
+    static MachineResources? Resources(string json)
+    {
+        if (json.Length == 0) return null;
+        try { return JsonSerializer.Deserialize(json, ProtocolJsonContext.Default.MachineResources); }
+        catch (JsonException) { return null; }
     }
 
     static async Task<HarnessReleaseDto[]> ListReleasesAsync(BtdbNode node, HttpContext http)
@@ -189,7 +246,7 @@ public static class MachineEndpoints
             CommandOutcome.Ok => TypedResults.NoContent(),
             CommandOutcome.NotFound => TypedResults.NotFound(),
             CommandOutcome.Forbidden => TypedResults.Forbid(),
-            _ => TypedResults.BadRequest("That release cannot be used here.")
+            _ => TypedResults.BadRequest("That cannot be done to this machine.")
         };
 
     /// <summary>Must run inside a query scope. Online means some node holds the daemon's connection.</summary>
@@ -200,7 +257,8 @@ public static class MachineEndpoints
         return new(machine.Id, machine.Name, machine.Os, machine.Arch, machine.OwnerId, owner?.Name ?? "",
             presence?.DaemonVersion ?? machine.DaemonVersion, presence != null, presence?.ConnectedAt,
             Ambient.Relation<IMachineHarnessTable>().ListById(machine.Id)
-                .Select(harness => new InstalledHarness(harness.Harness, harness.Version, harness.Error)).ToArray());
+                .Select(harness => new InstalledHarness(harness.Harness, harness.Version, harness.Error)).ToArray(),
+            InstanceId: machine.InstanceId == Guid.Empty ? null : machine.InstanceId, Resources: Resources(machine.ResourcesJson));
     }
 
     /// <summary>The daemon's WebSocket: hello/welcome, then every unacknowledged inbox command (and new ones as they

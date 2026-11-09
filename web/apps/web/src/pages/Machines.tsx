@@ -4,6 +4,7 @@ import ThisMachine from "../components/ThisMachine";
 import { paths } from "../router";
 import { shortVersion } from "../version";
 import { branding } from "../branding";
+import { summary } from "../components/MachineFacts";
 
 /** Machines of the whole team, refreshed every few seconds until the live hub (M1) pushes presence. */
 export default function Machines() {
@@ -47,7 +48,9 @@ export default function Machines() {
                     </a>
                   </Show>
                   <span class="text-muted">
-                    {machine().os} {machine().arch}
+                    <Show when={machine().resources} fallback={`${machine().os} ${machine().arch}`}>
+                      {(resources) => summary(resources())}
+                    </Show>
                   </span>
                 </span>
                 <span class="text-xs text-muted">

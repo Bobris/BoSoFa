@@ -21,6 +21,12 @@ public class Enrollment
     public string PublicKey { get; set; } = "";
     public DateTime ExpiresAt { get; set; }
 
+    /// <summary>The daemon's own identity; empty for a daemon too old to send one.</summary>
+    public Guid InstanceId { get; set; }
+
+    /// <summary><see cref="MachineResources"/> as JSON, or empty.</summary>
+    public string ResourcesJson { get; set; } = "";
+
     /// <summary>The machine created on approval; zero while pending.</summary>
     public ulong MachineId { get; set; }
 
@@ -49,6 +55,13 @@ public class Machine
     public string PublicKey { get; set; } = "";
 
     public DateTime EnrolledAt { get; set; }
+
+    /// <summary>The daemon's own identity (<see cref="EnrollStartRequest.InstanceId"/>); empty until a daemon that has one
+    /// enrolls or connects.</summary>
+    public Guid InstanceId { get; set; }
+
+    /// <summary>The last <see cref="MachineResources"/> the daemon sent, as JSON: at enrollment and on every connect.</summary>
+    public string ResourcesJson { get; set; } = "";
 }
 
 public interface IMachineTable : IRelation<Machine>
@@ -69,6 +82,8 @@ public class EnrollmentStarted : EventWithResult<EnrollmentStartedResult>
     public string Arch { get; set; } = "";
     public string DaemonVersion { get; set; } = "";
     public string PublicKey { get; set; } = "";
+    public Guid InstanceId { get; set; }
+    public string ResourcesJson { get; set; } = "";
 }
 
 [BTDB.Generate]
@@ -99,17 +114,22 @@ public sealed class EnrollmentStartedHandler : IEventHandler<EnrollmentStarted, 
         enrollments.Insert(new()
         {
             Id = Ambient.AllocateId(), Key = ev.Key, UserCode = ev.UserCode, Name = ev.Name, Os = ev.Os, Arch = ev.Arch,
-            DaemonVersion = ev.DaemonVersion, PublicKey = ev.PublicKey, ExpiresAt = expiresAt
+            DaemonVersion = ev.DaemonVersion, PublicKey = ev.PublicKey, ExpiresAt = expiresAt, InstanceId = ev.InstanceId,
+            ResourcesJson = ev.ResourcesJson
         });
         return new() { Accepted = true, ExpiresAt = expiresAt };
     }
 }
 
-/// <summary>A signed-in person approved a pending enrollment; the machine is theirs.</summary>
+/// <summary>A signed-in person approved a pending enrollment; the machine is theirs. A daemon they enrolled before (the
+/// same <see cref="Machine.InstanceId"/>) gets its machine back, with the new key.</summary>
 public class EnrollmentApproved : EventWithResult<EnrollmentApprovedResult>
 {
     public string UserCode { get; set; } = "";
     public ulong ApproverId { get; set; }
+
+    /// <summary>The machine's name; null keeps the host name, or the earlier name of a machine enrolled again.</summary>
+    public string? Name { get; set; }
 }
 
 [BTDB.Generate]
@@ -131,16 +151,21 @@ public sealed class EnrollmentApprovedHandler : IEventHandler<EnrollmentApproved
             return new() { Status = EnrollStatus.Expired };
         var status = enrollment.StatusAt(ev.When);
         if (status != EnrollStatus.Pending) return new() { Status = status, MachineId = enrollment.MachineId };
-        var machine = new Machine
-        {
-            Id = Ambient.AllocateId(), OwnerId = ev.ApproverId, Name = enrollment.Name, Os = enrollment.Os,
-            Arch = enrollment.Arch, DaemonVersion = enrollment.DaemonVersion, PublicKey = enrollment.PublicKey,
-            EnrolledAt = ev.When
-        };
-        Ambient.Relation<IMachineTable>().Insert(machine);
+        var machines = Ambient.Relation<IMachineTable>();
+        var machine = enrollment.InstanceId == Guid.Empty
+            ? null
+            : machines.FirstOrDefault(candidate => candidate.InstanceId == enrollment.InstanceId && candidate.OwnerId == ev.ApproverId);
+        var again = machine != null;
+        machine ??= new() { Id = Ambient.AllocateId(), OwnerId = ev.ApproverId, Name = enrollment.Name, InstanceId = enrollment.InstanceId };
+        machine.Name = MachineNames.Clean(ev.Name) ?? machine.Name;
+        (machine.Os, machine.Arch, machine.DaemonVersion, machine.PublicKey, machine.EnrolledAt) =
+            (enrollment.Os, enrollment.Arch, enrollment.DaemonVersion, enrollment.PublicKey, ev.When);
+        if (enrollment.ResourcesJson.Length > 0) machine.ResourcesJson = enrollment.ResourcesJson;
+        if (again) machines.Update(machine);
+        else machines.Insert(machine);
         enrollment.MachineId = machine.Id;
         enrollments.Update(enrollment);
-        Audit.Record(ev.When, ev.ApproverId, "machine.enrolled", machine.Name, $"machine {machine.Id}");
+        Audit.Record(ev.When, ev.ApproverId, again ? "machine.reenrolled" : "machine.enrolled", machine.Name, $"machine {machine.Id}");
         return new() { Status = EnrollStatus.Approved, MachineId = machine.Id };
     }
 }
@@ -180,6 +205,8 @@ public class MachineConnected : PureEvent
     public string PeerUrl { get; set; } = "";
     public string DaemonVersion { get; set; } = "";
     public string HostName { get; set; } = "";
+    public Guid InstanceId { get; set; }
+    public string ResourcesJson { get; set; } = "";
 }
 
 public class MachineDisconnected : PureEvent
@@ -205,7 +232,15 @@ public sealed class MachineConnectedHandler(IDomainSignals signals) : IEventHand
 
     public void Consume(MachineConnected ev)
     {
-        if (Ambient.Relation<IMachineTable>().FindByIdOrDefault(ev.MachineId) == null) return;
+        var machines = Ambient.Relation<IMachineTable>();
+        if (machines.FindByIdOrDefault(ev.MachineId) is not { } machine) return;
+        // A machine enrolled by an older daemon learns its identity; one it has keeps it. The measurement stays for
+        // while the machine is offline.
+        var changed = false;
+        if (machine.InstanceId == Guid.Empty && ev.InstanceId != Guid.Empty) (machine.InstanceId, changed) = (ev.InstanceId, true);
+        if (ev.ResourcesJson.Length > 0 && ev.ResourcesJson != machine.ResourcesJson) (machine.ResourcesJson, changed) = (ev.ResourcesJson, true);
+        if (ev.DaemonVersion.Length > 0 && ev.DaemonVersion != machine.DaemonVersion) (machine.DaemonVersion, changed) = (ev.DaemonVersion, true);
+        if (changed) machines.Update(machine);
         Ambient.Relation<IMachinePresenceTable>().Upsert(new()
         {
             MachineId = ev.MachineId, NodeId = ev.NodeId, ConnectionId = ev.ConnectionId, PeerUrl = ev.PeerUrl,
@@ -246,6 +281,32 @@ public sealed class NodePresenceExpiredHandler(IDomainSignals signals) : IEventH
             var machineId = row.MachineId;
             Ambient.RegisterPostCommit(() => signals.MachinePresenceChanged(machineId, null));
         }
+    }
+}
+
+/// <summary>The owner renamed a machine.</summary>
+public class MachineRenamed : EventWithResult<SessionCommandResult>
+{
+    public ulong MachineId { get; set; }
+    public ulong UserId { get; set; }
+    public string Name { get; set; } = "";
+}
+
+public sealed class MachineRenamedHandler : IEventHandler<MachineRenamed, SessionCommandResult>
+{
+    public SessionCommandResult? Validate(MachineRenamed ev) =>
+        MachineNames.Clean(ev.Name) == null ? new() { Outcome = CommandOutcome.Invalid } : null;
+
+    public SessionCommandResult Consume(MachineRenamed ev)
+    {
+        var machines = Ambient.Relation<IMachineTable>();
+        if (machines.FindByIdOrDefault(ev.MachineId) is not { } machine) return new() { Outcome = CommandOutcome.NotFound };
+        if (machine.OwnerId != ev.UserId) return new() { Outcome = CommandOutcome.Forbidden };
+        var previous = machine.Name;
+        machine.Name = MachineNames.Clean(ev.Name)!;
+        machines.Update(machine);
+        Audit.Record(ev.When, ev.UserId, "machine.renamed", machine.Name, $"machine {machine.Id}, was {previous}");
+        return new() { Outcome = CommandOutcome.Ok };
     }
 }
 

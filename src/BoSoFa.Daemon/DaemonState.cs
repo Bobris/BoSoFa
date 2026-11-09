@@ -19,6 +19,7 @@ public sealed class DaemonStore(string directory)
     public string Directory { get; } = directory;
     string StatePath => Path.Combine(Directory, "daemon.json");
     string KeyPath => Path.Combine(Directory, "machine-key.pem");
+    string InstanceIdPath => Path.Combine(Directory, "instance-id");
 
     /// <summary>Per-user data directory (<see cref="Brand.DataFolder"/>): ~/Library/Application Support/BoSoFa (macOS),
     /// $XDG_DATA_HOME/bosofa or ~/.local/share/bosofa (Linux), %LOCALAPPDATA%\BoSoFa (Windows).</summary>
@@ -34,6 +35,19 @@ public sealed class DaemonStore(string directory)
         var temporary = StatePath + ".tmp";
         File.WriteAllText(temporary, JsonSerializer.Serialize(state, DaemonJsonContext.Default.DaemonState));
         File.Move(temporary, StatePath, true);
+    }
+
+    /// <summary>This daemon's own identity, made on first use and kept for good: enrolling again (for the same owner)
+    /// gives back the same machine on the server.</summary>
+    public Guid InstanceId()
+    {
+        if (File.Exists(InstanceIdPath) && Guid.TryParse(File.ReadAllText(InstanceIdPath).Trim(), out var existing)) return existing;
+        var created = Guid.NewGuid();
+        System.IO.Directory.CreateDirectory(Directory);
+        var temporary = InstanceIdPath + ".tmp";
+        File.WriteAllText(temporary, created.ToString());
+        File.Move(temporary, InstanceIdPath, true);
+        return created;
     }
 
     /// <summary>The machine key, created on first use. On Windows the user profile ACL protects it; DPAPI comes with the
