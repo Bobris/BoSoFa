@@ -46,7 +46,8 @@ public class LocalDaemonTest
                     onOutputLine!("and approve the code ABCD-EFGH (valid until 10:00).");
                     if (onCode != null) await onCode("ABCD-EFGH");
                     Directory.CreateDirectory(daemonDirectory);
-                    await File.WriteAllTextAsync(Path.Combine(daemonDirectory, "daemon.json"), $$"""{"server":"{{arguments[2]}}","machineId":9}""", cancellation);
+                    // Finished by the time the approval fails and cancels it: the state must exist for the test to go on.
+                    await File.WriteAllTextAsync(Path.Combine(daemonDirectory, "daemon.json"), $$"""{"server":"{{arguments[2]}}","machineId":9}""", CancellationToken.None);
                     return (0, "", "");
                 case "install":
                     Directory.CreateDirectory(Path.Combine(daemonDirectory, "versions"));
