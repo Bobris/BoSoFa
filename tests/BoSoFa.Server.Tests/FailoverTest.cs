@@ -84,7 +84,7 @@ public class FailoverTest(Tests.Azurite azurite, ITestOutputHelper output) : ICl
             await using var host = new SessionHost(daemonDirectory, outbox, new(ReplayFixture: SessionTest.Fixture), TextWriter.Null);
             using var stop = new CancellationTokenSource();
             var running = new DaemonLink(state, key, TextWriter.Null, outbox, host).RunAsync(stop.Token);
-            await Eventually(() => boris.GetFromJsonAsync<MachineDto[]>("/api/v1/machines")!, m => m!.Single().Online);
+            await Eventually(() => boris.GetFromJsonAsync<MachineDto[]>("/api/v1/machines")!, m => m!.SingleOrDefault()?.Online == true);
 
             var session = (await (await boris.PostAsJsonAsync("/api/v1/sessions",
                 new CreateSessionRequest(state.MachineId, Harnesses.Replay, work, "Create hello.txt", null, null)))

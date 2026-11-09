@@ -111,7 +111,7 @@ public class ClusterTest(Azurite azurite, ITestOutputHelper output) : IClassFixt
             var running = link.RunAsync(stop.Token);
             Step("daemon linked to the follower");
 
-            bool Online(MachineDto[]? machines) => machines!.Single().Online;
+            bool Online(MachineDto[]? machines) => machines!.SingleOrDefault()?.Online == true;
             Assert.True(Online(await Eventually(() => boris.GetFromJsonAsync<MachineDto[]>("/api/v1/machines")!, Online)));
             Assert.True(Online(await onSecond.GetFromJsonAsync<MachineDto[]>("/api/v1/machines")));
             await stop.CancelAsync();
@@ -165,7 +165,7 @@ public class ClusterTest(Azurite azurite, ITestOutputHelper output) : IClassFixt
                 new(ReplayFixture: SessionTest.Fixture), TextWriter.Null);
             using var stop = new CancellationTokenSource();
             var running = new BoSoFa.Daemon.DaemonLink(state, key, TextWriter.Null, outbox, host).RunAsync(stop.Token);
-            await Eventually(() => onSecond.GetFromJsonAsync<MachineDto[]>("/api/v1/machines")!, m => m!.Single().Online);
+            await Eventually(() => onSecond.GetFromJsonAsync<MachineDto[]>("/api/v1/machines")!, m => m!.SingleOrDefault()?.Online == true);
             Step("daemon connected to the leader");
 
             var session = (await (await onSecond.PostAsJsonAsync("/api/v1/sessions",
