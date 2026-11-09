@@ -16,7 +16,7 @@ sealed record AgentView(Session Session, AgentRunner Runner, List<SessionItem> I
 }
 
 /// <summary>Credentials and tools of one loop instance, which end with it.</summary>
-sealed record AgentEnvironment(IModelTurnExecutor Executor, AgentToolbox Tools);
+sealed record AgentEnvironment(IModelTurnExecutor Executor, AgentToolbox Tools, string Instructions);
 
 /// <summary>The session cannot run at all; the person is told and the run ends.</summary>
 sealed class AgentSetupException(string message) : Exception(message);
@@ -31,7 +31,6 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
     const string UnknownOutcome = "The server restarted while this ran; whether it took effect is unknown.";
     const string InterruptedResult = "The person interrupted this before it finished.";
     static readonly TimeSpan PendingRecheck = TimeSpan.FromSeconds(30);
-    static readonly TimeSpan ToolTimeout = TimeSpan.FromMinutes(10);
 
     TaskCompletionSource _pulse = new(TaskCreationOptions.RunContinuationsAsynchronously);
     readonly Dictionary<string, string> _blobs = [];
@@ -146,18 +145,33 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             ReasoningTokens = usage?.ReasoningTokens ?? 0
         }, cancellation);
 
-    Task FinishAsync(AgentView view, AgentConversationState state, string outcome, bool isError, string? error, bool interrupted,
-        CancellationToken cancellation) =>
-        Publisher.PublishAndWaitAsync(new AgentRunFinished
+    async Task FinishAsync(AgentView view, AgentConversationState state, string outcome, bool isError, string? error, bool interrupted,
+        CancellationToken cancellation)
+    {
+        var items = state.OpenCalls.Select(call => Result(call, InterruptedResult, true)).ToList();
+        if (await RunDiffAsync(view, cancellation) is { } diff) items.Add(diff);
+        await Publisher.PublishAndWaitAsync(new AgentRunFinished
         {
             SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, SeenSeq = view.Session.LastSeq, Outcome = outcome,
             IsError = isError, Error = error, Interrupted = interrupted, HasQueued = state.HasQueued,
-            ItemsJson = JsonSerializer.Serialize(state.OpenCalls.Select(call => Result(call, InterruptedResult, true)).ToArray(),
-                ProtocolJsonContext.Default.AgentItemArray)
+            ItemsJson = JsonSerializer.Serialize(items.ToArray(), ProtocolJsonContext.Default.AgentItemArray)
         }, cancellation);
+    }
 
-    static AgentItem Result(ToolCall call, string text, bool isError) =>
-        new(SessionItemKind.ToolResult, text, call.Id, call.Name, IsError: isError);
+    static int RunNumberOf(AgentView view) => view.Items.Count(item => item.Kind == SessionItemKind.RunEnded) + 1;
+
+    /// <summary>What this run changed on the machine, if it ran anything that could change files. A machine that cannot say costs only the diff.</summary>
+    async Task<AgentItem?> RunDiffAsync(AgentView view, CancellationToken cancellation)
+    {
+        if (context.MachineOf(view.Session) is not { } machine) return null;
+        var changing = false;
+        for (var i = view.Items.Count - 1; i >= 0 && view.Items[i].Kind != SessionItemKind.RunEnded; i--)
+            changing |= view.Items[i] is { Kind: SessionItemKind.ToolUse, ToolName: { } name } && MachineTools.Changes(name);
+        return changing ? await machine.DiffAsync(RunNumberOf(view), cancellation) : null;
+    }
+
+    static AgentItem Result(ToolCall call, string text, bool isError, string? itemRef = null) =>
+        new(SessionItemKind.ToolResult, text, call.Id, call.Name, IsError: isError, Ref: itemRef);
 
     /// <summary>Runs <paramref name="work"/> and cancels it when the person interrupts or this node no longer holds the session.</summary>
     async Task<T> WatchedAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken stopping)
@@ -183,7 +197,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
     async Task CallModelAsync(AgentView view, AgentConversationState state, AgentEnvironment environment, CancellationToken stopping)
     {
         var itemRef = $"agent-{view.Session.LastSeq}";
-        var request = new TurnRequest(view.Session.Model!, AgentInstructions.Base, state.Conversation,
+        var request = new TurnRequest(view.Session.Model!, environment.Instructions, state.Conversation,
             environment.Tools.SpecsFor(view.Session.PermissionMode), sessionId.ToString());
         TurnResponse response;
         try
@@ -265,7 +279,13 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                 await Publisher.PublishAndWaitAsync(new AgentApprovalRaised
                 {
                     SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, Key = call.Id, ToolName = call.Name,
-                    Input = call.Arguments, Description = kind == AgentToolKind.Ask ? Str(arguments["question"]) : null
+                    Input = call.Arguments, Description = kind switch
+                    {
+                        AgentToolKind.Ask => Str(arguments["question"]),
+                        AgentToolKind.MachineShell => Str(arguments["command"]),
+                        AgentToolKind.MachineWrite => Str(arguments["path"]),
+                        _ => null
+                    }
                 }, stopping);
                 return;
             }
@@ -289,8 +309,8 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                 return;
             }
         }
-        // A previous loop may have started this call: running it again could repeat its effect.
-        if (call.Id == suspectCall)
+        // A previous loop may have started this call: running it again could repeat its effect. Reading has none.
+        if (call.Id == suspectCall && kind != AgentToolKind.MachineRead)
         {
             await RecordAsync(view, [Result(call, UnknownOutcome, true)], null, stopping);
             return;
@@ -303,26 +323,19 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             return;
         }
 
+        var seq = view.Items.Last(item => item.Kind == SessionItemKind.ToolUse && item.ToolUseId == call.Id).Seq;
+        var toolCall = new AgentToolCall($"{sessionId}:{seq}", $"tool-{seq}", RunNumberOf(view));
         McpToolResult result;
         try
         {
-            result = await WatchedAsync(async cancellation =>
-            {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-                timeout.CancelAfter(ToolTimeout);
-                try { return await environment.Tools.CallMcpAsync(call.Name, arguments, timeout.Token); }
-                catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
-                {
-                    return new McpToolResult($"The tool did not answer within {ToolTimeout.TotalMinutes:0} minutes.", true);
-                }
-            }, stopping);
+            result = await WatchedAsync(cancellation => environment.Tools.CallAsync(call.Name, arguments, toolCall, cancellation), stopping);
         }
         catch (OperationCanceledException) when (!stopping.IsCancellationRequested) { return; } // the next pass reports it as interrupted
         catch (Exception problem) when (problem is McpException or HttpRequestException or IOException or JsonException)
         {
             result = new(problem.Message, true);
         }
-        await RecordAsync(view, [Result(call, result.Text, result.IsError)], null, stopping);
+        await RecordAsync(view, [Result(call, result.Text, result.IsError, toolCall.LiveRef)], null, stopping);
     }
 
     static string Added(string? answer) => string.IsNullOrWhiteSpace(answer) ? "" : $" They added: {answer}";

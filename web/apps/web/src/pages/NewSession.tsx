@@ -65,16 +65,19 @@ export default function NewSession() {
   const [error, setError] = createSignal<string>();
   const [busy, setBusy] = createSignal(false);
   const attachments = createAttachments();
-  const selected = () => machine() ?? search.machine ?? String(machines()[0]?.id ?? "");
+  const selected = () => machine() || search.machine || String(machines()[0]?.id ?? "");
+  // The server agent needs no machine, so it has one only when somebody picks it.
+  const agentMachine = () => machine() ?? search.machine ?? "";
+  const needsDirectory = () => !agentAccount() || agentMachine() !== "";
 
   async function start(event: SubmitEvent) {
     event.preventDefault();
     setBusy(true);
     const { data, response, error: problem } = await api.POST("/api/v1/sessions", {
       body: {
-        machineId: agentAccount() ? 0 : Number(selected()),
+        machineId: agentAccount() ? Number(agentMachine()) : Number(selected()),
         harness: agentAccount() ? "agent" : harness(),
-        workingDirectory: agentAccount() ? "" : directory().trim(),
+        workingDirectory: needsDirectory() ? directory().trim() : "",
         prompt: prompt(),
         permissionMode: profile() && mode() === "default" ? null : mode(), // the profile's own default applies
         model: model().trim() || null,
@@ -122,8 +125,7 @@ export default function NewSession() {
               <span class="text-sm text-muted">Machine</span>
               <select
                 class={field}
-                disabled={agentAccount() !== undefined}
-                value={agentAccount() ? "" : selected()}
+                value={agentAccount() ? agentMachine() : selected()}
                 onChange={(event) => setMachine(event.currentTarget.value)}
               >
                 <Show when={agentAccount()}>
@@ -167,6 +169,8 @@ export default function NewSession() {
                 <For each={usable()}>{(option) => <option value={String(option.id)}>{option.label}</option>}</For>
               </select>
             </label>
+          </Show>
+          <Show when={needsDirectory()}>
             <label class="block space-y-1">
               <span class="text-sm text-muted">Working directory on the machine</span>
               <input
@@ -177,6 +181,8 @@ export default function NewSession() {
                 onInput={(event) => setDirectory(event.currentTarget.value)}
               />
             </label>
+          </Show>
+          <Show when={!agentAccount()}>
             <label class="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={worktree()} onChange={(event) => setWorktree(event.currentTarget.checked)} />
               Run in a new git worktree, on its own bosofa/… branch
@@ -223,7 +229,7 @@ export default function NewSession() {
                 busy() ||
                 !prompt().trim() ||
                 attachments.uploading() ||
-                (agentAccount() ? !model().trim() : !selected() || !directory().trim())
+                (agentAccount() ? !model().trim() || (needsDirectory() && !directory().trim()) : !selected() || !directory().trim())
               }
             >
               Start

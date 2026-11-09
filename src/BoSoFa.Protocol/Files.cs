@@ -18,6 +18,10 @@ namespace BoSoFa.Protocol;
 [JsonDerivedType(typeof(TerminalCloseRequest), "terminalClose")]
 [JsonDerivedType(typeof(CodexUsageRequest), "codexUsage")]
 [JsonDerivedType(typeof(MachineResourcesRequest), "resources")]
+[JsonDerivedType(typeof(ToolRunRequest), "toolRun")]
+[JsonDerivedType(typeof(ToolCancelRequest), "toolCancel")]
+[JsonDerivedType(typeof(ToolDiffRequest), "toolDiff")]
+[JsonDerivedType(typeof(McpToolsRequest), "mcpTools")]
 public abstract record MachineRpc;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "k")]
@@ -33,6 +37,9 @@ public abstract record MachineRpc;
 [JsonDerivedType(typeof(TerminalAttachResult), "terminalAttach")]
 [JsonDerivedType(typeof(CodexUsageResult), "codexUsage")]
 [JsonDerivedType(typeof(MachineResourcesResult), "resources")]
+[JsonDerivedType(typeof(ToolRunResult), "toolRun")]
+[JsonDerivedType(typeof(ToolDiffResult), "toolDiff")]
+[JsonDerivedType(typeof(McpToolsResult), "mcpTools")]
 public abstract record MachineRpcResult;
 
 /// <summary>Measure the computer now: free memory and disk change all the time, so they are asked for, not reported.</summary>

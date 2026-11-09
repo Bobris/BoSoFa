@@ -3,6 +3,12 @@ import { createStore, onSettled, reconcile } from "solid-js";
 
 export type Draft = { ref: string; text: string };
 
+/** A command can print for ten minutes; a page keeps the end of it. */
+const MAX_DRAFT_LENGTH = 128 * 1024;
+
+/** A draft with this kind of ref is the output of a running tool, not the agent's answer. */
+export const isToolOutput = (draft: Draft) => draft.ref.startsWith("tool-");
+
 export type LiveSessionState = {
   session: Session | undefined;
   items: SessionItem[];
@@ -88,7 +94,7 @@ export function createLiveSession(sessionId: number) {
           setState((s) => {
             const draft = s.drafts.find((d) => d.ref === message.ref);
             if (draft && message.reset) draft.text = message.text;
-            else if (draft) draft.text += message.text;
+            else if (draft) draft.text = (draft.text + message.text).slice(-MAX_DRAFT_LENGTH);
             else s.drafts.push({ ref: message.ref, text: message.text });
           });
           break;

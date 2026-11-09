@@ -14,13 +14,14 @@ namespace BoSoFa.Server.Agents;
 
 /// <summary>What a loop needs from its node.</summary>
 sealed class AgentLoopContext(EventPublisher publisher, string nodeId, IBlobStore blobs, ILogger logger, Action<LiveDelta> publishDelta,
-    Func<Session, CancellationToken, Task<(AgentEnvironment, List<string>)>> openEnvironment)
+    Func<Session, CancellationToken, Task<(AgentEnvironment, List<string>)>> openEnvironment, Func<Session, AgentMachine?> machineOf)
 {
     public EventPublisher Publisher => publisher;
     public string NodeId => nodeId;
     public IBlobStore Blobs => blobs;
     public ILogger Logger => logger;
     public void PublishDelta(LiveDelta delta) => publishDelta(delta);
+    public AgentMachine? MachineOf(Session session) => machineOf(session);
     public Task<(AgentEnvironment Environment, List<string> Problems)> OpenEnvironmentAsync(Session session, CancellationToken cancellation) =>
         openEnvironment(session, cancellation);
 }
@@ -31,7 +32,7 @@ sealed class AgentLoopContext(EventPublisher publisher, string nodeId, IBlobStor
 /// of nodes that left the cluster.
 /// </summary>
 public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, MachinePresenceService presence, ReplicationLeadership leadership,
-    LiveHub hub, LiveRelay relay, IDataProtectionProvider protection, IBlobStore blobs, TimeProvider time, ILogger<AgentRunnerService> logger)
+    LiveHub hub, LiveRelay relay, MachineRpcClient rpc, IDataProtectionProvider protection, IBlobStore blobs, TimeProvider time, ILogger<AgentRunnerService> logger)
     : BackgroundService
 {
     static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(2);
@@ -118,7 +119,7 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
 
     void Start(EventPublisher publisher, ulong sessionId, CancellationToken stopping)
     {
-        var context = new AgentLoopContext(publisher, presence.NodeId, blobs, logger, PublishDelta, OpenEnvironmentAsync);
+        var context = new AgentLoopContext(publisher, presence.NodeId, blobs, logger, PublishDelta, OpenEnvironmentAsync, MachineOf);
         var running = new RunningLoop(new AgentLoop(context, sessionId));
         if (!_loops.TryAdd(sessionId, running)) return;
         running.Completion = Task.Run(() => RunLoopAsync(running, sessionId, stopping), CancellationToken.None);
@@ -155,17 +156,22 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
         relay.PublishSession(delta.SessionId, delta);
     }
 
+    AgentMachine? MachineOf(Session session) =>
+        session.MachineId == 0 ? null : new AgentMachine(rpc, session.MachineId, session.WorkingDirectory, session.Id, time);
+
     async Task<(AgentEnvironment, List<string>)> OpenEnvironmentAsync(Session session, CancellationToken cancellation)
     {
         var publisher = await node.Ready.WaitAsync(cancellation);
         string secret;
         AccountKind kind;
         ResolvedMcpServer[] servers;
+        string? os = null;
         using (publisher.StartQuery())
         {
             if (Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId) is not { } account || account.OwnerId != session.CreatedById)
                 throw new AgentSetupException("The provider account of this session was removed.");
             kind = account.Kind;
+            if (session.MachineId != 0) os = Ambient.Relation<IMachineTable>().FindByIdOrDefault(session.MachineId)?.Os ?? "an unknown operating system";
             secret = AccountEndpoints.SecretOf(account, protection);
             servers = session.ProfileName != null && Ambient.Relation<IProfileTable>().FindByIdOrDefault(session.ProfileName) is { } profile
                 ? CatalogEndpoints.ResolveServers(profile, protection)
@@ -177,7 +183,7 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
                 options.Agent.OpenAIEndpoint is { Length: > 0 } endpoint ? new Uri(endpoint) : null),
             _ => throw new AgentSetupException($"The server agent cannot use a {kind} account yet.")
         };
-        var (tools, problems) = await AgentToolbox.LoadAsync(Http, servers.Where(server => server.Transport == McpTransport.Http), cancellation);
-        return (new AgentEnvironment(new RetryingTurnExecutor(executor, time), tools), problems);
+        var (tools, problems) = await AgentToolbox.LoadAsync(Http, servers, MachineOf(session), offersPatch: kind == AccountKind.OpenAIApiKey, cancellation);
+        return (new AgentEnvironment(new RetryingTurnExecutor(executor, time), tools, AgentInstructions.For(os, session.WorkingDirectory)), problems);
     }
 }

@@ -77,7 +77,7 @@ public sealed class DaemonConnections
         }
     }
 
-    static readonly RpcFailure Disconnected = new("The machine disconnected.");
+    internal static readonly RpcFailure Disconnected = new("The machine disconnected.");
 
     readonly ConcurrentDictionary<ulong, Connection> _connections = new();
 

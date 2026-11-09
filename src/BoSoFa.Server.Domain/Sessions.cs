@@ -324,30 +324,37 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
         string.IsNullOrWhiteSpace(ev.Prompt) || ev.Prompt.Length > Sessions.MaximumPromptLength ||
         !Harnesses.All.Contains(ev.Harness) || !Harnesses.PermissionModes.Contains(ev.PermissionMode) ||
         (ev.Harness == Harnesses.Agent
-            ? ev.MachineId != 0 || string.IsNullOrWhiteSpace(ev.Model) || ev.AccountId == 0 || ev.RunnerNodeId.Length == 0
+            ? string.IsNullOrWhiteSpace(ev.Model) || ev.AccountId == 0 || ev.RunnerNodeId.Length == 0 || ev.UseWorktree ||
+              (ev.MachineId != 0 && string.IsNullOrWhiteSpace(ev.WorkingDirectory))
             : string.IsNullOrWhiteSpace(ev.WorkingDirectory))
             ? new() { Outcome = CommandOutcome.Invalid }
             : null;
 
-    /// <summary>A session the server's own loop runs: no machine, the creator's provider account, and a profile that needs no
-    /// process on a machine.</summary>
+    /// <summary>A session the server's own loop runs on the creator's provider account: its tools run on a machine they control, or
+    /// without one the profile must need no process on a machine.</summary>
     SessionCommandResult ConsumeAgent(SessionCreated ev)
     {
         var account = Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(ev.AccountId);
         if (account == null) return new() { Outcome = CommandOutcome.NotFound };
         if (account.OwnerId != ev.UserId) return new() { Outcome = CommandOutcome.Forbidden };
         if (!AccountSecrets.ServesAgent(account.Kind)) return new() { Outcome = CommandOutcome.Invalid };
+        if (ev.MachineId != 0)
+        {
+            if (Ambient.Relation<IMachineTable>().FindByIdOrDefault(ev.MachineId) is not { } machine) return new() { Outcome = CommandOutcome.NotFound };
+            if (!MachineAccess.CanControl(ev.UserId, machine)) return new() { Outcome = CommandOutcome.Forbidden };
+        }
         if (ev.ProfileName != null)
         {
             if (Ambient.Relation<IProfileTable>().FindByIdOrDefault(ev.ProfileName) is not { } profile) return new() { Outcome = CommandOutcome.NotFound };
             var servers = Ambient.Relation<IMcpServerTable>();
-            if (JsonSerializer.Deserialize(profile.McpServers, ProtocolJsonContext.Default.StringArray)!
+            if (ev.MachineId == 0 && JsonSerializer.Deserialize(profile.McpServers, ProtocolJsonContext.Default.StringArray)!
                 .Any(name => servers.FindByIdOrDefault(name) is not { Transport: McpTransport.Http }))
                 return new() { Outcome = CommandOutcome.Invalid };
         }
         var session = new Session
         {
-            Id = Ambient.AllocateId(), CreatedById = ev.UserId, Harness = ev.Harness, Title = Sessions.TitleOf(ev.Prompt),
+            Id = Ambient.AllocateId(), MachineId = ev.MachineId, WorkingDirectory = ev.MachineId == 0 ? "" : ev.WorkingDirectory.Trim(),
+            CreatedById = ev.UserId, Harness = ev.Harness, Title = Sessions.TitleOf(ev.Prompt),
             PermissionMode = ev.PermissionMode, Model = ev.Model!.Trim(), Status = SessionStatus.Running, CreatedAt = ev.When,
             UpdatedAt = ev.When, AccountId = ev.AccountId, ProfileName = ev.ProfileName
         };

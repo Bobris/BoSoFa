@@ -11,11 +11,22 @@ public sealed class MachineRpcClient(DaemonConnections connections, LiveRelay re
 {
     public const string PathPrefix = "/internal/machines/";
     static readonly RpcFailure Offline = new("The machine is offline.");
+
+    /// <summary>Nothing reached the machine, as far as anyone knows.</summary>
+    public static bool IsOffline(RpcFailure failure) => ReferenceEquals(failure, Offline) || failure.Message == Offline.Message;
+
+    /// <summary>The connection went while a call was on its way or running.</summary>
+    public static bool IsDisconnected(RpcFailure failure) => failure.Message == DaemonConnections.Disconnected.Message;
     static readonly HttpClient Http = PeerHttp.CreateClient();
 
     /// <summary>Transfers move whole files through the blob store; everything else should be instant.</summary>
-    static TimeSpan TimeoutOf(MachineRpc request) =>
-        request is FileFetchRequest or FileStoreRequest ? TimeSpan.FromMinutes(15) : TimeSpan.FromSeconds(30);
+    static TimeSpan TimeoutOf(MachineRpc request) => request switch
+    {
+        FileFetchRequest or FileStoreRequest => TimeSpan.FromMinutes(15),
+        ToolRunRequest run => TimeSpan.FromSeconds(run.TimeoutSeconds + 30), // the daemon ends the tool first, and says so
+        ToolDiffRequest or McpToolsRequest => TimeSpan.FromMinutes(3),
+        _ => TimeSpan.FromSeconds(30)
+    };
 
     public async Task<MachineRpcResult> CallAsync(ulong machineId, MachineRpc request, CancellationToken cancellation)
     {
@@ -32,7 +43,7 @@ public sealed class MachineRpcClient(DaemonConnections connections, LiveRelay re
         }
         catch (Exception exception) when (exception is WebSocketException or HttpRequestException or IOException or JsonException)
         {
-            return Offline;
+            return DaemonConnections.Disconnected;
         }
     }
 
@@ -66,6 +77,6 @@ public sealed class MachineRpcClient(DaemonConnections connections, LiveRelay re
     static async Task<MachineRpcResult> CallConnectionAsync(DaemonConnections.Connection connection, MachineRpc request, CancellationToken cancellation)
     {
         try { return await connection.CallAsync(request, cancellation); }
-        catch (WebSocketException) { return Offline; }
+        catch (WebSocketException) { return DaemonConnections.Disconnected; }
     }
 }

@@ -45,20 +45,8 @@ public sealed class McpHttpClient(HttpClient http, string server, Uri url, IRead
     public async Task<McpToolResult> CallToolAsync(string tool, JsonObject arguments, CancellationToken cancellation)
     {
         var result = await RequestAsync("tools/call", new JsonObject { ["name"] = tool, ["arguments"] = arguments.DeepClone() }, cancellation);
-        var text = new StringBuilder();
-        foreach (var part in (result?["content"] as JsonArray ?? []).OfType<JsonObject>())
-        {
-            if (text.Length > 0) text.Append('\n');
-            text.Append(Str(part["type"]) switch
-            {
-                "text" => Str(part["text"]),
-                "resource" => Str(part["resource"]?["text"]) ?? $"[resource {Str(part["resource"]?["uri"])}]",
-                "resource_link" => $"[resource {Str(part["uri"])}]",
-                var other => $"[{other} content, not shown to the model]"
-            });
-        }
-        if (text.Length == 0 && result?["structuredContent"] is { } structured) text.Append(structured.ToJsonString());
-        return new(text.ToString(), result?["isError"] is JsonValue flag && flag.TryGetValue<bool>(out var isError) && isError);
+        var (text, isError) = Protocol.McpResults.Read(result);
+        return new(text, isError);
     }
 
     async Task<JsonNode?> RequestAsync(string method, JsonObject? parameters, CancellationToken cancellation)

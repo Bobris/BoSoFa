@@ -3,7 +3,7 @@ import { api, getPlatform, type RuntimeRequest, type SessionItem } from "@bosofa
 import { useNavigate, useParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Match, Show, Switch, untrack } from "solid-js";
 import { StatusBadge } from "../components/StatusBadge";
-import { createLiveSession } from "../live";
+import { createLiveSession, isToolOutput } from "../live";
 import { paths } from "../router";
 import { fetchMe } from "../session";
 
@@ -380,10 +380,17 @@ function SessionView(props: { id: number }) {
         <For each={live.items}>{(item) => <Item item={item} />}</For>
         <For each={live.drafts}>
           {(draft) => (
-            <div class="whitespace-pre-wrap leading-relaxed text-ink/80">
-              {draft.text}
-              <span class="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-accent align-text-bottom" />
-            </div>
+            <Show
+              when={isToolOutput(draft)}
+              fallback={
+                <div class="whitespace-pre-wrap leading-relaxed text-ink/80">
+                  {draft.text}
+                  <span class="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-accent align-text-bottom" />
+                </div>
+              }
+            >
+              <pre class="max-h-80 overflow-auto rounded-md border border-line bg-panel px-3 py-2 text-xs">{draft.text}</pre>
+            </Show>
           )}
         </For>
         <For each={live.requests} keyed={(request) => request.id}>

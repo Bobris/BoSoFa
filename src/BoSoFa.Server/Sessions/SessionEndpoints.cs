@@ -14,6 +14,15 @@ namespace BoSoFa.Server.Sessions;
 
 public static class SessionEndpoints
 {
+    sealed class BothLeases(IDisposable first, IDisposable second) : IDisposable
+    {
+        public void Dispose()
+        {
+            first.Dispose();
+            second.Dispose();
+        }
+    }
+
     const int PageSize = 500;
     const string NoAgentImages = "The server agent cannot take images yet.";
 
@@ -40,7 +49,7 @@ public static class SessionEndpoints
         return new(session.Id, session.MachineId, machine?.Name ?? "", session.Harness, session.WorkingDirectory,
             session.Title, session.Status, session.CreatedById, creator?.Name ?? "", session.CreatedAt, session.UpdatedAt,
             session.LastSeq, session.Model, session.PermissionMode, session.CostUsd,
-            session.Harness == Harnesses.Agent ? SessionAccess.CanSee(userId, session) : machine != null && MachineAccess.CanControl(userId, machine),
+            session.Harness == Harnesses.Agent && session.MachineId == 0 ? SessionAccess.CanSee(userId, session) : machine != null && MachineAccess.CanControl(userId, machine),
             session.AccountId == 0 ? null : session.AccountId,
             session.AccountId == 0 ? null : Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId)?.Label,
             session.Branch, session.ProfileName);
@@ -122,7 +131,9 @@ public static class SessionEndpoints
         var (imagesJson, problem) = await ImagesJsonAsync(request.Images, blobs, http.RequestAborted);
         if (problem != null) return TypedResults.BadRequest(problem);
         var isAgent = request.Harness == Harnesses.Agent;
-        if (isAgent && request.MachineId != 0) return TypedResults.BadRequest("The server agent does not run on a machine yet.");
+        if (isAgent && request.UseWorktree) return TypedResults.BadRequest("The server agent cannot use a worktree yet.");
+        if (isAgent && request.MachineId != 0 && string.IsNullOrWhiteSpace(request.WorkingDirectory))
+            return TypedResults.BadRequest("A session on a machine needs a working directory.");
         if (isAgent && imagesJson.Length > 0) return TypedResults.BadRequest(NoAgentImages);
         // The request's own choices win over the profile's defaults.
         string? model = request.Model, permissionMode = request.PermissionMode;
@@ -133,7 +144,7 @@ public static class SessionEndpoints
             var profile = Ambient.Relation<IProfileTable>().FindByIdOrDefault(name);
             model ??= profile?.Model;
             permissionMode ??= profile?.PermissionMode;
-            if (isAgent && profile != null && JsonSerializer.Deserialize(profile.McpServers, ProtocolJsonContext.Default.StringArray)!
+            if (isAgent && request.MachineId == 0 && profile != null && JsonSerializer.Deserialize(profile.McpServers, ProtocolJsonContext.Default.StringArray)!
                     .Any(server => Ambient.Relation<IMcpServerTable>().FindByIdOrDefault(server)?.Transport != McpTransport.Http))
                 return TypedResults.BadRequest("This profile has MCP servers that run on a machine, and this session has none.");
         }
@@ -238,7 +249,11 @@ public static class SessionEndpoints
                             break;
                         }
                         if (!relays.ContainsKey(subscribe.SessionId))
-                            relays[subscribe.SessionId] = followed.Harness == Harnesses.Agent ? relay.FollowSession(followed.Id) : relay.Follow(followed.MachineId);
+                            relays[subscribe.SessionId] = followed.Harness != Harnesses.Agent
+                                ? relay.Follow(followed.MachineId)
+                                : followed.MachineId == 0
+                                    ? relay.FollowSession(followed.Id)
+                                    : new BothLeases(relay.FollowSession(followed.Id), relay.Follow(followed.MachineId)); // the answer from its node, a shell's output from the daemon's
                         subscriber.Subscribe(subscribe.SessionId, subscribe.AfterSeq);
                         break;
                     case LiveUnsubscribe unsubscribe:

@@ -16,9 +16,23 @@ public sealed class GitWorkspace(string directory)
     public string Directory { get; } = directory;
 
     /// <summary>The difference between two checkpoints: the patch (cut to the inline limit) and per-file line counts.</summary>
-    public sealed record RunDiff(string Patch, JsonArray Files, int Added, int Removed);
+    public sealed record RunDiff(string Patch, JsonArray Files, int Added, int Removed)
+    {
+        /// <summary>The data of the transcript's <c>Diff</c> item.</summary>
+        public string Data => new JsonObject { ["files"] = Files.DeepClone(), ["added"] = Added, ["removed"] = Removed }.ToJsonString();
+    }
 
     public bool IsRepository => Run(null, "rev-parse", "--is-inside-work-tree") is { Code: 0, Output: var output } && output.Trim() == "true";
+
+    /// <summary>The ref exists already.</summary>
+    public bool HasRef(string name) => Run(null, "rev-parse", "--verify", "-q", name).Code == 0;
+
+    /// <summary>Tracked and untracked files under this folder that git does not ignore, relative to it; null outside a repository.</summary>
+    public string[]? ListFiles()
+    {
+        var result = Run(null, "ls-files", "--cached", "--others", "--exclude-standard", "-z");
+        return result.Code == 0 ? result.Output.Split('\0', StringSplitOptions.RemoveEmptyEntries) : null;
+    }
 
     /// <summary>Creates a worktree on a new branch from HEAD; the error text when git refuses.</summary>
     public string? AddWorktree(string path, string branch)

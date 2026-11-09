@@ -19,7 +19,7 @@ public sealed record UserDto(ulong Id, string Name, string Email, UserRole Role)
 public static class ProtocolVersion
 {
     /// <summary>Bumped on every incompatible change of the daemon or client wire protocol.</summary>
-    public const int Current = 9;
+    public const int Current = 10;
 }
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web, UseStringEnumConverter = true)]

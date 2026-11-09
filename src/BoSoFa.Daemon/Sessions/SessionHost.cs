@@ -8,6 +8,7 @@ using BoSoFa.Daemon.Terminals;
 using BoSoFa.Daemon.Harnesses.Acp;
 using BoSoFa.Daemon.Harnesses.Claude;
 using BoSoFa.Daemon.Harnesses.Codex;
+using BoSoFa.Daemon.Tools;
 using BoSoFa.Protocol;
 using HarnessNames = BoSoFa.Protocol.Harnesses;
 
@@ -86,6 +87,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
             lock (_sessions) return _sessions.GetValueOrDefault(id)?.State;
         }, this, options.Uploader);
         Files = new MachineFiles(FileRoots, options.Uploader, options.Profiles);
+        Tools = new AgentToolHost(this);
         _configuredRoots = options.Roots ?? [];
         Updater = new DaemonUpdater(Path.GetFullPath(dataDirectory), options.Profiles, options.ReleaseKey, options.Launched, IsBusy, log);
         _directory = Path.Combine(dataDirectory, "sessions");
@@ -230,7 +232,9 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     bool IsBusy()
     {
         lock (_sessions)
-            return _sessions.Values.Any(session => session.State.Status is SessionStatus.Starting or SessionStatus.Running or SessionStatus.WaitingForApproval);
+            if (_sessions.Values.Any(session => session.State.Status is SessionStatus.Starting or SessionStatus.Running or SessionStatus.WaitingForApproval))
+                return true;
+        return Tools.IsBusy;
     }
 
     /// <summary>The terminals of this machine.</summary>
@@ -239,12 +243,15 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     /// <summary>The file browser and transfers of this machine.</summary>
     public MachineFiles Files { get; }
 
+    /// <summary>The tools server agent sessions run on this machine.</summary>
+    public AgentToolHost Tools { get; }
+
     /// <summary>What people may browse: configured folders and the working directories of this machine's sessions.</summary>
     string[] FileRoots()
     {
         string[] working;
         lock (_sessions) working = _sessions.Values.Select(session => session.State.WorkingDirectory).ToArray();
-        return _configuredRoots.Concat(working).Select(Path.GetFullPath).Select(Path.TrimEndingDirectorySeparator).Distinct()
+        return _configuredRoots.Concat(working).Concat(Tools.WorkingDirectories).Select(Path.GetFullPath).Select(Path.TrimEndingDirectorySeparator).Distinct()
             .Where(Directory.Exists).ToArray();
     }
 
@@ -439,7 +446,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
             workspace.Diff(before, after) is not { } diff)
             return;
         _outbox.Append(state.SessionId, new ItemReport(SessionItemKind.Diff, DateTime.UtcNow, diff.Patch,
-            Data: new JsonObject { ["files"] = diff.Files, ["added"] = diff.Added, ["removed"] = diff.Removed }.ToJsonString()));
+            Data: diff.Data));
     }
 
     void Report(ulong sessionId, SessionReport report, SessionState? state)
@@ -466,6 +473,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await Tools.DisposeAsync();
         await Mcp.DisposeAsync();
         await Terminals.DisposeAsync();
         IHarnessSession[] sessions;

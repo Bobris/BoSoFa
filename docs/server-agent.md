@@ -1,6 +1,6 @@
 # Server agent: a harness that runs in the server
 
-Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers) and 2 (the loop, MCP only) are done, the rest is planned.
+Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only) and 3 (machine tools) are done, the rest is planned.
 
 ## 1. What and why
 
@@ -271,35 +271,45 @@ compaction off and no cost shown.
 
 ### 6.1 Machine tools (run by the daemon)
 
-A new machine RPC family, `ToolRpc`. The daemon runs each call inside the session's working directory with `PathGuard`,
-the same guard file browsing uses.
+A machine RPC family, `ToolRpc` (`src/BoSoFa.Daemon/Tools`). The daemon runs each call inside the session's working
+directory with `PathGuard`, the same guard file browsing uses. `shell` is not confined by it, which is why it asks for
+approval unless the mode is `bypassPermissions`.
 
 | Tool | Group | Does |
 |---|---|---|
-| `read_file` | read | Lines of a text file, with offset and limit; images as images. |
+| `read_file` | read | Numbered lines of a text file, with offset and limit. An image is only named, until the provider contracts carry images. |
 | `list_dir` | read | Entries of a folder. |
-| `glob` | read | Files matching a pattern. |
+| `glob` | read | Files matching a pattern, without those git ignores. |
 | `grep` | read | Matching lines (ripgrep when installed, else our own). |
 | `write_file` | full | Create or replace a file. |
 | `edit_file` | full | Replace exact text, once or everywhere. |
-| `apply_patch` | full | A multi-file patch, for models trained on it (OpenAI). |
+| `apply_patch` | full | A multi-file patch, for models trained on it (OpenAI). A patch that does not fit changes nothing. |
 | `shell` | full | A command in the system shell, with timeout, output cap and streamed output. |
 
-- **Timeouts and cancellation.** Machine RPC times out after 30 s today. Tool calls get their own timeout (the shell's
-  is set by the model, at most 10 minutes) and a cancel message for an interrupt.
-- **Streamed output.** Shell output streams as ephemeral messages, the way terminal output does.
-- **Duplicates.** The daemon remembers each tool call id for a while, so a request sent again after a dropped
-  connection does not run twice.
-- **Changes.** File changes are reported as `Diff` items, as worktree sessions do now.
-- **Offline machine.** A call to a machine that is offline returns "The machine is offline" to the model, which may
-  wait or stop. It never runs later.
+- **Timeouts and cancellation.** Tool calls get their own timeout: the model sets the shell's, at most 10 minutes, and
+  the other tools have 60 s. An interrupt sends `ToolCancelRequest`, and the whole process tree ends.
+- **Streamed output.** Shell output streams as ordinary deltas under the ref `tool-<seq>`, which the result's item
+  carries too, so the page replaces the stream with the result. The start and end of long output go to the model.
+- **Duplicates.** A tool outlives the connection that asked for it. Each call has a key made of the session and the
+  `ToolUse` item's seq, not the provider's call id, which some models reuse. A request sent again after a dropped
+  connection joins the running call or gets its result, for 15 minutes. If the daemon restarted meanwhile, it does not
+  know the key and answers that the outcome is unknown, instead of running the tool again.
+- **Dropped connections.** The loop asks again for up to 60 s. After that the model is told the outcome is unknown.
+- **Changes.** One `Diff` item per run, from git checkpoints as for daemon harnesses: the first tool that can change
+  files takes `refs/<brand>/<session>/agent-<run>-before`, and the end of the run compares with `-after`. The refs come
+  from the transcript, so a node taking over finds them. Outside a repository there is no diff.
+- **Offline machine.** A call to a machine that is offline returns "The machine is offline. The tool did not run." to
+  the model, which may wait or stop. It never runs later.
+- **Environment.** The shell gets the same clean environment as harnesses plus common build tool variables, so no
+  provider key leaks into it.
 
 ### 6.2 MCP servers
 
 - **HTTP MCP servers** are called from the server. Their secrets are already there, in the catalog.
 - **Stdio MCP servers** need a process. With a machine, the daemon starts them in the session's working directory and
-  passes `tools/list` and `tools/call` through a new RPC (decided 2026-11-09). Without a machine, the session cannot
-  use them, and starting it says so.
+  passes `tools/list` and `tools/call` through `ToolRpc` (decided 2026-11-09). Every call names the server, secrets
+  included, so they stay in memory and a restarted daemon just starts it again; one idle for 15 minutes is stopped.
+  Without a machine, the session cannot use them, and starting it says so.
 - Tools are named `mcp__<server>__<tool>`, with the server's schema passed through. Results keep text; images are named
   in the text until the provider contracts carry them.
 
@@ -331,6 +341,7 @@ The existing runtime requests and permission modes:
 - **Writes** need approval unless the mode is `acceptEdits`.
 - **Shell and other MCP tools** need approval unless the mode is `bypassPermissions`.
 - **`plan`** offers read tools only.
+- **A session on a machine** needs that machine to be one its creator controls, and a working directory.
 
 A denial becomes the tool's result, with the person's message.
 
@@ -446,6 +457,17 @@ so the transcript shows what the model was told.
 3. **Machine tools.** `ToolRpc` in the daemon (read, list, glob, grep, write, edit, apply_patch, shell) with timeouts,
    cancellation, streamed output, de-duplication and diffs; stdio MCP through the daemon. *Done when* the agent fixes
    a failing test on a real machine with approvals on.
+   *Done (2026-11-09):*
+   - `AgentToolHost`, `FileTools`, `ApplyPatchTool`, `ShellTool` and `StdioMcpServers` in `src/BoSoFa.Daemon/Tools`;
+     `AgentMachine` in the server. The protocol went to version 10, so daemons must be updated with the server.
+   - The new-session form offers a machine or "No machine (MCP only)" for an agent, and shows running commands' output.
+   - `AgentToolHostTest` runs every tool on real files and processes. `AgentMachineTest` runs a real server and daemon:
+     approvals per mode, the diff, an offline machine, an interrupt that kills the command, the daemon's connection
+     dropping while a command runs (it runs once), and stdio MCP on the machine.
+   - `LiveOpenAIFixesAFailingTest` has a real model find and fix a failing test with every step approved. The same was
+     done from the browser with the published Native AOT daemon.
+   - Not done: worktrees for agent sessions are refused, and images (attached or read from a file) do not reach the
+     model yet. Both wait for later steps.
 4. **Anthropic Messages.** Thinking, caching, schema fixes. Accounts: Anthropic API key.
 5. **OpenAI subscription.** PKCE sign-in from the desktop app and the web paste fallback, token refresh as one event,
    the ChatGPT request rules. *Done when* a person signs in and runs a session on their plan.

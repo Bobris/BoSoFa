@@ -12,7 +12,7 @@ public class AgentSessionTest
     const string McpTool = "mcp__facts__lookup";
     static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
-    static async Task<T> Eventually<T>(Func<Task<T>> probe, Func<T, bool> done)
+    internal static async Task<T> Eventually<T>(Func<Task<T>> probe, Func<T, bool> done)
     {
         var deadline = DateTime.UtcNow + Timeout;
         while (true)
@@ -24,7 +24,7 @@ public class AgentSessionTest
         }
     }
 
-    sealed class Harness : IAsyncDisposable
+    internal sealed class Harness : IAsyncDisposable
     {
         public TestServer Server = null!;
         public FakeAgentBackend Backend = null!;
@@ -75,9 +75,9 @@ public class AgentSessionTest
         }
     }
 
-    static JsonArray Input(JsonObject request) => request["input"]!.AsArray();
-    static IEnumerable<JsonObject> OfType(JsonObject request, string type) => Input(request).OfType<JsonObject>().Where(item => item["type"]?.GetValue<string>() == type);
-    static string[] Tools(JsonObject request) => request["tools"]!.AsArray().Select(tool => tool!["name"]!.GetValue<string>()).ToArray();
+    internal static JsonArray Input(JsonObject request) => request["input"]!.AsArray();
+    internal static IEnumerable<JsonObject> OfType(JsonObject request, string type) => Input(request).OfType<JsonObject>().Where(item => item["type"]?.GetValue<string>() == type);
+    internal static string[] Tools(JsonObject request) => request["tools"]!.AsArray().Select(tool => tool!["name"]!.GetValue<string>()).ToArray();
 
     [Fact]
     public async Task ASessionWithNoMachineAnswersThroughAnHttpMcpServer()
