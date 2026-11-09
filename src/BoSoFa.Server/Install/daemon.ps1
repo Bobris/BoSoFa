@@ -1,0 +1,30 @@
+# Installs the BoSoFa daemon from this server and makes this computer one of its machines.
+#   irm <server>/install/daemon.ps1 | iex
+# Environment: BOSOFA_DATA_DIR      the daemon's data folder
+#              BOSOFA_INSTALL_ARGS  more arguments for 'bosofad install', such as: --scope system
+& {
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+    $server = '__BOSOFA_SERVER__'
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    $rid = "win-$arch"
+    $work = Join-Path ([IO.Path]::GetTempPath()) ("bosofa-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $work | Out-Null
+    try {
+        $file = Join-Path $work 'bosofad.exe'
+        Write-Host "Downloading the daemon for $rid from $server"
+        try { $response = Invoke-WebRequest -UseBasicParsing -Uri "$server/api/v1/downloads/daemon/latest/$rid" -OutFile $file -PassThru }
+        catch { throw "This server has no daemon release for $rid." }
+        $expected = [string]($response.Headers['X-BoSoFa-Sha256'] | Select-Object -First 1)
+        $actual = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()
+        if ($actual -ne $expected) { throw "The download is damaged: its SHA-256 is $actual, expected $expected." }
+
+        $data = if ($env:BOSOFA_DATA_DIR) { @('--data-dir', $env:BOSOFA_DATA_DIR) } else { @() }
+        $extra = if ($env:BOSOFA_INSTALL_ARGS) { $env:BOSOFA_INSTALL_ARGS -split ' +' } else { @() }
+        & $file enroll --server $server @data
+        if ($LASTEXITCODE -ne 0) { throw 'Enrolling this computer failed.' }
+        & $file install @data @extra
+        if ($LASTEXITCODE -ne 0) { throw 'Installing the service failed.' }
+    }
+    finally { Remove-Item -Recurse -Force -Path $work -ErrorAction SilentlyContinue }
+}

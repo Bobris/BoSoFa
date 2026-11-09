@@ -26,4 +26,7 @@
     <ProjectReference Include="../BoSoFa.Server.Domain/BoSoFa.Server.Domain.csproj" />
     <InternalsVisibleTo Include="BoSoFa.Server.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Install/*" LogicalName="install/%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

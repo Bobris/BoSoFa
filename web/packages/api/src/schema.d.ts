@@ -57,6 +57,168 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/downloads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductDownload"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/downloads/{product}/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query: {
+                    rid: string;
+                };
+                header?: never;
+                path: {
+                    product: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SignedRelease"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/downloads/{product}/{version}/{rid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    product: string;
+                    version: string;
+                    rid: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/install/{script}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    script: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/daemon/v1/accounts/{id}/lease": {
         parameters: {
             query?: never;
@@ -1409,7 +1571,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["DaemonReleaseDto"][];
+                        "application/json": components["schemas"]["ReleaseDto"][];
                     };
                 };
             };
@@ -1424,7 +1586,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": components["schemas"]["PublishDaemonRelease"];
+                    "application/json": components["schemas"]["PublishRelease"];
                 };
             };
             responses: {
@@ -1483,7 +1645,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["SignedDaemonRelease"];
+                        "application/json": components["schemas"]["SignedRelease"];
                     };
                 };
                 /** @description Not Found */
@@ -1497,6 +1659,78 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/desktop-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReleaseDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PublishRelease"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -2972,13 +3206,6 @@ export interface components {
             profileName?: null | string;
             images?: null | string[];
         };
-        DaemonReleaseDto: {
-            version: string;
-            channel: string;
-            /** Format: date-time */
-            publishedAt: string;
-            rids: string[];
-        };
         DaemonRolloutDto: {
             /** Format: uint64 */
             id: number | string;
@@ -3037,6 +3264,14 @@ export interface components {
         };
         /** @enum {unknown} */
         DispatchMode: "Queue" | "Steer" | null;
+        DownloadFile: {
+            rid: string;
+            fileName: string;
+            sha256: string;
+            /** Format: int64 */
+            size: number | string;
+            url: string;
+        };
         EnrollmentDto: {
             userCode: string;
             name: string;
@@ -3339,17 +3574,19 @@ export interface components {
         };
         /** @enum {unknown} */
         McpTransport: "Stdio" | "Http";
+        ProductDownload: {
+            product: string;
+            version: string;
+            /** Format: date-time */
+            publishedAt: string;
+            files: components["schemas"]["DownloadFile"][];
+        };
         ProfileDto: {
             name: string;
             model: null | string;
             permissionMode: null | string;
             mcpServers: string[];
             skills: components["schemas"]["SkillRef"][];
-        };
-        PublishDaemonRelease: {
-            manifest: string;
-            signature: string;
-            channel: string;
         };
         PublishHarnessRelease: {
             harness: string;
@@ -3366,11 +3603,23 @@ export interface components {
                 [key: string]: string;
             };
         };
+        PublishRelease: {
+            manifest: string;
+            signature: string;
+            channel: string;
+        };
         PublishSkillBundle: {
             name: string;
             version: string;
             sha256: string;
             description: null | string;
+        };
+        ReleaseDto: {
+            version: string;
+            channel: string;
+            /** Format: date-time */
+            publishedAt: string;
+            rids: string[];
         };
         ResolvedMcpServer: {
             name: string;
@@ -3466,7 +3715,7 @@ export interface components {
             channel: string;
             pinnedVersion: null | string;
         };
-        SignedDaemonRelease: {
+        SignedRelease: {
             version: string;
             manifest: string;
             signature: string;

@@ -18,52 +18,85 @@ public static class ReleaseEndpoints
         api.MapGet("/daemon-releases", ListReleasesAsync);
         api.MapPost("/daemon-releases", PublishAsync);
         api.MapGet("/daemon-releases/latest", LatestAsync);
+        api.MapGet("/desktop-releases", ListDesktopReleasesAsync);
+        api.MapPost("/desktop-releases", PublishDesktopAsync);
         api.MapGet("/daemon-rollouts", ListRolloutsAsync);
         api.MapPost("/daemon-rollouts", StartAsync);
         api.MapPost("/daemon-rollouts/{id}/halt", HaltAsync);
         api.MapPut("/machines/{id}/update-policy", SetPolicyAsync);
     }
 
-    static DaemonManifest? Parse(string manifest)
+    static ReleaseManifest? Parse(string manifest)
     {
-        try { return JsonSerializer.Deserialize(manifest, ProtocolJsonContext.Default.DaemonManifest); }
+        try { return JsonSerializer.Deserialize(manifest, ProtocolJsonContext.Default.ReleaseManifest); }
         catch (JsonException) { return null; }
     }
 
-    static async Task<DaemonReleaseDto[]> ListReleasesAsync(BtdbNode node, HttpContext http)
+    static async Task<ReleaseDto[]> ListReleasesAsync(BtdbNode node, HttpContext http)
     {
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using var query = publisher.StartQuery();
         return Ambient.Relation<IDaemonReleaseTable>().OrderByDescending(release => release.PublishedAt)
-            .Select(release => new DaemonReleaseDto(release.Version, release.Channel, release.PublishedAt,
+            .Select(release => new ReleaseDto(release.Version, release.Channel, release.PublishedAt,
+                Parse(release.Manifest)?.Artifacts.Select(artifact => artifact.Rid).ToArray() ?? [])).ToArray();
+    }
+
+    static async Task<ReleaseDto[]> ListDesktopReleasesAsync(BtdbNode node, HttpContext http)
+    {
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        using var query = publisher.StartQuery();
+        return Ambient.Relation<IDesktopReleaseTable>().OrderByDescending(release => release.PublishedAt)
+            .Select(release => new ReleaseDto(release.Version, release.Channel, release.PublishedAt,
                 Parse(release.Manifest)?.Artifacts.Select(artifact => artifact.Rid).ToArray() ?? [])).ToArray();
     }
 
     /// <summary>The newest stable release with a build for this platform: how a desktop app gets its first daemon.</summary>
-    static async Task<Results<Ok<SignedDaemonRelease>, NotFound>> LatestAsync(string rid, BtdbNode node, HttpContext http)
+    static async Task<Results<Ok<SignedRelease>, NotFound>> LatestAsync(string rid, BtdbNode node, HttpContext http)
     {
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using var query = publisher.StartQuery();
-        return Ambient.Relation<IDaemonReleaseTable>().Where(release => release.Channel == DaemonReleases.Stable)
+        return Ambient.Relation<IDaemonReleaseTable>().Where(release => release.Channel == Releases.Stable)
                 .OrderByDescending(release => release.PublishedAt)
                 .FirstOrDefault(release => Parse(release.Manifest)?.Artifacts.Any(artifact => artifact.Rid == rid) == true) is { } latest
-            ? TypedResults.Ok(new SignedDaemonRelease(latest.Version, latest.Manifest, latest.Signature))
+            ? TypedResults.Ok(new SignedRelease(latest.Version, latest.Manifest, latest.Signature))
             : TypedResults.NotFound();
     }
 
-    static async Task<Results<NoContent, NotFound, ForbidHttpResult, BadRequest<string>>> PublishAsync(PublishDaemonRelease request, IBlobStore blobs, BtdbNode node,
+    /// <summary>Why a release cannot be published; null when it can. The server cannot check the signature, as the key that
+    /// would prove it is only compiled into what runs the release, but it does not store nonsense.</summary>
+    static async Task<string?> ProblemAsync(string product, ReleaseManifest? manifest, string channel, IBlobStore blobs, CancellationToken cancellation)
+    {
+        if (manifest is not { Artifacts.Length: > 0 } || !Releases.IsValidVersion(manifest.Version) || !Releases.IsValidChannel(channel))
+            return "The manifest needs a plain version and some artifacts, on the stable or beta channel.";
+        if (!Releases.IsFor(manifest, product)) return $"That manifest is not for the {product}.";
+        foreach (var artifact in manifest.Artifacts)
+            if (!BlobHash.IsValid(artifact.Sha256) || !await blobs.ExistsAsync(artifact.Sha256, cancellation))
+                return $"The artifact for {artifact.Rid} is not in the blob store.";
+        return null;
+    }
+
+    static async Task<Results<NoContent, NotFound, ForbidHttpResult, BadRequest<string>>> PublishAsync(PublishRelease request, IBlobStore blobs, BtdbNode node,
         HttpContext http)
     {
         var manifest = Parse(request.Manifest);
-        if (manifest is not { Artifacts.Length: > 0 } || !DaemonReleases.IsValidVersion(manifest.Version) || !DaemonReleases.IsValidChannel(request.Channel))
-            return TypedResults.BadRequest("The manifest needs a plain version and some artifacts, on the stable or beta channel.");
-        foreach (var artifact in manifest.Artifacts)
-            if (!BlobHash.IsValid(artifact.Sha256) || !await blobs.ExistsAsync(artifact.Sha256, http.RequestAborted))
-                return TypedResults.BadRequest($"The artifact for {artifact.Rid} is not in the blob store.");
+        if (await ProblemAsync(Releases.Daemon, manifest, request.Channel, blobs, http.RequestAborted) is { } problem) return TypedResults.BadRequest(problem);
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         var result = await publisher.PublishAndWaitAsync(new DaemonReleasePublished
         {
-            UserId = http.User.UserId() ?? 0, Version = manifest.Version, Channel = request.Channel, Manifest = request.Manifest, Signature = request.Signature
+            UserId = http.User.UserId() ?? 0, Version = manifest!.Version, Channel = request.Channel, Manifest = request.Manifest, Signature = request.Signature
+        }, http.RequestAborted);
+        return Result(result.Outcome);
+    }
+
+    static async Task<Results<NoContent, NotFound, ForbidHttpResult, BadRequest<string>>> PublishDesktopAsync(PublishRelease request, IBlobStore blobs, BtdbNode node,
+        HttpContext http)
+    {
+        var manifest = Parse(request.Manifest);
+        if (await ProblemAsync(Releases.Desktop, manifest, request.Channel, blobs, http.RequestAborted) is { } problem) return TypedResults.BadRequest(problem);
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        var result = await publisher.PublishAndWaitAsync(new DesktopReleasePublished
+        {
+            UserId = http.User.UserId() ?? 0, Version = manifest!.Version, Channel = request.Channel, Manifest = request.Manifest, Signature = request.Signature
         }, http.RequestAborted);
         return Result(result.Outcome);
     }

@@ -23,7 +23,11 @@ export default function Machines() {
         when={machines().length > 0}
         fallback={
           <p class="px-4 py-3 text-sm text-muted">
-            No machines yet. Run <code class="font-mono">bosofad enroll --server {location.origin}</code> on one.
+            No machines yet.{" "}
+            <a class="text-accent hover:underline" href={paths.install()}>
+              Install the daemon
+            </a>{" "}
+            on one.
           </p>
         }
       >

@@ -25,7 +25,8 @@ export type FileEntry = components["schemas"]["FileEntry"];
 export type Terminal = components["schemas"]["TerminalDto"];
 export type ApiToken = components["schemas"]["ApiTokenDto"];
 export type AuditEntry = components["schemas"]["AuditEntryDto"];
-export type DaemonRelease = components["schemas"]["DaemonReleaseDto"];
+export type Release = components["schemas"]["ReleaseDto"];
+export type ProductDownload = components["schemas"]["ProductDownload"];
 export type DaemonRollout = components["schemas"]["DaemonRolloutDto"];
 export type LiveClientMessage = components["schemas"]["LiveClientMessage"];
 export type LiveServerMessage = components["schemas"]["LiveServerMessage"];
@@ -50,6 +51,12 @@ export interface Platform {
     enable(): Promise<string | undefined>;
     disable(): Promise<string | undefined>;
     addClaudeAccount(label: string): Promise<string | undefined>;
+  };
+  /** Desktop only: this app's own updates, which come from the server it signs in to. */
+  readonly updates?: {
+    check(): Promise<{ current?: string | null; supported: boolean; available?: string | null; ready: boolean; problem?: string | null }>;
+    /** Closes the app and starts the new version; what went wrong otherwise. */
+    install(): Promise<string | undefined>;
   };
 }
 

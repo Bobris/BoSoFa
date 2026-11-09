@@ -24,7 +24,7 @@ public sealed class DaemonUpdater(string dataDirectory, IBlobDownloader? blobs, 
     /// <summary>Why the last release was refused; for logs and tests.</summary>
     public string? LastRefusal { get; private set; }
 
-    public static string CurrentRid => DaemonReleases.RidOf(DaemonStore.OsName(), DaemonStore.ArchName());
+    public static string CurrentRid => Releases.RidOf(DaemonStore.OsName(), DaemonStore.ArchName());
 
     void Refuse(string reason)
     {
@@ -45,13 +45,13 @@ public sealed class DaemonUpdater(string dataDirectory, IBlobDownloader? blobs, 
             Refuse("this build has no release key.");
             return;
         }
-        if (!DaemonReleases.Verify(publicKey, update.Manifest, update.Signature))
+        if (!Releases.Verify(publicKey, update.Manifest, update.Signature))
         {
             Refuse($"the signature of {update.Version} does not match.");
             return;
         }
-        var manifest = JsonSerializer.Deserialize(update.Manifest, ProtocolJsonContext.Default.DaemonManifest);
-        if (manifest == null || manifest.Version != update.Version || !DaemonReleases.IsValidVersion(manifest.Version))
+        var manifest = JsonSerializer.Deserialize(update.Manifest, ProtocolJsonContext.Default.ReleaseManifest);
+        if (manifest == null || manifest.Version != update.Version || !Releases.IsValidVersion(manifest.Version) || !Releases.IsFor(manifest, Releases.Daemon))
         {
             Refuse("the manifest does not describe this version.");
             return;

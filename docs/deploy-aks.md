@@ -65,6 +65,8 @@ bosofa.example.com {
 
 Caddy adds the forwarded headers by default. The server refuses its peer routes (`/internal`, `/_btdb`) on any request carrying `X-Forwarded-For`, so a proxy that does not add it would expose them to the peer key alone.
 
+The proxy must also pass the original `Host` and add `X-Forwarded-Proto` (Caddy does both): the install scripts at `/install/*` name the server by the address they were fetched from, so a missing header would make them download from `http://` or from the pod's own address.
+
 The chart can instead create an Ingress (`ingress.enabled`). Its default annotations are for ingress-nginx and AKS application routing; another controller needs its own equivalents.
 
 Never set `devLogin` on a cluster anyone else can reach: it lets anyone sign in without a password.

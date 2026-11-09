@@ -52,6 +52,138 @@
         }
       }
     },
+    "/api/v1/downloads": {
+      "get": {
+        "tags": [
+          "DownloadEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductDownload"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downloads/{product}/latest": {
+      "get": {
+        "tags": [
+          "DownloadEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "product",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignedRelease"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/downloads/{product}/{version}/{rid}": {
+      "get": {
+        "tags": [
+          "DownloadEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "product",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/install/{script}": {
+      "get": {
+        "tags": [
+          "DownloadEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "script",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/daemon/v1/accounts/{id}/lease": {
       "post": {
         "tags": [
@@ -1133,7 +1265,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/DaemonReleaseDto"
+                    "$ref": "#/components/schemas/ReleaseDto"
                   }
                 }
               }
@@ -1149,7 +1281,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PublishDaemonRelease"
+                "$ref": "#/components/schemas/PublishRelease"
               }
             }
           },
@@ -1196,13 +1328,68 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SignedDaemonRelease"
+                  "$ref": "#/components/schemas/SignedRelease"
                 }
               }
             }
           },
           "404": {
             "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/desktop-releases": {
+      "get": {
+        "tags": [
+          "ReleaseEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReleaseDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ReleaseEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRelease"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
@@ -2770,33 +2957,6 @@
           }
         }
       },
-      "DaemonReleaseDto": {
-        "required": [
-          "version",
-          "channel",
-          "publishedAt",
-          "rids"
-        ],
-        "type": "object",
-        "properties": {
-          "version": {
-            "type": "string"
-          },
-          "channel": {
-            "type": "string"
-          },
-          "publishedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "rids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
       "DaemonRolloutDto": {
         "required": [
           "id",
@@ -3016,6 +3176,38 @@
           "Steer",
           null
         ]
+      },
+      "DownloadFile": {
+        "required": [
+          "rid",
+          "fileName",
+          "sha256",
+          "size",
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "rid": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
       },
       "EnrollmentDto": {
         "required": [
@@ -4310,6 +4502,33 @@
           "Http"
         ]
       },
+      "ProductDownload": {
+        "required": [
+          "product",
+          "version",
+          "publishedAt",
+          "files"
+        ],
+        "type": "object",
+        "properties": {
+          "product": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DownloadFile"
+            }
+          }
+        }
+      },
       "ProfileDto": {
         "required": [
           "name",
@@ -4346,25 +4565,6 @@
             "items": {
               "$ref": "#/components/schemas/SkillRef"
             }
-          }
-        }
-      },
-      "PublishDaemonRelease": {
-        "required": [
-          "manifest",
-          "signature",
-          "channel"
-        ],
-        "type": "object",
-        "properties": {
-          "manifest": {
-            "type": "string"
-          },
-          "signature": {
-            "type": "string"
-          },
-          "channel": {
-            "type": "string"
           }
         }
       },
@@ -4439,6 +4639,25 @@
           }
         }
       },
+      "PublishRelease": {
+        "required": [
+          "manifest",
+          "signature",
+          "channel"
+        ],
+        "type": "object",
+        "properties": {
+          "manifest": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          }
+        }
+      },
       "PublishSkillBundle": {
         "required": [
           "name",
@@ -4462,6 +4681,33 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "ReleaseDto": {
+        "required": [
+          "version",
+          "channel",
+          "publishedAt",
+          "rids"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -4893,7 +5139,7 @@
           }
         }
       },
-      "SignedDaemonRelease": {
+      "SignedRelease": {
         "required": [
           "version",
           "manifest",
@@ -5173,6 +5419,9 @@
   "tags": [
     {
       "name": "FileEndpoints"
+    },
+    {
+      "name": "DownloadEndpoints"
     },
     {
       "name": "AccountEndpoints"

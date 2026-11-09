@@ -1,4 +1,6 @@
-import { Errored, Loading } from "solid-js";
+import { getPlatform } from "@bosofa/api";
+import { Errored, Loading, Show } from "solid-js";
+import UpdateBanner from "./components/UpdateBanner";
 import { paths, Router } from "./router";
 
 export default function App() {
@@ -11,6 +13,11 @@ export default function App() {
               BoSoFa
             </a>
             <span class="text-muted text-sm">Bobris Software Factory</span>
+            <Show when={getPlatform().updates}>
+              <Loading fallback={null}>
+                <UpdateBanner />
+              </Loading>
+            </Show>
           </header>
           <Errored
             fallback={(error, reset) => (

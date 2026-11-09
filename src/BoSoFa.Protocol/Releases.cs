@@ -5,17 +5,25 @@ using System.Text.RegularExpressions;
 
 namespace BoSoFa.Protocol;
 
-public sealed record DaemonArtifact(string Rid, string Sha256, long Size);
+public sealed record ReleaseArtifact(string Rid, string Sha256, long Size);
 
-/// <summary>What a release contains. Its JSON text is what the offline release key signs (plan §5.7).</summary>
-public sealed record DaemonManifest(string Version, DaemonArtifact[] Artifacts);
+/// <summary>What a release contains. Its JSON text is what the offline release key signs (plan §5.7). The product is signed
+/// too, so a release of one product cannot pass for the other; a manifest without one is a daemon release.</summary>
+public sealed record ReleaseManifest(string Version, ReleaseArtifact[] Artifacts,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Product = null);
 
-public sealed record PublishDaemonRelease(string Manifest, string Signature, string Channel);
+public sealed record PublishRelease(string Manifest, string Signature, string Channel);
 
 /// <summary>A release with what is needed to check it.</summary>
-public sealed record SignedDaemonRelease(string Version, string Manifest, string Signature);
+public sealed record SignedRelease(string Version, string Manifest, string Signature);
 
-public sealed record DaemonReleaseDto(string Version, string Channel, DateTime PublishedAt, string[] Rids);
+public sealed record ReleaseDto(string Version, string Channel, DateTime PublishedAt, string[] Rids);
+
+/// <summary>One file a person or an install script can fetch without signing in.</summary>
+public sealed record DownloadFile(string Rid, string FileName, string Sha256, long Size, string Url);
+
+/// <summary>The newest stable release of a product.</summary>
+public sealed record ProductDownload(string Product, string Version, DateTime PublishedAt, DownloadFile[] Files);
 
 [JsonConverter(typeof(JsonStringEnumConverter<DaemonRolloutStatus>))]
 public enum DaemonRolloutStatus
@@ -31,13 +39,29 @@ public sealed record StartDaemonRollout(string Version, int WaveSize = 1, int? F
 
 public sealed record DaemonRolloutDto(ulong Id, string Version, string Channel, DaemonRolloutStatus Status, DateTime StartedAt, int Updated, int InFlight, string Detail);
 
-/// <summary>The default channel is <see cref="DaemonReleases.Stable"/>. A pin holds a machine at one version.</summary>
+/// <summary>The default channel is <see cref="Releases.Stable"/>. A pin holds a machine at one version.</summary>
 public sealed record SetMachineUpdatePolicy(string Channel, string? PinnedVersion);
 
-public static partial class DaemonReleases
+public static partial class Releases
 {
     public const string Stable = "stable";
     public const string Beta = "beta";
+
+    public const string Daemon = "daemon";
+    public const string Desktop = "desktop";
+
+    public static bool IsValidProduct(string product) => product is Daemon or Desktop;
+
+    public static bool IsFor(ReleaseManifest manifest, string product) => (manifest.Product ?? Daemon) == product;
+
+    /// <summary>What a download is called: the daemon is a bare executable, the desktop app an archive of its folder.</summary>
+    public static string FileName(string product, string rid)
+    {
+        var windows = rid.StartsWith("win-", StringComparison.Ordinal);
+        return product == Daemon
+            ? windows ? "bosofad.exe" : "bosofad"
+            : $"bosofa-desktop-{rid}{(windows ? ".zip" : ".tar.gz")}";
+    }
 
     /// <summary>A version names a folder on every machine, so it must be plain.</summary>
     public static bool IsValidVersion(string version) => version.Length is > 0 and <= 100 && version[0] != '.' && VersionPattern().IsMatch(version);

@@ -124,6 +124,7 @@ public static class ServerApp
         app.MapMachineEndpoints();
         app.MapFileEndpoints();
         app.MapReleaseEndpoints();
+        app.MapDownloadEndpoints();
         app.MapSessionEndpoints();
         app.MapAccountEndpoints();
         app.MapApiTokenEndpoints();

@@ -66,7 +66,7 @@ public sealed partial class LocalDaemon(DesktopAccount account, string dataRoot,
         return Path.Combine(string.IsNullOrEmpty(xdg) ? Path.Combine(home, ".local", "share") : xdg, "bosofa");
     }
 
-    static string CurrentRid() => DaemonReleases.RidOf(
+    static string CurrentRid() => Releases.RidOf(
         OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsWindows() ? "windows" : "linux",
         RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant());
 
@@ -104,10 +104,10 @@ public sealed partial class LocalDaemon(DesktopAccount account, string dataRoot,
         request.Headers.Authorization = new("Bearer", tokens.AccessToken);
         using var response = await http.SendAsync(request, cancellation);
         if (!response.IsSuccessStatusCode) return (null, $"The server has no daemon release for {rid}.");
-        var release = (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.SignedDaemonRelease, cancellation))!;
-        if (!DaemonReleases.Verify(releaseKey, release.Manifest, release.Signature)) return (null, "The server's daemon release is not properly signed.");
-        var manifest = JsonSerializer.Deserialize(release.Manifest, ProtocolJsonContext.Default.DaemonManifest);
-        if (manifest?.Artifacts.FirstOrDefault(artifact => artifact.Rid == rid) is not { } artifact || !DaemonReleases.IsValidVersion(manifest.Version))
+        var release = (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.SignedRelease, cancellation))!;
+        if (!Releases.Verify(releaseKey, release.Manifest, release.Signature)) return (null, "The server's daemon release is not properly signed.");
+        var manifest = JsonSerializer.Deserialize(release.Manifest, ProtocolJsonContext.Default.ReleaseManifest);
+        if (manifest?.Artifacts.FirstOrDefault(artifact => artifact.Rid == rid) is not { } artifact || !Releases.IsValidVersion(manifest.Version) || !Releases.IsFor(manifest, Releases.Daemon))
             return (null, $"The server has no daemon release for {rid}.");
         var directory = Path.Combine(dataRoot, "daemon", manifest.Version);
         var target = Path.Combine(directory, ExecutableName);

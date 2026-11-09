@@ -3,21 +3,63 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>BoSoFa.Desktop</RootNamespace>
     <AssemblyName>bosofa-desktop</AssemblyName>
-    <!-- Like CodeAlta: framework-dependent, ReadyToRun on publish, no AOT. -->
-    <SelfContained>false</SelfContained>
+    <!-- Like CodeAlta: ReadyToRun on publish, no AOT. Framework-dependent while developing; a package (BoSoFaPackage) carries the
+         runtime, because it is installed from a web page onto computers that may not have .NET. -->
+    <SelfContained Condition="'$(BoSoFaPackage)' != 'true'">false</SelfContained>
+    <SelfContained Condition="'$(BoSoFaPackage)' == 'true'">true</SelfContained>
     <PublishReadyToRun>true</PublishReadyToRun>
     <!-- The page comes from the pnpm workspace (pnpm -C web build): it is served as files, so the CSP can name the server
          chosen at run time, and NeoAstra's npm-only frontend build is off. -->
     <NeoAstraBuildFrontend>false</NeoAstraBuildFrontend>
   </PropertyGroup>
   <ItemGroup Condition="'$(BoSoFaReleasePublicKey)' != ''">
-    <!-- The key that signs daemon releases, as in the daemon itself. -->
+    <!-- The key that signs releases of the daemon and of this app, as in the daemon itself. -->
     <AssemblyMetadata Include="BoSoFaReleasePublicKey" Value="$(BoSoFaReleasePublicKey)" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
     <PackageReference Include="NeoAstra" />
   </ItemGroup>
+  <!-- dotnet publish src/BoSoFa.Desktop -c Release -r osx-arm64 -p:BoSoFaPackage=true -p:Version=1.2.3 -p:BoSoFaReleasePublicKey=...
+       writes artifacts/package/bosofa-desktop-osx-arm64.tar.gz (a .zip on Windows), ready for release-publish with product desktop. -->
+  <Target Name="PackageDesktop" AfterTargets="Publish" Condition="'$(BoSoFaPackage)' == 'true'">
+    <PropertyGroup>
+      <_PackageParent>$(MSBuildThisFileDirectory)../../artifacts/package/</_PackageParent>
+      <_PackageStage>$(_PackageParent)$(RuntimeIdentifier)/</_PackageStage>
+      <_PackageMac>$(RuntimeIdentifier.StartsWith('osx'))</_PackageMac>
+      <_PackageWindows>$(RuntimeIdentifier.StartsWith('win'))</_PackageWindows>
+      <_PackageRoot Condition="'$(_PackageMac)' == 'True'">BoSoFa.app</_PackageRoot>
+      <_PackageRoot Condition="'$(_PackageWindows)' == 'True'">BoSoFa</_PackageRoot>
+      <_PackageRoot Condition="'$(_PackageRoot)' == ''">bosofa-desktop</_PackageRoot>
+      <_PackageCode>$(_PackageStage)$(_PackageRoot)/</_PackageCode>
+      <_PackageCode Condition="'$(_PackageMac)' == 'True'">$(_PackageCode)Contents/MacOS/</_PackageCode>
+      <_PackageFile>$(_PackageParent)bosofa-desktop-$(RuntimeIdentifier).tar.gz</_PackageFile>
+      <_PackageFile Condition="'$(_PackageWindows)' == 'True'">$(_PackageParent)bosofa-desktop-$(RuntimeIdentifier).zip</_PackageFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <_PackageApp Include="$(PublishDir)**/*" />
+      <_PackagePage Include="../../web/apps/desktop/dist/**/*" />
+    </ItemGroup>
+    <Error Condition="'@(_PackagePage)' == ''" Text="The page is missing: run 'pnpm --dir web build' first." />
+    <RemoveDir Directories="$(_PackageStage)" />
+    <Copy SourceFiles="@(_PackageApp)" DestinationFiles="@(_PackageApp->'$(_PackageCode)%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Copy SourceFiles="@(_PackagePage)" DestinationFiles="@(_PackagePage->'$(_PackageCode)spa/%(RecursiveDir)%(Filename)%(Extension)')" />
+    <WriteLinesToFile File="$(_PackageCode)release.json" Lines="{&quot;version&quot;:&quot;$(Version)&quot;,&quot;rid&quot;:&quot;$(RuntimeIdentifier)&quot;}" Overwrite="true" />
+    <WriteLinesToFile Condition="'$(_PackageMac)' == 'True'" File="$(_PackageStage)$(_PackageRoot)/Contents/Info.plist"
+                      Lines="$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)Info.plist').Replace('__VERSION__','$(Version)'))" Overwrite="true" />
+    <!-- macOS tar would add extended attributes, which .NET's tar reader (the app's updater) refuses. They also hold codesign's
+         signatures of non-code files, so the bundle gets no signature of its own: the SDK has signed the executable, and the native
+         libraries come signed, which is what Apple silicon needs to run it. A Developer ID signature needs the managed files
+         moved out of Contents/MacOS first. -->
+    <PropertyGroup>
+      <_PackageTarFlags Condition="'$(_PackageMac)' == 'True' and $([MSBuild]::IsOSPlatform('OSX'))">--no-mac-metadata --no-xattrs --no-acls</_PackageTarFlags>
+    </PropertyGroup>
+    <Delete Files="$(_PackageFile)" />
+    <Exec Condition="'$(_PackageWindows)' != 'True'" WorkingDirectory="$(_PackageStage)" EnvironmentVariables="COPYFILE_DISABLE=1"
+          Command="tar $(_PackageTarFlags) -czf ../bosofa-desktop-$(RuntimeIdentifier).tar.gz $(_PackageRoot)" />
+    <ZipDirectory Condition="'$(_PackageWindows)' == 'True'" SourceDirectory="$(_PackageStage)" DestinationFile="$(_PackageFile)" />
+    <Message Importance="high" Text="Packaged $(_PackageFile)" />
+  </Target>
   <Target Name="CopyPage" AfterTargets="Build;Publish">
     <ItemGroup>
       <PageFile Include="../../web/apps/desktop/dist/**/*" />

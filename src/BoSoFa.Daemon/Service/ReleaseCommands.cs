@@ -26,10 +26,16 @@ public static class ReleaseCommands
     }
 
     /// <summary>Uploads the binaries, signs the manifest and publishes it. The API token comes from BOSOFA_TOKEN.</summary>
+    /// <param name="product">What is published: the daemon, or archives of the desktop app.</param>
     /// <param name="artifacts"><c>rid=path</c>, separated by commas.</param>
-    public static async Task<int> PublishAsync(Uri server, string keyFile, string version, string channel, string artifacts, TextWriter output, TextWriter error,
+    public static async Task<int> PublishAsync(Uri server, string keyFile, string product, string version, string channel, string artifacts, TextWriter output, TextWriter error,
         CancellationToken cancellation)
     {
+        if (!Releases.IsValidProduct(product))
+        {
+            error.WriteLine($"Unknown product '{product}': use {Releases.Daemon} or {Releases.Desktop}.");
+            return 2;
+        }
         if (Environment.GetEnvironmentVariable("BOSOFA_TOKEN") is not { Length: > 0 } token)
         {
             error.WriteLine("Set BOSOFA_TOKEN to an API token with full control.");
@@ -37,7 +43,7 @@ public static class ReleaseCommands
         }
         using var http = new HttpClient { BaseAddress = server, Timeout = TimeSpan.FromMinutes(15) };
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        var uploaded = new List<DaemonArtifact>();
+        var uploaded = new List<ReleaseArtifact>();
         foreach (var entry in artifacts.Split(',', StringSplitOptions.RemoveEmptyEntries))
         {
             var (rid, path) = (entry[..entry.IndexOf('=')], entry[(entry.IndexOf('=') + 1)..]);
@@ -48,18 +54,18 @@ public static class ReleaseCommands
             uploaded.Add(new(rid, blob.Sha256, blob.Size));
             output.WriteLine($"Uploaded {rid}: {blob.Sha256}");
         }
-        var manifest = JsonSerializer.Serialize(new DaemonManifest(version, uploaded.ToArray()), ProtocolJsonContext.Default.DaemonManifest);
+        var manifest = JsonSerializer.Serialize(new ReleaseManifest(version, uploaded.ToArray(), product == Releases.Daemon ? null : product), ProtocolJsonContext.Default.ReleaseManifest);
         using var key = ECDsa.Create();
         key.ImportFromPem(File.ReadAllText(keyFile));
         var signature = Convert.ToBase64String(key.SignData(Encoding.UTF8.GetBytes(manifest), HashAlgorithmName.SHA256));
-        using var published = await http.PostAsJsonAsync("/api/v1/daemon-releases", new PublishDaemonRelease(manifest, signature, channel),
-            ProtocolJsonContext.Default.PublishDaemonRelease, cancellation);
+        using var published = await http.PostAsJsonAsync($"/api/v1/{product}-releases", new PublishRelease(manifest, signature, channel),
+            ProtocolJsonContext.Default.PublishRelease, cancellation);
         if (!published.IsSuccessStatusCode)
         {
             error.WriteLine($"Publishing failed ({(int)published.StatusCode}): {await published.Content.ReadAsStringAsync(cancellation)}");
             return 1;
         }
-        output.WriteLine($"Published {version} on {channel}.");
+        output.WriteLine($"Published {product} {version} on {channel}.");
         return 0;
     }
 }

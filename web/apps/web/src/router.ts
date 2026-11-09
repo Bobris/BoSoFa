@@ -6,6 +6,7 @@ export const Router = createRouter({
     { path: "/", component: lazy(() => import("./pages/Home")) },
     { path: "/login", component: lazy(() => import("./pages/Login")) },
     { path: "/enroll", component: lazy(() => import("./pages/Enroll")) },
+    { path: "/install", component: lazy(() => import("./pages/Install")) },
     { path: "/catalog", component: lazy(() => import("./pages/Catalog")) },
     { path: "/desktop/authorize", component: lazy(() => import("./pages/DesktopAuthorize")) },
     { path: "/releases", component: lazy(() => import("./pages/Releases")) },

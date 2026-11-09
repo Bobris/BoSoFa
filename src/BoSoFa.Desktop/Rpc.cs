@@ -92,6 +92,28 @@ public sealed class LocalDaemonService
     }
 }
 
+/// <summary>Updates of this app. Nothing here takes a version or a path: what is installed is decided on this side.</summary>
+[NeoRpcService("updates", Version = 1)]
+public sealed class UpdatesService
+{
+    readonly DesktopUpdater _updater;
+
+    internal UpdatesService(DesktopUpdater updater) => _updater = updater;
+
+    [NeoRpcMethod("state")]
+    public UpdateState State(EmptyRequest request) => _updater.State;
+
+    [NeoRpcMethod("check")]
+    public async ValueTask<UpdateState> CheckAsync(EmptyRequest request, CancellationToken cancellationToken) => await _updater.CheckAsync(cancellationToken);
+
+    [NeoRpcMethod("install")]
+    public ActionResponse Install(EmptyRequest request)
+    {
+        try { return new(_updater.Install()); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception) { return new(exception.Message); }
+    }
+}
+
 [NeoRpcService("files", Version = 1)]
 public sealed class FilesService
 {
@@ -119,5 +141,6 @@ public sealed class FilesService
 [JsonSerializable(typeof(LocalDaemonStatus))]
 [JsonSerializable(typeof(ActionResponse))]
 [JsonSerializable(typeof(AddClaudeAccountRequest))]
+[JsonSerializable(typeof(UpdateState))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class DesktopRpcJsonContext : JsonSerializerContext;

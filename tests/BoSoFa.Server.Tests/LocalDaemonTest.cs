@@ -96,17 +96,17 @@ public class LocalDaemonTest
             Assert.False(local.Status().Enrolled);
             Assert.Contains("no daemon release", await local.EnableAsync(default));
 
-            var rid = DaemonReleases.RidOf(OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsWindows() ? "windows" : "linux",
+            var rid = Releases.RidOf(OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsWindows() ? "windows" : "linux",
                 System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant());
             var blob = await (await browser.PostAsync("/api/v1/blobs", new ByteArrayContent("daemon"u8.ToArray()))).Content.ReadFromJsonAsync<BlobRef>();
-            var manifest = JsonSerializer.Serialize(new DaemonManifest("2.0", [new(rid, blob!.Sha256, blob.Size)]), ProtocolJsonContext.Default.DaemonManifest);
+            var manifest = JsonSerializer.Serialize(new ReleaseManifest("2.0", [new(rid, blob!.Sha256, blob.Size)]), ProtocolJsonContext.Default.ReleaseManifest);
 
-            (await browser.PostAsJsonAsync("/api/v1/daemon-releases", new PublishDaemonRelease(manifest, Convert.ToBase64String(new byte[64]), "stable"))).EnsureSuccessStatusCode();
+            (await browser.PostAsJsonAsync("/api/v1/daemon-releases", new PublishRelease(manifest, Convert.ToBase64String(new byte[64]), "stable"))).EnsureSuccessStatusCode();
             Assert.Contains("not properly signed", await local.EnableAsync(default));
             Assert.Empty(commands.Runs);
 
             var signature = Convert.ToBase64String(key.SignData(Encoding.UTF8.GetBytes(manifest), HashAlgorithmName.SHA256));
-            (await browser.PostAsJsonAsync("/api/v1/daemon-releases", new PublishDaemonRelease(manifest, signature, "stable"))).EnsureSuccessStatusCode();
+            (await browser.PostAsJsonAsync("/api/v1/daemon-releases", new PublishRelease(manifest, signature, "stable"))).EnsureSuccessStatusCode();
             // The real enroll would wait for this approval, so the app must have made it; there is no such code on this server.
             await Assert.ThrowsAnyAsync<HttpRequestException>(() => local.EnableAsync(default));
             var fetched = Path.Combine(data, "daemon", "2.0", OperatingSystem.IsWindows() ? "bosofad.exe" : "bosofad");

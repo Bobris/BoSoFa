@@ -22,9 +22,9 @@ public class DaemonUpdaterTest
     static readonly ECDsa Key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     static string PublicKey => Convert.ToBase64String(Key.ExportSubjectPublicKeyInfo());
 
-    static UpdateDaemonCommand Signed(string version, ECDsa? key = null, string? rid = null)
+    static UpdateDaemonCommand Signed(string version, ECDsa? key = null, string? rid = null, string? product = null)
     {
-        var manifest = JsonSerializer.Serialize(new DaemonManifest(version, [new(rid ?? DaemonUpdater.CurrentRid, new string('a', 64), 3)]), ProtocolJsonContext.Default.DaemonManifest);
+        var manifest = JsonSerializer.Serialize(new ReleaseManifest(version, [new(rid ?? DaemonUpdater.CurrentRid, new string('a', 64), 3)], product), ProtocolJsonContext.Default.ReleaseManifest);
         return new(version, manifest, Convert.ToBase64String((key ?? Key).SignData(Encoding.UTF8.GetBytes(manifest), HashAlgorithmName.SHA256)));
     }
 
@@ -72,7 +72,7 @@ public class DaemonUpdaterTest
         foreach (var (command, reason) in new[]
                  {
                      (Signed("2.0", other), "signature"), (tampered, "signature"), (Signed("broken"), "already failed"), (Signed("2.0", rid: "plan9-mips"), "no build"),
-                     (Signed("../evil"), "does not describe")
+                     (Signed("../evil"), "does not describe"), (Signed("2.0", product: Releases.Desktop), "does not describe")
                  })
         {
             var (updater, versions, switched) = Create();
@@ -155,8 +155,8 @@ public class DaemonRolloutTest
     static async Task PublishAsync(HttpClient boris, string version)
     {
         var blob = await (await boris.PostAsync("/api/v1/blobs", new ByteArrayContent([1, 2, 3]))).Content.ReadFromJsonAsync<BlobRef>();
-        var manifest = JsonSerializer.Serialize(new DaemonManifest(version, [new("linux-x64", blob!.Sha256, blob.Size)]), ProtocolJsonContext.Default.DaemonManifest);
-        (await boris.PostAsJsonAsync("/api/v1/daemon-releases", new PublishDaemonRelease(manifest, "c2lnbmVk", DaemonReleases.Stable))).EnsureSuccessStatusCode();
+        var manifest = JsonSerializer.Serialize(new ReleaseManifest(version, [new("linux-x64", blob!.Sha256, blob.Size)]), ProtocolJsonContext.Default.ReleaseManifest);
+        (await boris.PostAsJsonAsync("/api/v1/daemon-releases", new PublishRelease(manifest, "c2lnbmVk", Releases.Stable))).EnsureSuccessStatusCode();
     }
 
     static async Task Eventually(Func<Task<bool>> condition)
@@ -223,11 +223,11 @@ public class DaemonRolloutTest
         {
             using var anna = server.Client(new CookieContainer());
             (await anna.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("anna@example.com", null))).EnsureSuccessStatusCode();
-            var refused = new PublishDaemonRelease(JsonSerializer.Serialize(new DaemonManifest("2.0", [new("linux-x64", new string('b', 64), 1)]), ProtocolJsonContext.Default.DaemonManifest), "x", "stable");
+            var refused = new PublishRelease(JsonSerializer.Serialize(new ReleaseManifest("2.0", [new("linux-x64", new string('b', 64), 1)]), ProtocolJsonContext.Default.ReleaseManifest), "x", "stable");
             Assert.Equal(HttpStatusCode.BadRequest, (await boris.PostAsJsonAsync("/api/v1/daemon-releases", refused)).StatusCode); // that blob does not exist
 
             await PublishAsync(boris, "2.0");
-            var body = (await boris.GetFromJsonAsync<DaemonReleaseDto[]>("/api/v1/daemon-releases"))!;
+            var body = (await boris.GetFromJsonAsync<ReleaseDto[]>("/api/v1/daemon-releases"))!;
             Assert.Equal("2.0", Assert.Single(body).Version);
             Assert.Equal(HttpStatusCode.Forbidden, (await anna.PostAsJsonAsync("/api/v1/daemon-rollouts", new StartDaemonRollout("2.0"))).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await anna.PutAsJsonAsync($"/api/v1/machines/{daemons[0].MachineId}/update-policy", new SetMachineUpdatePolicy("stable", "1.0"))).StatusCode);

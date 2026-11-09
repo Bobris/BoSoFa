@@ -48,6 +48,16 @@ public sealed class DesktopAccount(string dataDirectory, ITokenVault vault, Func
         return File.Exists(path) ? JsonSerializer.Deserialize(File.ReadAllText(path), DesktopSettingsContext.Default.DesktopSettings)?.Server : null;
     }
 
+    /// <summary>The server this app was installed from, until the person signs in somewhere. An address that makes no sense is
+    /// ignored: they can still type one.</summary>
+    public void Preset(string server)
+    {
+        if (Server != null || !Uri.TryCreate(server.Trim(), UriKind.Absolute, out var origin) || origin.Scheme is not ("https" or "http")) return;
+        Directory.CreateDirectory(dataDirectory);
+        File.WriteAllText(SettingsPath, JsonSerializer.Serialize(new DesktopSettings(origin.GetLeftPart(UriPartial.Authority)), DesktopSettingsContext.Default.DesktopSettings));
+        Server = origin.GetLeftPart(UriPartial.Authority);
+    }
+
     /// <summary>The system browser, or what <c>BROWSER</c> names, as command-line tools do.</summary>
     static Task OpenSystemBrowserAsync(Uri address)
     {

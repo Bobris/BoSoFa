@@ -25,6 +25,9 @@ export default function Home() {
           <div class="flex items-center justify-between gap-4">
             <h1 class="text-2xl font-semibold">Hello {user().name}</h1>
             <span class="flex items-center gap-4">
+            <a href={paths.install()} class="text-sm text-muted hover:text-ink">
+              Install
+            </a>
             <a href={paths.catalog()} class="text-sm text-muted hover:text-ink">
               Catalog
             </a>

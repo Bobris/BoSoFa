@@ -47,7 +47,7 @@ namespace BoSoFa.Daemon
               uninstall [--scope user|system] [--dry-run]  Remove the service; the machine's identity stays.
               doctor                                  Check what this daemon needs.
               release-keygen --out <file>             Create the release signing key; prints the public key builds embed.
-              release-publish --server <url> --key <file> --version <v> --artifacts <rid=path,…> [--channel stable|beta]
+              release-publish --server <url> --key <file> --version <v> --artifacts <rid=path,…> [--channel stable|beta] [--product daemon|desktop]
                                                       Sign and publish a daemon release (token in BOSOFA_TOKEN).
               status [--server <url>]                 Check that the server answers and speaks this protocol version.
               version                                 Print the daemon version.
@@ -106,8 +106,8 @@ namespace BoSoFa.Daemon
                     case "release-keygen" when options.TryGetValue("out", out var keyFile):
                         return Service.ReleaseCommands.KeyGen(keyFile, output, error);
                     case "release-publish" when options.ContainsKey("server") && options.ContainsKey("key") && options.ContainsKey("version") && options.ContainsKey("artifacts"):
-                        return await Service.ReleaseCommands.PublishAsync(new Uri(options["server"]), options["key"], options["version"],
-                            options.GetValueOrDefault("channel") ?? Protocol.DaemonReleases.Stable, options["artifacts"], output, error, cancellation);
+                        return await Service.ReleaseCommands.PublishAsync(new Uri(options["server"]), options["key"], options.GetValueOrDefault("product") ?? Protocol.Releases.Daemon, options["version"],
+                            options.GetValueOrDefault("channel") ?? Protocol.Releases.Stable, options["artifacts"], output, error, cancellation);
                     case "claude-setup-token":
                         return await Service.ClaudeSetupToken.RunAsync(options.GetValueOrDefault("claude"), output, error, cancellation);
                     case "doctor":
@@ -159,6 +159,12 @@ namespace BoSoFa.Daemon
         {
             if (store.LoadState() is { } existing)
             {
+                if (existing.Server == server)
+                {
+                    // An install script may run again on a machine that already belongs to this server.
+                    output.WriteLine($"Already enrolled as machine {existing.MachineId} on {existing.Server}.");
+                    return 0;
+                }
                 error.WriteLine($"Already enrolled as machine {existing.MachineId} on {existing.Server} ({store.Directory}).");
                 return 1;
             }

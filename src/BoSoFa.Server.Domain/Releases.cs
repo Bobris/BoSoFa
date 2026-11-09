@@ -20,6 +20,21 @@ public interface IDaemonReleaseTable : IRelation<DaemonRelease>
     DaemonRelease? FindByIdOrDefault(string version);
 }
 
+/// <summary>A signed desktop app build. Apps ask for the newest one themselves, so it has no rollouts.</summary>
+public class DesktopRelease
+{
+    [PrimaryKey(1)] public string Version { get; set; } = "";
+    public string Channel { get; set; } = "";
+    public string Manifest { get; set; } = "";
+    public string Signature { get; set; } = "";
+    public DateTime PublishedAt { get; set; }
+}
+
+public interface IDesktopReleaseTable : IRelation<DesktopRelease>
+{
+    DesktopRelease? FindByIdOrDefault(string version);
+}
+
 /// <summary>Kept apart from <see cref="Machine"/>; absent means the stable channel, not pinned.</summary>
 public class MachineUpdatePolicy
 {
@@ -84,6 +99,15 @@ public class DaemonReleasePublished : EventWithResult<SessionCommandResult>
     public string Signature { get; set; } = "";
 }
 
+public class DesktopReleasePublished : EventWithResult<SessionCommandResult>
+{
+    public ulong UserId { get; set; }
+    public string Version { get; set; } = "";
+    public string Channel { get; set; } = "";
+    public string Manifest { get; set; } = "";
+    public string Signature { get; set; } = "";
+}
+
 public class MachineUpdatePolicySet : EventWithResult<SessionCommandResult>
 {
     public ulong UserId { get; set; }
@@ -112,7 +136,7 @@ public class DaemonRolloutTicked : PureEvent;
 public sealed class DaemonReleasePublishedHandler : IEventHandler<DaemonReleasePublished, SessionCommandResult>
 {
     public SessionCommandResult? Validate(DaemonReleasePublished ev) =>
-        DaemonReleases.IsValidVersion(ev.Version) && DaemonReleases.IsValidChannel(ev.Channel) ? null : new() { Outcome = CommandOutcome.Invalid };
+        Releases.IsValidVersion(ev.Version) && Releases.IsValidChannel(ev.Channel) ? null : new() { Outcome = CommandOutcome.Invalid };
 
     public SessionCommandResult Consume(DaemonReleasePublished ev)
     {
@@ -126,10 +150,27 @@ public sealed class DaemonReleasePublishedHandler : IEventHandler<DaemonReleaseP
     }
 }
 
+public sealed class DesktopReleasePublishedHandler : IEventHandler<DesktopReleasePublished, SessionCommandResult>
+{
+    public SessionCommandResult? Validate(DesktopReleasePublished ev) =>
+        Releases.IsValidVersion(ev.Version) && Releases.IsValidChannel(ev.Channel) ? null : new() { Outcome = CommandOutcome.Invalid };
+
+    public SessionCommandResult Consume(DesktopReleasePublished ev)
+    {
+        if (!Catalog.IsAdmin(ev.UserId)) return new() { Outcome = CommandOutcome.Forbidden };
+        Ambient.Relation<IDesktopReleaseTable>().Upsert(new()
+        {
+            Version = ev.Version, Channel = ev.Channel, Manifest = ev.Manifest, Signature = ev.Signature, PublishedAt = ev.When
+        });
+        Audit.Record(ev.When, ev.UserId, "desktop.published", ev.Version, ev.Channel);
+        return new() { Outcome = CommandOutcome.Ok };
+    }
+}
+
 public sealed class MachineUpdatePolicySetHandler : IEventHandler<MachineUpdatePolicySet, SessionCommandResult>
 {
     public SessionCommandResult? Validate(MachineUpdatePolicySet ev) =>
-        DaemonReleases.IsValidChannel(ev.Channel) && ev.PinnedVersion is null || ev.PinnedVersion is { } pin && DaemonReleases.IsValidVersion(pin) && DaemonReleases.IsValidChannel(ev.Channel)
+        Releases.IsValidChannel(ev.Channel) && ev.PinnedVersion is null || ev.PinnedVersion is { } pin && Releases.IsValidVersion(pin) && Releases.IsValidChannel(ev.Channel)
             ? null
             : new() { Outcome = CommandOutcome.Invalid };
 
@@ -215,13 +256,13 @@ public sealed class DaemonRolloutTickedHandler(IDomainSignals signals) : IEventH
             Finish(rollout, DaemonRolloutStatus.Halted, "The release is gone.", when);
             return;
         }
-        var rids = JsonSerializer.Deserialize(release.Manifest, ProtocolJsonContext.Default.DaemonManifest)!.Artifacts.Select(artifact => artifact.Rid).ToHashSet();
+        var rids = JsonSerializer.Deserialize(release.Manifest, ProtocolJsonContext.Default.ReleaseManifest)!.Artifacts.Select(artifact => artifact.Rid).ToHashSet();
         var policies = Ambient.Relation<IMachineUpdatePolicyTable>();
         var machines = Ambient.Relation<IMachineTable>().Where(machine =>
         {
             var policy = policies.FindByIdOrDefault(machine.Id);
-            return (policy?.Channel ?? DaemonReleases.Stable) == rollout.Channel && (policy?.PinnedVersion ?? rollout.Version) == rollout.Version &&
-                   rids.Contains(DaemonReleases.RidOf(machine.Os, machine.Arch));
+            return (policy?.Channel ?? Releases.Stable) == rollout.Channel && (policy?.PinnedVersion ?? rollout.Version) == rollout.Version &&
+                   rids.Contains(Releases.RidOf(machine.Os, machine.Arch));
         }).ToList();
         var progress = Ambient.Relation<IDaemonRolloutMachineTable>();
         var told = progress.ListById(rollout.Id).ToDictionary(row => row.MachineId);

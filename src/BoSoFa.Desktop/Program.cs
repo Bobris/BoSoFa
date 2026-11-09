@@ -13,6 +13,9 @@ using NeoAstra.Rpc;
 //   BOSOFA_DESKTOP_SMOKE       a JavaScript file run in the page; it sets window.__smoke to a string when it is done
 //   BOSOFA_DESKTOP_SMOKE_OUT   where that string is written, after which the app closes
 
+// Runs from a staged update, once this app has closed; there is no window and no page.
+if (args is [UpdateHelper.Argument, var updatePlan]) return await UpdateHelper.RunAsync(updatePlan);
+
 var dataRoot = Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DATA") is { Length: > 0 } configured
     ? Path.GetFullPath(configured)
     : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "BoSoFa", "desktop");
@@ -25,7 +28,11 @@ if (!File.Exists(Path.Combine(spa, "index.html")))
 }
 
 using var account = new DesktopAccount(dataRoot, new SafeStorageVault(NeoSafeStorage.CreateSystem("dev.bosofa.desktop", Path.Combine(dataRoot, "secrets"))));
+// The install script starts the app with the server it came from.
+if (args is ["--server", var installedFrom]) account.Preset(installedFrom);
 using var daemonHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+var updater = new DesktopUpdater(InstalledApp.FromBaseDirectory(AppContext.BaseDirectory), dataRoot, () => account.Server, daemonHttp, LocalDaemon.EmbeddedReleaseKey);
+using var stopUpdates = new CancellationTokenSource();
 var localDaemon = new LocalDaemon(account, dataRoot,
     Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON_DATA") is { Length: > 0 } daemonData ? Path.GetFullPath(daemonData) : LocalDaemon.DefaultDirectory(),
     new ProcessCommandRunner(), daemonHttp, LocalDaemon.EmbeddedReleaseKey, Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON") is { Length: > 0 } daemonPath ? daemonPath : null,
@@ -47,6 +54,7 @@ return NeoApplication.Run(new NeoApplicationOptions { ApplicationName = "BoSoFa"
         builder.AddAuthService(new AuthService(account));
         builder.AddFilesService(new FilesService(account));
         builder.AddLocalDaemonService(new LocalDaemonService(localDaemon));
+        builder.AddUpdatesService(new UpdatesService(updater));
         await using var rpc = builder.Build();
         window.Show();
         await using var view = await environment.CreateWebViewAsync(NeoAstraHost.FillWindow(window), new NeoAstraOptions
@@ -62,9 +70,13 @@ return NeoApplication.Run(new NeoApplicationOptions { ApplicationName = "BoSoFa"
         view.NewWindowRequested = static _ => ValueTask.FromResult(new NeoNewWindowDecision(NeoDecisionAction.Cancel));
         await using var binding = NeoRpcViewBinding.Bind(rpc, view);
         await view.NavigateAsync(new Uri("app://bosofa/"));
+        updater.ConfirmIfJustUpdated();
+        updater.Quit = () => application.Dispatcher.Post(window.Close);
+        _ = updater.RunAsync(stopUpdates.Token);
         if (Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_SMOKE") is { Length: > 0 } script)
             _ = RunSmokeAsync(view, script, Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_SMOKE_OUT")!, () => application.Dispatcher.Post(window.Close));
         await closed.Task;
+        await stopUpdates.CancelAsync();
     }
     catch (Exception exception)
     {

@@ -47,6 +47,7 @@ flowchart LR
 | Daemon transport | A WebSocket over 443, falling back to HTTP long-poll plus batched POST. |
 | Sign-in | Any OIDC provider. Development has a fake local login. |
 | Desktop | NeoAstra (the CodeAlta UI technology) hosting the same SolidJS SPA. It is a client of the server and can also manage the local daemon. |
+| Distribution | The server is the only source of both the daemon and the desktop app (decided 2026-11-09): a computer installs them from the server's install page, and every update comes from the same server, signed with the offline release key. No package registry or store is involved. |
 
 ## 2. Lessons taken from the reference projects
 
@@ -137,7 +138,8 @@ Boundary rules, enforced by an architecture test:
 - Auth:
   - `/auth/login`, `/auth/callback`, `/auth/logout`: the server is the OIDC confidential client (BFF pattern). The SPA gets an HttpOnly, SameSite=strict cookie and never holds tokens.
   - `/auth/desktop/start` → system browser → loopback redirect (RFC 8252) → one-time code → BoSoFa access and refresh tokens for the desktop app.
-- REST `/api/v1/...`: users, machines, enrollments, projects, sessions, runs, runtime-requests (answer), harnesses, mcp-servers, skills, profiles, files, daemon-releases, settings. Each mutation is a command that returns `{ eventId }`, which serves as the client's cursor.
+- REST `/api/v1/...`: users, machines, enrollments, projects, sessions, runs, runtime-requests (answer), harnesses, mcp-servers, skills, profiles, files, daemon-releases, desktop-releases, settings. Each mutation is a command that returns `{ eventId }`, which serves as the client's cursor.
+- Without a sign-in (§5.7): `/api/v1/downloads` (the newest stable release of each product and its files), `/api/v1/downloads/{product}/{version|latest}/{rid}`, and the install scripts `/install/{daemon,desktop}.{sh,ps1}`.
 - WebSocket `/api/v1/live` for UI clients: messages `subscribe{shell}`, `subscribe{session,id,afterSeq}`, `subscribe{terminal,id}`, `unsubscribe`, `terminal.input`, `ping`. The server sends `snapshot`, `event`, `delta`, `resync`.
 - Daemon endpoints `/api/daemon/v1/...` are described in §5.3.
 - Contracts:
@@ -335,9 +337,14 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - A new version is on trial and must reach the server and confirm within 2 minutes, or the launcher rolls back.
   - The service definition is never rewritten.
 - **Releases:**
-  - CI publishes per-RID binaries to the server: `POST /api/v1/daemon-releases`, artifacts go to the blob store.
-  - Each manifest is signed with an offline release key (ECDSA P-256), and its public key is compiled into the daemon. The daemon refuses unsigned or mismatching manifests.
-  - Channels are `stable` and `beta`, with a per-machine pin. The leader rolls out in waves.
+  - Two products, the daemon and the desktop app. CI publishes per-RID builds to the server (`bosofad release-publish [--product desktop]`, then `POST /api/v1/{daemon,desktop}-releases`); the files go to the blob store.
+  - Each manifest is signed with an offline release key (ECDSA P-256), and its public key is compiled into the daemon and the app. Both refuse unsigned or mismatching manifests. A desktop manifest says `"product": "desktop"`, so a release of one product cannot pass for the other; a manifest without a product is a daemon release.
+  - Daemon channels are `stable` and `beta`, with a per-machine pin. The leader rolls out in waves. Desktop apps take the newest stable release by themselves.
+- **First install, from the server's page:**
+  - `/install` lists both products with a one-line command per OS and direct downloads. The commands fetch `/install/daemon.sh` (`curl -fsSL <server>/install/daemon.sh | sh`) or `daemon.ps1` (`irm <server>/install/daemon.ps1 | iex`), which name the server they came from.
+  - The daemon script downloads the newest stable build for the machine, checks its SHA-256, runs `bosofad enroll` (a person approves the printed code; a machine already enrolled on this server passes) and `bosofad install`, which copies itself into the data folder as the launcher.
+  - These downloads need no sign-in, because the computer has no identity yet. The builds hold no secrets, only stable releases of published products are served (never other blobs), and a machine joins only when a person approves it.
+  - The first download is trusted because it comes over HTTPS from the server the person chose; every later update is checked against the release key.
 
 ### 5.8 Ad-hoc cloud machines (later phase)
 
@@ -349,7 +356,10 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
 - **BoSoFa.Desktop:**
   - .NET 10 plus **NeoAstra**: framework-dependent with ReadyToRun (not AOT, like CodeAlta), and no native title bar.
   - It hosts `web/apps/desktop`, which is the web app's source plus a desktop platform module. `@bosofa/api` holds the `Platform` interface.
-  - Distribution: `dotnet tool install -g BoSoFa.Desktop` (like CodeAlta), later signed installers.
+  - Distribution: from the server's install page (§5.7), like the daemon. A package is self-contained (no .NET needed): a `.app` bundle on macOS, a folder elsewhere, as `tar.gz` (macOS, Linux) or `zip` (Windows), built by `dotnet publish -p:BoSoFaPackage=true`. Its `release.json` names its version and RID; a build without one never updates itself.
+  - The install script puts it in `~/Applications/BoSoFa.app`, `$XDG_DATA_HOME/BoSoFa/app` (with a `.desktop` entry) or `%LOCALAPPDATA%\Programs\BoSoFa` (with a Start menu shortcut), and starts it with `--server <origin>`, so it opens on the sign-in of that server.
+  - Self-update: the app asks `/api/v1/downloads/desktop/latest` at start and every 6 hours, takes only a newer version signed by the compiled-in key, and unpacks it under its data folder. The page shows "Restart to update". The app then closes and the staged copy's helper (`--apply-update`) puts the new version beside the old one, swaps them by renames, and starts it. A version that does not show its page within 2 minutes is swapped back and never offered again.
+  - NeoAstra's own `bundle` tool and experimental updater need its frontend asset pipeline, which this app does not use, so the packaging and updater are ours.
 - **Talking to the server:** the WebView calls the server directly (CORS plus a bearer from the desktop token flow), with `connect-src` including the server origin. Alternative: tunnel through C# RPC. Decide in the M0 spike.
 - **Native RPC services** (`[NeoRpcService]`):
   - `LocalDaemon`: detect, install as service, enroll this machine, disable. It drives the daemon's command line and reads its state files, never over the network.
@@ -581,7 +591,10 @@ Done when: on a fresh machine, install the desktop, click "enable this machine",
 2. **The app.** *Done, run on macOS against a real server:* `BoSoFa.Desktop` (NeoAstra) runs the web app's source behind a `Platform` in `@bosofa/api`. It signs in through the browser, keeps the refresh token in the OS keychain, and calls the server directly with a CSP built at run time. Not done yet: an `.app` bundle and installers. Windows and Linux are only built, never run.
 3. **This machine.** *Done, run on macOS except for the real service install, which used `--dry-run` here and is covered by CI's installs:* "Enable this machine" takes a signed daemon from the server's releases, enrolls it, approves the code as the signed-in person, and installs the service; a real Claude session then ran on it. The app drives `bosofad`'s command line and reads its state files, which turned out to need no control socket. A release must exist on the server, and the build needs `BoSoFaReleasePublicKey`.
 4. **Claude account.** *Done, run with a real sign-in:* `bosofad claude-setup-token` runs `claude setup-token` (2.1.317) on a pseudo-terminal with an empty config folder, and the browser sign-in needs no pasted code. A session ran on the captured token, and a bad token got a 401, so sessions use the stored token and not the machine's own login. The token stays out of the server's files in plain text. The desktop button that starts this has only run with a stand-in for `claude`.
-5. **Packaging and desktop touches.** Not started: an `.app` bundle and `dotnet tool` distribution, then notifications and deep links, which need that bundle's identity, and open in editor.
+5. **Packaging and desktop touches.**
+   - *Done for packaging, run on macOS (2026-11-09):* the install page, scripts, desktop releases and self-update above replace the planned `dotnet tool`. On a local server, the desktop script installed a signed 0.9.1 build, which found 0.9.3, checked its signature, staged it, and after "Restart to update" swapped itself and confirmed. The daemon script downloaded, enrolled for real, and planned the service (`--dry-run`); CI covers real service installs.
+   - Not run yet: the Windows and Linux packages (CI only builds them) and the PowerShell daemon script (CI only parses it). macOS packages carry no bundle signature of their own: `codesign` keeps the signatures of non-code files in extended attributes, which .NET's tar reader refuses. A Developer ID signature, needed for downloads through a browser, first needs the managed files moved out of `Contents/MacOS`; Windows needs Authenticode for SmartScreen.
+   - Not started: notifications and deep links, which need the bundle's identity, and open in editor.
 
 ### M7 steps
 
@@ -615,3 +628,4 @@ Done when: 3 replicas run on a real AKS cluster over workload identity, and a ro
 5. Does the desktop need to show the local daemon's sessions while the server is unreachable (read-only from the outbox), or is "server required" acceptable?
 6. Do we need a git forge integration (PR per session, auto-settle on merge) in v1, and for which forge (GitHub, Azure DevOps)?
 7. Names: `bosofad` for the daemon binary and `BoSoFa.*` for the projects. Keep them?
+8. Code signing of downloads: Apple Developer ID with notarization, and Authenticode for Windows. Both need certificates only the owner can get; until then, the install scripts are the way in (curl adds no quarantine), and a browser download must be allowed by hand.

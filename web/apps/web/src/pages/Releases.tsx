@@ -1,9 +1,10 @@
-import { api, type DaemonRelease, type DaemonRollout } from "@bosofa/api";
+import { api, type DaemonRollout, type Release } from "@bosofa/api";
 import { createMemo, createSignal, For, onSettled, refresh, Show } from "solid-js";
 
-/** Daemon releases and rolling them out, a few machines at a time. */
+/** Daemon releases and rolling them out, a few machines at a time; desktop apps fetch new releases themselves. */
 export default function Releases() {
-  const releases = createMemo(async (): Promise<DaemonRelease[]> => (await api.GET("/api/v1/daemon-releases")).data ?? []);
+  const releases = createMemo(async (): Promise<Release[]> => (await api.GET("/api/v1/daemon-releases")).data ?? []);
+  const desktopReleases = createMemo(async (): Promise<Release[]> => (await api.GET("/api/v1/desktop-releases")).data ?? []);
   const rollouts = createMemo(async (): Promise<DaemonRollout[]> => (await api.GET("/api/v1/daemon-rollouts")).data ?? []);
   const [waveSize, setWaveSize] = createSignal("1");
   const [error, setError] = createSignal<string>();
@@ -65,6 +66,28 @@ export default function Releases() {
           <Show when={releases().length === 0}>
             <li class="px-4 py-2 text-muted">
               None yet. Publish one with <code class="font-mono text-xs">bosofad release-publish</code>.
+            </li>
+          </Show>
+        </ul>
+      </section>
+      <section class="rounded-lg border border-line bg-panel">
+        <h2 class="px-4 py-3 border-b border-line text-sm font-medium">Desktop releases</h2>
+        <ul class="divide-y divide-line text-sm">
+          <For each={desktopReleases()} keyed={(release) => release.version}>
+            {(release) => (
+              <li class="px-4 py-2 truncate">
+                {release().version}
+                <span class="text-muted">
+                  {" "}
+                  · {release().channel} · {release().rids.join(", ")}
+                </span>
+              </li>
+            )}
+          </For>
+          <Show when={desktopReleases().length === 0}>
+            <li class="px-4 py-2 text-muted">
+              None yet. Publish one with <code class="font-mono text-xs">bosofad release-publish --product desktop</code>; apps
+              pick up the newest stable one by themselves.
             </li>
           </Show>
         </ul>
