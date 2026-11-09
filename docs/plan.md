@@ -295,6 +295,8 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - A deleted or rejected account stops new sessions, and running ones can be stopped from the account page. BoSoFa cannot revoke a token at the provider.
 - **Audit:** each lease is audited (who, which session, which machine), and the account page shows recent use.
 
+**Images in prompts.** Pasting or dropping an image uploads it as a blob, and the prompt carries hashes. The server reads each image's type from its content (PNG, JPEG, GIF or WebP, at most 10 per message and 5 MB each), and the daemon fetches it. Claude Code gets image blocks, Codex a `localImage` path, and ACP agents inline image blocks when they advertise `promptCapabilities.image`.
+
 **Limits of an account.** Claude Code reports the 5-hour and weekly windows with each turn (`rate_limit_event`, not a documented contract). The daemon forwards them for sessions on an account, and the Accounts page shows the latest with its age. Nothing reports them between turns. A `setup-token` account cannot tell its plan: `claude auth status` gives no `subscriptionType` for it (checked with 2.1.317).
 
 **Limits of a machine's Codex sign-in.** Codex answers `account/read` and `account/rateLimits/read` without a turn, so the machine page asks the daemon live (`CodexUsageRequest`) and nothing is stored. It shows the plan, each window Codex reports and the credit balance, to people who may control the machine (checked with Codex 0.167).

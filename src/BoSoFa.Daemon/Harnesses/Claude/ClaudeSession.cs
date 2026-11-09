@@ -28,13 +28,13 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
 
     /// <summary>The CLI queues a message written while a turn runs; steering interrupts that turn first, so the
     /// message starts the next one at once (Claude Code has no native steering).</summary>
-    public async Task SendAsync(string text, DispatchMode mode)
+    public async Task SendAsync(HarnessPrompt prompt, DispatchMode mode)
     {
         if (mode == DispatchMode.Steer && _turnRunning) await InterruptAsync();
-        await SendAsync(text);
+        await SendAsync(prompt);
     }
 
-    async Task SendAsync(string text)
+    async Task SendAsync(HarnessPrompt prompt)
     {
         await _lock.WaitAsync();
         try
@@ -43,7 +43,7 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
             if (transport == null) return;
             _turnRunning = true;
             sink.Report(state.SessionId, new StatusReport(SessionStatus.Running));
-            await transport.SendUserAsync(text);
+            await transport.SendUserAsync(prompt);
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException)
         {

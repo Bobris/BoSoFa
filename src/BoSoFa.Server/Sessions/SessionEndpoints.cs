@@ -90,9 +90,33 @@ public static class SessionEndpoints
         return PendingRequests(id);
     }
 
-    static async Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> CreateSessionAsync(
-        CreateSessionRequest request, BtdbNode node, HttpContext http)
+    /// <summary>Checks the prompt's images from their content, not from what the client says they are.</summary>
+    static async Task<(string Json, string? Problem)> ImagesJsonAsync(string[]? hashes, IBlobStore blobs, CancellationToken cancellation)
     {
+        if (hashes is not { Length: > 0 }) return ("", null);
+        if (hashes.Length > PromptImages.MaximumCount) return ("", $"A message can have at most {PromptImages.MaximumCount} images.");
+        var images = new List<PromptImage>();
+        foreach (var sha256 in hashes.Distinct())
+        {
+            if (!PromptImages.IsSha256(sha256)) return ("", "An image's hash is not a SHA-256.");
+            await using var content = await blobs.OpenAsync(sha256, cancellation);
+            if (content == null) return ("", "An image was not uploaded.");
+            if (content.Length > PromptImages.MaximumBytes)
+                return ("", $"An image can be at most {PromptImages.MaximumBytes / 1024 / 1024} MB.");
+            var header = new byte[PromptImages.HeaderLength];
+            var read = await content.ReadAtLeastAsync(header, header.Length, false, cancellation);
+            if (PromptImages.MediaTypeOf(header.AsSpan(0, read)) is not { } mediaType)
+                return ("", "Only PNG, JPEG, GIF and WebP images can be attached.");
+            images.Add(new(sha256, mediaType, content.Length));
+        }
+        return (JsonSerializer.Serialize(images.ToArray(), ProtocolJsonContext.Default.PromptImageArray), null);
+    }
+
+    static async Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> CreateSessionAsync(
+        CreateSessionRequest request, BtdbNode node, IBlobStore blobs, HttpContext http)
+    {
+        var (imagesJson, problem) = await ImagesJsonAsync(request.Images, blobs, http.RequestAborted);
+        if (problem != null) return TypedResults.BadRequest(problem);
         // The request's own choices win over the profile's defaults.
         string? model = request.Model, permissionMode = request.PermissionMode;
         if (request.ProfileName is { } name)
@@ -108,16 +132,21 @@ public static class SessionEndpoints
             MachineId = request.MachineId, UserId = http.User.UserId() ?? 0, Harness = request.Harness,
             WorkingDirectory = request.WorkingDirectory, Prompt = request.Prompt,
             PermissionMode = permissionMode ?? "default", Model = model, AccountId = request.AccountId ?? 0,
-            UseWorktree = request.UseWorktree, ProfileName = request.ProfileName
+            UseWorktree = request.UseWorktree, ProfileName = request.ProfileName, ImagesJson = imagesJson
         });
     }
 
-    static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> SendMessageAsync(ulong id,
-        SendMessageRequest request, BtdbNode node, HttpContext http) =>
-        RunAsync(node, http, new SessionMessageSent
+    static async Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> SendMessageAsync(ulong id,
+        SendMessageRequest request, BtdbNode node, IBlobStore blobs, HttpContext http)
+    {
+        var (imagesJson, problem) = await ImagesJsonAsync(request.Images, blobs, http.RequestAborted);
+        if (problem != null) return TypedResults.BadRequest(problem);
+        return await RunAsync(node, http, new SessionMessageSent
         {
-            SessionId = id, UserId = http.User.UserId() ?? 0, Text = request.Text, Mode = request.Mode ?? DispatchMode.Queue
+            SessionId = id, UserId = http.User.UserId() ?? 0, Text = request.Text, Mode = request.Mode ?? DispatchMode.Queue,
+            ImagesJson = imagesJson
         });
+    }
 
     static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> InterruptAsync(ulong id,
         BtdbNode node, HttpContext http) =>

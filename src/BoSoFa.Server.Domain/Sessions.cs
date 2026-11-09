@@ -156,6 +156,9 @@ public class SessionCreated : EventWithResult<SessionCommandResult>
     public ulong AccountId { get; set; }
     public bool UseWorktree { get; set; }
     public string? ProfileName { get; set; }
+
+    /// <summary>The prompt's images as JSON (<see cref="PromptImage"/>[]); empty without any.</summary>
+    public string ImagesJson { get; set; } = "";
 }
 
 public class SessionMessageSent : EventWithResult<SessionCommandResult>
@@ -164,6 +167,9 @@ public class SessionMessageSent : EventWithResult<SessionCommandResult>
     public ulong UserId { get; set; }
     public string Text { get; set; } = "";
     public DispatchMode Mode { get; set; }
+
+    /// <summary>The message's images as JSON (<see cref="PromptImage"/>[]); empty without any.</summary>
+    public string ImagesJson { get; set; } = "";
 }
 
 public class SessionInterruptRequested : EventWithResult<SessionCommandResult>
@@ -205,6 +211,13 @@ public class DaemonReportsReceived : PureEvent
 static class Sessions
 {
     public const int MaximumPromptLength = 100_000;
+
+    /// <summary>The item's data when it has images, so the transcript can show them.</summary>
+    public static string? ImagesData(string? imagesJson) => string.IsNullOrEmpty(imagesJson) ? null : imagesJson;
+
+    public static PromptImage[]? Images(string? imagesJson) => string.IsNullOrEmpty(imagesJson)
+        ? null
+        : JsonSerializer.Deserialize(imagesJson, ProtocolJsonContext.Default.PromptImageArray);
 
 
     public static long AppendItem(Session session, SessionItemKind kind, DateTime at, string text, string? toolUseId = null,
@@ -292,10 +305,10 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
             ProfileName = ev.ProfileName
         };
         Ambient.Relation<ISessionTable>().Insert(session);
-        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt);
+        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, data: Sessions.ImagesData(ev.ImagesJson));
         Sessions.IssueCommand(signals, machine.Id, new StartSessionCommand(session.Id, session.Harness,
             session.WorkingDirectory, ev.Prompt, session.PermissionMode, session.Model,
-            session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree, ev.ProfileName != null), ev.When);
+            session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree, ev.ProfileName != null, Sessions.Images(ev.ImagesJson)), ev.When);
         Sessions.Changed(signals, session, ev.When);
         Audit.Record(ev.When, ev.UserId, "session.created", $"session {session.Id}", $"{ev.Harness} in {ev.WorkingDirectory} on machine {ev.MachineId}");
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
@@ -315,8 +328,8 @@ public sealed class SessionMessageSentHandler(IDomainSignals signals)
         var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId);
         if (session == null) return new() { Outcome = outcome };
         if (session.Status is SessionStatus.Stopped) return new() { Outcome = CommandOutcome.Invalid };
-        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text);
-        Sessions.IssueCommand(signals, machine!.Id, new SendMessageCommand(session.Id, ev.Text, ev.Mode), ev.When);
+        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text, data: Sessions.ImagesData(ev.ImagesJson));
+        Sessions.IssueCommand(signals, machine!.Id, new SendMessageCommand(session.Id, ev.Text, ev.Mode, Sessions.Images(ev.ImagesJson)), ev.When);
         Sessions.Changed(signals, session, ev.When);
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }

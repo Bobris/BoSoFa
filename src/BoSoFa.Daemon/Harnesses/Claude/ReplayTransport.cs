@@ -1,3 +1,4 @@
+using BoSoFa.Daemon.Sessions;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -49,7 +50,7 @@ public sealed class ReplayTransport : IClaudeTransport
     public int? ExitCode => _playing.IsCompleted ? 0 : null;
     public string StandardErrorTail => "";
 
-    public Task SendUserAsync(string text)
+    public Task SendUserAsync(HarnessPrompt prompt)
     {
         _userMessages.Release();
         return Task.CompletedTask;

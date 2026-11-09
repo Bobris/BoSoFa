@@ -25,10 +25,10 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
     static readonly TimeSpan RequestTimeout = TimeSpan.FromMinutes(2);
     static readonly TimeSpan TurnTimeout = TimeSpan.FromHours(4);
 
-    readonly Channel<string> _work = Channel.CreateUnbounded<string>();
+    readonly Channel<HarnessPrompt> _work = Channel.CreateUnbounded<HarnessPrompt>();
     readonly CancellationTokenSource _stop = new();
     readonly object _lock = new();
-    readonly Queue<string> _queued = new();
+    readonly Queue<HarnessPrompt> _queued = new();
     readonly ConcurrentDictionary<string, TaskCompletionSource<bool?>> _approvals = new();
     readonly HashSet<string> _finishedTools = [];
     readonly StringBuilder _message = new(), _thought = new();
@@ -36,14 +36,14 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
     JsonRpcProcess? _rpc;
     Task? _pump;
     JsonArray _mcpServers = new();
-    bool _ready, _turnActive, _loading;
+    bool _ready, _turnActive, _loading, _acceptsImages;
     int _turn, _block;
 
     public SessionState State => state;
 
     string MessageRef => $"acp-{_turn}-{_block}";
 
-    public async Task SendAsync(string text, DispatchMode mode)
+    public async Task SendAsync(HarnessPrompt prompt, DispatchMode mode)
     {
         lock (_lock)
         {
@@ -52,18 +52,18 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
             {
                 if (mode != DispatchMode.Steer)
                 {
-                    _queued.Enqueue(text);
+                    _queued.Enqueue(prompt);
                     return;
                 }
                 // Steering puts the message first and ends the running turn; it starts when that turn has ended.
                 var waiting = _queued.ToArray();
                 _queued.Clear();
-                _queued.Enqueue(text);
+                _queued.Enqueue(prompt);
                 foreach (var message in waiting) _queued.Enqueue(message);
             }
             else
             {
-                _work.Writer.TryWrite(text);
+                _work.Writer.TryWrite(prompt);
                 return;
             }
         }
@@ -74,10 +74,10 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
     {
         try
         {
-            await foreach (var text in _work.Reader.ReadAllAsync(_stop.Token))
+            await foreach (var prompt in _work.Reader.ReadAllAsync(_stop.Token))
                 try
                 {
-                    if (await EnsureSessionAsync()) await RunTurnAsync(text);
+                    if (await EnsureSessionAsync()) await RunTurnAsync(prompt);
                 }
                 catch (Exception exception) when (exception is IOException or JsonRpcException or TimeoutException or
                                                       InvalidOperationException)
@@ -124,7 +124,9 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
             },
             ["clientInfo"] = new JsonObject { ["name"] = "bosofa", ["version"] = Cli.Version }
         }, RequestTimeout);
-        var canLoad = ClaudeJson.Obj(initialized, "agentCapabilities") is { } capabilities && ClaudeJson.Bool(capabilities, "loadSession");
+        var capabilities = ClaudeJson.Obj(initialized, "agentCapabilities") ?? ClaudeJson.Empty;
+        var canLoad = ClaudeJson.Bool(capabilities, "loadSession");
+        _acceptsImages = ClaudeJson.Obj(capabilities, "promptCapabilities") is { } promptCapabilities && ClaudeJson.Bool(promptCapabilities, "image");
         if (!await OpenSessionAsync(rpc, canLoad)) return false;
         if (state.Model != null) await SelectModelAsync(rpc);
         _ready = true;
@@ -182,8 +184,22 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
         }
     }
 
+    JsonArray PromptBlocks(HarnessPrompt prompt)
+    {
+        var blocks = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = prompt.Text });
+        if (prompt.Images.Count > 0 && !_acceptsImages)
+            sink.Report(state.SessionId, new ItemReport(SessionItemKind.Notice, DateTime.UtcNow, "This agent cannot read images, so they were left out."));
+        else
+            foreach (var image in prompt.Images)
+                blocks.Add((JsonNode)new JsonObject
+                {
+                    ["type"] = "image", ["mimeType"] = image.MediaType, ["data"] = Convert.ToBase64String(File.ReadAllBytes(image.Path))
+                });
+        return blocks;
+    }
+
     /// <summary>One turn: <c>session/prompt</c> answers when it has ended.</summary>
-    async Task RunTurnAsync(string text)
+    async Task RunTurnAsync(HarnessPrompt prompt)
     {
         lock (_lock)
         {
@@ -200,7 +216,7 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
             result = await rpc.RequestAsync("session/prompt", new JsonObject
             {
                 ["sessionId"] = state.HarnessSessionId,
-                ["prompt"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text })
+                ["prompt"] = PromptBlocks(prompt)
             }, TurnTimeout);
         }
         catch (JsonRpcException exception)
@@ -218,7 +234,7 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
     {
         FlushText();
         CancelApprovals("turn ended");
-        string? next = null;
+        HarnessPrompt? next = null;
         lock (_lock)
         {
             _turnActive = false;

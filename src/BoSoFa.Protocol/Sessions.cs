@@ -105,7 +105,8 @@ public sealed record CreateSessionRequest(
     string? Model,
     ulong? AccountId = null,
     bool UseWorktree = false,
-    string? ProfileName = null);
+    string? ProfileName = null,
+    string[]? Images = null);
 
 /// <summary>How a message reaches a session whose turn is still running.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<DispatchMode>))]
@@ -118,7 +119,41 @@ public enum DispatchMode
     Steer
 }
 
-public sealed record SendMessageRequest(string Text, DispatchMode? Mode = null);
+/// <param name="Images">SHA-256 hashes of images already uploaded as blobs.</param>
+public sealed record SendMessageRequest(string Text, DispatchMode? Mode = null, string[]? Images = null);
+
+/// <summary>An image of a prompt, in the blob store. The server read <c>MediaType</c> from the content.</summary>
+public sealed record PromptImage(string Sha256, string MediaType, long Size);
+
+public static class PromptImages
+{
+    public const int MaximumCount = 10;
+
+    /// <summary>What the Claude API accepts for one image; the others take at least this.</summary>
+    public const long MaximumBytes = 5 * 1024 * 1024;
+
+    /// <summary>How many leading bytes <see cref="MediaTypeOf"/> needs.</summary>
+    public const int HeaderLength = 12;
+
+    public static bool IsSha256(string value) => value.Length == 64 && value.All(c => char.IsAsciiDigit(c) || c is >= 'a' and <= 'f');
+
+    /// <summary>Null when the content is not one of the formats every harness can read.</summary>
+    public static string? MediaTypeOf(ReadOnlySpan<byte> header) =>
+        header.StartsWith<byte>([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) ? "image/png"
+        : header.StartsWith<byte>([0xFF, 0xD8, 0xFF]) ? "image/jpeg"
+        : header.StartsWith("GIF87a"u8) || header.StartsWith("GIF89a"u8) ? "image/gif"
+        : header.Length >= HeaderLength && header.StartsWith("RIFF"u8) && header[8..12].SequenceEqual("WEBP"u8) ? "image/webp"
+        : null;
+
+    public static string ExtensionOf(string mediaType) => mediaType switch
+    {
+        "image/png" => ".png",
+        "image/jpeg" => ".jpg",
+        "image/gif" => ".gif",
+        "image/webp" => ".webp",
+        _ => ""
+    };
+}
 
 public sealed record AnswerRuntimeRequest(bool Allow, string? Message);
 

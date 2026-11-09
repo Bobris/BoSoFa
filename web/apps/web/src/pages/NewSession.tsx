@@ -1,3 +1,4 @@
+import { AttachmentStrip, createAttachments } from "../components/PromptImages";
 import { api, type HarnessAccount, type Machine, type Profile } from "@bosofa/api";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
@@ -59,12 +60,13 @@ export default function NewSession() {
   const [worktree, setWorktree] = createSignal(false);
   const [error, setError] = createSignal<string>();
   const [busy, setBusy] = createSignal(false);
+  const attachments = createAttachments();
   const selected = () => machine() ?? search.machine ?? String(machines()[0]?.id ?? "");
 
   async function start(event: SubmitEvent) {
     event.preventDefault();
     setBusy(true);
-    const { data, response } = await api.POST("/api/v1/sessions", {
+    const { data, response, error: problem } = await api.POST("/api/v1/sessions", {
       body: {
         machineId: Number(selected()),
         harness: harness(),
@@ -75,11 +77,12 @@ export default function NewSession() {
         accountId: usable().some((a) => String(a.id) === account()) ? Number(account()) : null,
         useWorktree: worktree(),
         profileName: profile() || null,
+        images: attachments.hashes(),
       },
     });
     setBusy(false);
     if (!data) {
-      setError(`Starting the session failed (${response.status}).`);
+      setError(typeof problem === "string" ? problem : `Starting the session failed (${response.status}).`);
       return;
     }
     try {
@@ -183,13 +186,17 @@ export default function NewSession() {
               required
               value={prompt()}
               onInput={(event) => setPrompt(event.currentTarget.value)}
+              onPaste={attachments.onPaste}
+              onDragOver={attachments.onDragOver}
+              onDrop={attachments.onDrop}
             />
           </label>
+          <AttachmentStrip attachments={attachments} />
           <div class="flex items-center gap-3">
             <button
               type="submit"
               class="rounded-md bg-accent px-4 py-2 font-medium text-white disabled:opacity-50"
-              disabled={busy() || !selected() || !directory().trim() || !prompt().trim()}
+              disabled={busy() || !selected() || !directory().trim() || !prompt().trim() || attachments.uploading()}
             >
               Start
             </button>

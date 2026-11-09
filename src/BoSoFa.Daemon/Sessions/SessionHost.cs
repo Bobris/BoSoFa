@@ -301,11 +301,11 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                 session = Create(state);
                 lock (_sessions) _sessions[state.SessionId] = session;
                 _log.WriteLine($"Session {state.SessionId}: starting {state.Harness} in {state.WorkingDirectory}");
-                await session.SendAsync(start.Prompt, DispatchMode.Queue);
+                if (await PromptAsync(start.SessionId, start.Prompt, start.Images) is { } first) await session.SendAsync(first, DispatchMode.Queue);
                 break;
             case SendMessageCommand send:
                 if (session == null) Report(send.SessionId, new StatusReport(SessionStatus.Failed, Error: "Unknown session."));
-                else await session.SendAsync(send.Text, send.Mode);
+                else if (await PromptAsync(send.SessionId, send.Text, send.Images) is { } prompt) await session.SendAsync(prompt, send.Mode);
                 break;
             case InterruptCommand:
                 if (session != null) await session.InterruptAsync();
@@ -321,6 +321,46 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         _journal.Add(commandId, issuedAt);
         return true;
     }
+
+    /// <summary>The prompt with its images fetched to this machine; null, reported, when one cannot be had. Sending the
+    /// words without the picture they talk about would only confuse the harness.</summary>
+    async Task<HarnessPrompt?> PromptAsync(ulong sessionId, string text, PromptImage[]? images)
+    {
+        if (images is not { Length: > 0 }) return text;
+        try
+        {
+            if (_options.Profiles is not { } blobs) throw new InvalidOperationException("This daemon cannot fetch blobs.");
+            var directory = Path.Combine(_dataDirectory, "images");
+            Directory.CreateDirectory(directory);
+            foreach (var old in new DirectoryInfo(directory).EnumerateFiles().Where(file => DateTime.UtcNow - file.LastWriteTimeUtc > ImageRetention))
+                old.Delete();
+            var local = new List<LocalImage>();
+            foreach (var image in images)
+            {
+                if (!PromptImages.IsSha256(image.Sha256)) throw new InvalidDataException("Not a SHA-256.");
+                var file = Path.Combine(directory, image.Sha256 + PromptImages.ExtensionOf(image.MediaType));
+                if (!File.Exists(file))
+                {
+                    var download = file + ".part";
+                    await blobs.DownloadBlobAsync(image.Sha256, download, CancellationToken.None);
+                    await using (var content = File.OpenRead(download))
+                        if (Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(content)) != image.Sha256)
+                            throw new InvalidDataException("The image does not match its hash.");
+                    File.Move(download, file, true);
+                }
+                local.Add(new(file, image.MediaType));
+            }
+            return new(text, local);
+        }
+        catch (Exception exception) when (exception is IOException or HttpRequestException or InvalidDataException or
+                                              InvalidOperationException or UnauthorizedAccessException)
+        {
+            Report(sessionId, new StatusReport(SessionStatus.Idle, Error: $"The message was not sent: its images could not be fetched ({exception.Message})."));
+            return null;
+        }
+    }
+
+    static readonly TimeSpan ImageRetention = TimeSpan.FromDays(30);
 
     /// <summary>The server was restored from a backup and gave this session's ID to another one, so this session no longer
     /// exists there.</summary>

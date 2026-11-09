@@ -14,6 +14,8 @@ export type RuntimeRequest = components["schemas"]["RuntimeRequestDto"];
 export type CreateSession = components["schemas"]["CreateSessionRequest"];
 export type HarnessAccount = components["schemas"]["HarnessAccountDto"];
 export type AccountKind = HarnessAccount["kind"];
+/** As stored in a user item's data: the generated schema has it only inside that JSON. */
+export type PromptImage = { sha256: string; mediaType: string; size: number };
 export type AccountUsage = components["schemas"]["AccountUsageDto"];
 export type UsageWindow = components["schemas"]["UsageWindow"];
 export type McpServer = components["schemas"]["McpServerDto"];
@@ -104,6 +106,24 @@ export async function uploadBlob(file: Blob): Promise<{ sha256?: string; error?:
   });
   if (!response.ok) return { error: (await response.text()) || `The upload failed (${response.status}).` };
   return { sha256: ((await response.json()) as { sha256: string }).sha256 };
+}
+
+const blobImages = new Map<string, Promise<string | undefined>>();
+
+/** An address an <img> can show. It is fetched first because the desktop's bearer cannot go on an image request. */
+export function blobImageUrl(sha256: string, mediaType: string): Promise<string | undefined> {
+  let url = blobImages.get(sha256);
+  if (!url) {
+    url = (async () => {
+      const authorization = await current.authorization();
+      const response = await fetch(`${current.baseUrl}/api/v1/blobs/${sha256}`, {
+        headers: authorization ? { Authorization: authorization } : undefined,
+      });
+      return response.ok ? URL.createObjectURL(new Blob([await response.arrayBuffer()], { type: mediaType })) : undefined;
+    })();
+    blobImages.set(sha256, url);
+  }
+  return url;
 }
 
 /** The address of the live socket. A browser cannot put a bearer on a WebSocket, so the desktop gets a one-time ticket. */

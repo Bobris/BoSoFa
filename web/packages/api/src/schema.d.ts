@@ -2970,6 +2970,7 @@ export interface components {
             /** @default false */
             useWorktree: boolean;
             profileName?: null | string;
+            images?: null | string[];
         };
         DaemonReleaseDto: {
             version: string;
@@ -3408,6 +3409,7 @@ export interface components {
         SendMessageRequest: {
             text: string;
             mode?: null | components["schemas"]["DispatchMode"];
+            images?: null | string[];
         };
         SessionDto: {
             /** Format: uint64 */

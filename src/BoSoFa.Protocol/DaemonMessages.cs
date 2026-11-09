@@ -84,9 +84,10 @@ public abstract record MachineCommand(ulong SessionId);
 /// <summary>Starts a session. <c>AccountId</c> names the harness account whose secret the daemon leases just in time
 /// (<c>POST /api/daemon/v1/accounts/{id}/lease</c>); null runs on the machine's own sign-in.</summary>
 public sealed record StartSessionCommand(ulong SessionId, string Harness, string WorkingDirectory, string Prompt,
-    string PermissionMode, string? Model, ulong? AccountId = null, bool UseWorktree = false, bool HasProfile = false) : MachineCommand(SessionId);
+    string PermissionMode, string? Model, ulong? AccountId = null, bool UseWorktree = false, bool HasProfile = false,
+    PromptImage[]? Images = null) : MachineCommand(SessionId);
 
-public sealed record SendMessageCommand(ulong SessionId, string Text, DispatchMode Mode = DispatchMode.Queue)
+public sealed record SendMessageCommand(ulong SessionId, string Text, DispatchMode Mode = DispatchMode.Queue, PromptImage[]? Images = null)
     : MachineCommand(SessionId);
 
 public sealed record InterruptCommand(ulong SessionId) : MachineCommand(SessionId);

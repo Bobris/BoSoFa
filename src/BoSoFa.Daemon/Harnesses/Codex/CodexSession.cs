@@ -25,10 +25,10 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
     static readonly TimeSpan LoginTimeout = TimeSpan.FromMinutes(15);
     const string StoppedDuringLogin = "stopped";
 
-    readonly Channel<(string Text, DispatchMode Mode)> _work = Channel.CreateUnbounded<(string, DispatchMode)>();
+    readonly Channel<(HarnessPrompt Prompt, DispatchMode Mode)> _work = Channel.CreateUnbounded<(HarnessPrompt, DispatchMode)>();
     readonly CancellationTokenSource _stop = new();
     readonly object _lock = new();
-    readonly Queue<string> _queued = new();
+    readonly Queue<HarnessPrompt> _queued = new();
     readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _approvals = new();
     readonly ConcurrentDictionary<string, JsonElement> _items = new();
     Task? _worker;
@@ -43,10 +43,10 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
 
     public SessionState State => state;
 
-    public Task SendAsync(string text, DispatchMode mode)
+    public Task SendAsync(HarnessPrompt prompt, DispatchMode mode)
     {
         lock (_lock) _worker ??= Task.Run(WorkAsync);
-        _work.Writer.TryWrite((text, mode));
+        _work.Writer.TryWrite((prompt, mode));
         return Task.CompletedTask;
     }
 
@@ -54,10 +54,10 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
     {
         try
         {
-            await foreach (var (text, mode) in _work.Reader.ReadAllAsync(_stop.Token))
+            await foreach (var (prompt, mode) in _work.Reader.ReadAllAsync(_stop.Token))
                 try
                 {
-                    if (await EnsureThreadAsync()) await DispatchAsync(text, mode);
+                    if (await EnsureThreadAsync()) await DispatchAsync(prompt, mode);
                 }
                 catch (Exception exception) when (exception is IOException or JsonRpcException or TimeoutException or
                                                       InvalidOperationException)
@@ -69,28 +69,28 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         catch (OperationCanceledException) { }
     }
 
-    async Task DispatchAsync(string text, DispatchMode mode)
+    async Task DispatchAsync(HarnessPrompt prompt, DispatchMode mode)
     {
         string? steerable;
         lock (_lock)
         {
             if (_turnActive && mode == DispatchMode.Queue || _turnActive && _turnId == null)
             {
-                _queued.Enqueue(text);
+                _queued.Enqueue(prompt);
                 return;
             }
             steerable = _turnActive ? _turnId : null;
         }
         if (steerable == null)
         {
-            await StartTurnAsync(text);
+            await StartTurnAsync(prompt);
             return;
         }
         try
         {
             await (_rpc ?? throw new IOException("Codex exited.")).RequestAsync("turn/steer", new JsonObject
             {
-                ["threadId"] = state.HarnessSessionId, ["expectedTurnId"] = steerable, ["input"] = Input(text)
+                ["threadId"] = state.HarnessSessionId, ["expectedTurnId"] = steerable, ["input"] = Input(prompt)
             }, RequestTimeout);
         }
         catch (JsonRpcException)
@@ -100,18 +100,23 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
             {
                 if (_turnActive)
                 {
-                    _queued.Enqueue(text);
+                    _queued.Enqueue(prompt);
                     return;
                 }
             }
-            await StartTurnAsync(text);
+            await StartTurnAsync(prompt);
         }
     }
 
     // The constructor, not a collection expression: that compiles to JsonArray.Add<T>, which Native AOT rejects.
-    static JsonArray Input(string text) => new(new JsonObject { ["type"] = "text", ["text"] = text });
+    static JsonArray Input(HarnessPrompt prompt)
+    {
+        var input = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = prompt.Text });
+        foreach (var image in prompt.Images) input.Add((JsonNode)new JsonObject { ["type"] = "localImage", ["path"] = image.Path });
+        return input;
+    }
 
-    async Task StartTurnAsync(string text)
+    async Task StartTurnAsync(HarnessPrompt prompt)
     {
         lock (_lock)
         {
@@ -123,7 +128,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         var rpc = _rpc ?? throw new IOException("Codex exited.");
         var result = await rpc.RequestAsync("turn/start", new JsonObject
         {
-            ["threadId"] = state.HarnessSessionId, ["input"] = Input(text)
+            ["threadId"] = state.HarnessSessionId, ["input"] = Input(prompt)
         }, RequestTimeout);
         // turn/started can arrive before this response; whichever comes first names the turn.
         if (ClaudeJson.Obj(result, "turn") is { } turn)
@@ -462,7 +467,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         var status = ClaudeJson.Str(turn, "status") ?? "completed";
         var now = DateTime.UtcNow;
         long input, output;
-        string? next = null;
+        HarnessPrompt? next = null;
         lock (_lock)
         {
             _turnActive = false;

@@ -41,6 +41,7 @@ public class AcpSessionTest
             _running = Task.Run(ServeAsync);
         }
 
+        public bool AcceptsImages { get; init; }
         public JsonRpcProcess Client { get; }
         public ConcurrentQueue<JsonElement> Received { get; } = new();
         public List<string> Prompts { get; } = [];
@@ -75,7 +76,7 @@ public class AcpSessionTest
                 switch (method)
                 {
                     case "initialize":
-                        Send(new JsonObject { ["id"] = requestId, ["result"] = new JsonObject { ["protocolVersion"] = 1, ["agentCapabilities"] = new JsonObject { ["loadSession"] = true } } });
+                        Send(new JsonObject { ["id"] = requestId, ["result"] = new JsonObject { ["protocolVersion"] = 1, ["agentCapabilities"] = new JsonObject { ["loadSession"] = true, ["promptCapabilities"] = new JsonObject { ["image"] = AcceptsImages } } } });
                         break;
                     case "session/new":
                         Send(new JsonObject { ["id"] = requestId, ["result"] = new JsonObject { ["sessionId"] = "s-1" } });
@@ -130,6 +131,38 @@ public class AcpSessionTest
             Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for " + what);
             await Task.Delay(10);
         }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ImagesGoInlineOnlyToAnAgentThatTakesThem(bool accepts)
+    {
+        var file = Path.Combine(Path.GetTempPath(), "bosofa-acp-" + Guid.NewGuid().ToString("N") + ".png");
+        await File.WriteAllBytesAsync(file, [1, 2, 3]);
+        try
+        {
+            await using var agent = new FakeAgent { AcceptsImages = accepts };
+            var sink = new RecordingSink();
+            var state = new SessionState { SessionId = 1, Harness = Harnesses.OpenCode, WorkingDirectory = Path.GetTempPath(), PermissionMode = "default" };
+            await using IHarnessSession session = new AcpSession(state, sink, () => Task.FromResult(new AcpLaunch(agent.Client, new JsonArray())), TextWriter.Null);
+            await session.SendAsync(new HarnessPrompt("look", [new(file, "image/png")]), DispatchMode.Queue);
+            await WaitFor(() => agent.Received.Any(message => message.TryGetProperty("method", out var m) && m.GetString() == "session/prompt"), "the prompt");
+            var prompt = agent.Received.Single(message => message.TryGetProperty("method", out var m) && m.GetString() == "session/prompt")
+                .GetProperty("params").GetProperty("prompt");
+            Assert.Equal("look", prompt[0].GetProperty("text").GetString());
+            if (accepts)
+            {
+                Assert.Equal(("image", "image/png", "AQID"), (prompt[1].GetProperty("type").GetString(), prompt[1].GetProperty("mimeType").GetString(), prompt[1].GetProperty("data").GetString()));
+                Assert.DoesNotContain(sink.Reports.OfType<ItemReport>(), item => item.Text.Contains("cannot read images"));
+            }
+            else
+            {
+                Assert.Equal(1, prompt.GetArrayLength());
+                Assert.Contains(sink.Reports.OfType<ItemReport>(), item => item.Text.Contains("cannot read images"));
+            }
+        }
+        finally { File.Delete(file); }
     }
 
     [Fact]

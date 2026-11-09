@@ -1,3 +1,4 @@
+using BoSoFa.Daemon.Sessions;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
@@ -29,7 +30,7 @@ public interface IClaudeTransport : IAsyncDisposable
     int? ExitCode { get; }
     string StandardErrorTail { get; }
 
-    Task SendUserAsync(string text);
+    Task SendUserAsync(HarnessPrompt prompt);
     Task<JsonElement> InitializeAsync(TimeSpan timeout);
     Task<JsonElement> InterruptAsync(TimeSpan timeout);
     Task RespondAsync(string requestId, JsonElement response);
@@ -135,7 +136,14 @@ public sealed class ClaudeProcess : IClaudeTransport
         finally { _writeLock.Release(); }
     }
 
-    public Task SendUserAsync(string text) => SendAsync(new UserLine(new(text)), ClaudeJson.Default.UserLine);
+    public Task SendUserAsync(HarnessPrompt prompt)
+    {
+        if (prompt.Images.Count == 0) return SendAsync(new UserLine<string>(new(prompt.Text)), ClaudeJson.Default.UserLineString);
+        var blocks = prompt.Images
+            .Select(ContentBlock (image) => new ImageBlock(new(image.MediaType, Convert.ToBase64String(File.ReadAllBytes(image.Path)))))
+            .Append(new TextBlock(prompt.Text)).ToArray();
+        return SendAsync(new UserLine<ContentBlock[]>(new(blocks)), ClaudeJson.Default.UserLineContentBlockArray);
+    }
 
     public Task<JsonElement> InitializeAsync(TimeSpan timeout) =>
         RequestAsync(new InitializeRequest(), ClaudeJson.Default.ControlRequestLineInitializeRequest, timeout);

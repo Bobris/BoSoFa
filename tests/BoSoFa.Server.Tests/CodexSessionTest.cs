@@ -183,5 +183,21 @@ public class CodexSessionTest
         Assert.All(server.Received, message => Assert.False(message.TryGetProperty("jsonrpc", out _)));
     }
 
+    [Fact]
+    public async Task ImagesGoAsLocalFiles()
+    {
+        await using var server = new FakeCodex();
+        var sink = new RecordingSink();
+        var state = new SessionState { SessionId = 1, Harness = Harnesses.Codex, WorkingDirectory = Path.GetTempPath(), PermissionMode = "default" };
+        await using IHarnessSession session = new CodexSession(state, sink, () => Task.FromResult(new CodexLaunch(server.Client, null)), TextWriter.Null);
+        await session.SendAsync(new HarnessPrompt("look", [new("/tmp/a.png", "image/png")]), DispatchMode.Queue);
+        await WaitFor(() => sink.Reports.OfType<ItemReport>().Any(item => item.Kind == SessionItemKind.Notice), "the device code");
+        server.CompleteLogin();
+        await WaitFor(() => server.Received.Any(message => Method(message) == "turn/start"), "the turn");
+        var input = server.Received.First(message => Method(message) == "turn/start").GetProperty("params").GetProperty("input");
+        Assert.Equal("look", input[0].GetProperty("text").GetString());
+        Assert.Equal(("localImage", "/tmp/a.png"), (input[1].GetProperty("type").GetString(), input[1].GetProperty("path").GetString()));
+    }
+
     static string? Method(JsonElement message) => message.TryGetProperty("method", out var method) ? method.GetString() : null;
 }

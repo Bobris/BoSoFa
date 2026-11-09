@@ -2,6 +2,15 @@ using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon.Sessions;
 
+/// <summary>An image of a prompt, as a file on this machine.</summary>
+public sealed record LocalImage(string Path, string MediaType);
+
+/// <summary>What a person sent: text and any images.</summary>
+public sealed record HarnessPrompt(string Text, IReadOnlyList<LocalImage> Images)
+{
+    public static implicit operator HarnessPrompt(string text) => new(text, []);
+}
+
 /// <summary>One BoSoFa session on one harness (plan §5.4). Implementations translate the harness's own protocol into
 /// <see cref="ISessionSink"/> reports and deltas; <see cref="SessionHost"/> owns them and applies the server's
 /// commands. Calls for one session never overlap.</summary>
@@ -10,7 +19,7 @@ public interface IHarnessSession : IAsyncDisposable
     SessionState State { get; }
 
     /// <summary>Starts a turn, or (while one runs) queues the message or steers the running turn with it.</summary>
-    Task SendAsync(string text, DispatchMode mode);
+    Task SendAsync(HarnessPrompt prompt, DispatchMode mode);
 
     Task InterruptAsync();
 

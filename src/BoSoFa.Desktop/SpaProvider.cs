@@ -12,7 +12,7 @@ public sealed class SpaProvider(string root, Func<string?> server) : INeoResourc
     public static string ContentSecurityPolicy(string? server)
     {
         var sockets = server == null ? "" : $" {server} ws{server[4..]}"; // http→ws, https→wss
-        return $"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'{sockets}; " +
+        return $"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'{sockets}; " +
                "object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
     }
 

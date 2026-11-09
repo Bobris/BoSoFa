@@ -1,3 +1,4 @@
+import { AttachmentStrip, createAttachments, SentImages } from "../components/PromptImages";
 import { api, getPlatform, type RuntimeRequest, type SessionItem } from "@bosofa/api";
 import { useNavigate, useParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Match, Show, Switch, untrack } from "solid-js";
@@ -107,7 +108,10 @@ function Item(props: { item: SessionItem }) {
     <Switch>
       <Match when={props.item.kind === "User"}>
         <div class="flex justify-end">
-          <div class="max-w-[85%] rounded-lg bg-accent/10 px-3 py-2 whitespace-pre-wrap">{props.item.text}</div>
+          <div class="max-w-[85%] rounded-lg bg-accent/10 px-3 py-2 whitespace-pre-wrap">
+            <SentImages data={props.item.data} />
+            {props.item.text}
+          </div>
         </div>
       </Match>
       <Match when={props.item.kind === "Assistant"}>
@@ -235,19 +239,21 @@ function Approval(props: { request: RuntimeRequest; canControl: boolean; session
 function Composer(props: { sessionId: number; disabled: boolean; running: boolean }) {
   const [text, setText] = createSignal("");
   const [error, setError] = createSignal<string>();
+  const attachments = createAttachments();
 
   /** Queue waits for the running turn; Steer redirects it now. */
   async function send(mode: "Queue" | "Steer" = "Queue") {
     const value = text().trim();
-    if (!value) return;
-    const { response } = await api.POST("/api/v1/sessions/{id}/messages", {
+    if (!value || attachments.uploading()) return;
+    const { response, error: problem } = await api.POST("/api/v1/sessions/{id}/messages", {
       params: { path: { id: props.sessionId } },
-      body: { text: value, mode },
+      body: { text: value, mode, images: attachments.hashes() },
     });
     if (response.ok) {
       setText("");
       setError(undefined);
-    } else setError(`Sending failed (${response.status}).`);
+      attachments.clear();
+    } else setError(typeof problem === "string" ? problem : `Sending failed (${response.status}).`);
   }
 
   async function interrupt() {
@@ -256,9 +262,13 @@ function Composer(props: { sessionId: number; disabled: boolean; running: boolea
 
   return (
     <div class="sticky bottom-0 -mx-4 sm:-mx-6 border-t border-line bg-canvas/95 px-4 sm:px-6 py-3 backdrop-blur">
+      <AttachmentStrip attachments={attachments} />
       <div class="flex items-end gap-2">
         <textarea
           class="min-h-11 flex-1 resize-y rounded-md border border-line bg-panel px-3 py-2 text-sm"
+          onPaste={attachments.onPaste}
+          onDragOver={attachments.onDragOver}
+          onDrop={attachments.onDrop}
           rows={2}
           placeholder={props.disabled ? "Only the machine's owner can write here." : "Message (⌘/Ctrl+Enter to send or queue)"}
           disabled={props.disabled}
@@ -280,7 +290,7 @@ function Composer(props: { sessionId: number; disabled: boolean; running: boolea
           <button
             class="rounded-md border border-accent px-3 py-2 text-sm text-accent disabled:opacity-50"
             title="Send now and redirect the running turn"
-            disabled={text().trim() === ""}
+            disabled={text().trim() === "" || attachments.uploading()}
             onClick={() => send("Steer")}
           >
             Steer
@@ -289,7 +299,7 @@ function Composer(props: { sessionId: number; disabled: boolean; running: boolea
         <button
           class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           title={props.running ? "Send after the running turn ends" : undefined}
-          disabled={props.disabled || text().trim() === ""}
+          disabled={props.disabled || text().trim() === "" || attachments.uploading()}
           onClick={() => send("Queue")}
         >
           {props.running ? "Queue" : "Send"}

@@ -7,7 +7,7 @@ namespace BoSoFa.Daemon.Harnesses.Claude;
 // lines are read as JsonElement: the CLI adds fields often, and only a few of them matter here.
 
 /// <summary>A user turn: <c>{"type":"user","message":{"role":"user","content":...}}</c>.</summary>
-sealed record UserLine(UserMessageBody Message)
+sealed record UserLine<T>(UserMessageBody<T> Message)
 {
     public string Type => "user";
 
@@ -18,9 +18,24 @@ sealed record UserLine(UserMessageBody Message)
     public string? ParentToolUseId => null;
 }
 
-sealed record UserMessageBody(string Content)
+sealed record UserMessageBody<T>(T Content)
 {
     public string Role => "user";
+}
+
+/// <summary>Content of a user turn with images; a turn with only text is a plain string.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(TextBlock), "text")]
+[JsonDerivedType(typeof(ImageBlock), "image")]
+abstract record ContentBlock;
+
+sealed record TextBlock(string Text) : ContentBlock;
+
+sealed record ImageBlock(ImageSource Source) : ContentBlock;
+
+sealed record ImageSource(string MediaType, string Data)
+{
+    public string Type => "base64";
 }
 
 /// <summary><c>{"type":"control_request","request_id":"..","request":{"subtype":..}}</c>.</summary>
@@ -58,7 +73,8 @@ sealed record EmptyObject;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(UserLine))]
+[JsonSerializable(typeof(UserLine<string>))]
+[JsonSerializable(typeof(UserLine<ContentBlock[]>))]
 [JsonSerializable(typeof(ControlRequestLine<InitializeRequest>))]
 [JsonSerializable(typeof(ControlRequestLine<InterruptRequest>))]
 [JsonSerializable(typeof(ControlResponseLine))]

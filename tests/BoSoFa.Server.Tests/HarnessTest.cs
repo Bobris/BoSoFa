@@ -19,9 +19,9 @@ public class HarnessTest
         public int? ExitCode => null;
         public string StandardErrorTail => "";
 
-        public Task SendUserAsync(string text)
+        public Task SendUserAsync(HarnessPrompt prompt)
         {
-            lock (Calls) Calls.Add("user:" + text);
+            lock (Calls) Calls.Add("user:" + prompt.Text);
             return Task.CompletedTask;
         }
 

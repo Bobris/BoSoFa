@@ -2758,6 +2758,15 @@
               "null",
               "string"
             ]
+          },
+          "images": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -4618,6 +4627,15 @@
                 "$ref": "#/components/schemas/DispatchMode"
               }
             ]
+          },
+          "images": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
