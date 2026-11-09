@@ -53,6 +53,10 @@ public class AccountTest
 
         Assert.Equal(HttpStatusCode.BadRequest, (await boris.PostAsJsonAsync("/api/v1/accounts",
             new CreateHarnessAccountRequest(AccountKind.ClaudeOAuthToken, "Wrong", "sk-ant-api03-not-a-subscription-token-123"))).StatusCode);
+        Assert.False(AccountSecrets.LooksValid(AccountKind.AnthropicApiKey, Token)); // a subscription token is not an API key
+        Assert.False(AccountSecrets.LooksValid(AccountKind.AnthropicApiKey, "sk-ant-admin01-TestTokenThatIsLongEnough_0123456789"));
+        Assert.True(AccountSecrets.LooksValid(AccountKind.AnthropicApiKey, "sk-ant-api03-TestTokenThatIsLongEnough_0123456789"));
+        Assert.True(AccountSecrets.LooksValid(AccountKind.AnthropicApiKey, "sk-ant-usr-TestTokenThatIsLongEnough_0123456789"));
         var added = await boris.PostAsJsonAsync("/api/v1/accounts",
             new CreateHarnessAccountRequest(AccountKind.ClaudeOAuthToken, "My Max plan", Token));
         Assert.Equal(HttpStatusCode.OK, added.StatusCode);

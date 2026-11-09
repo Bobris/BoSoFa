@@ -1,6 +1,6 @@
 # Server agent: a harness that runs in the server
 
-Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only), 3 (machine tools) 4 (Anthropic) and 6 (OpenCode Go) are done, 4 and 6 not yet against the real services; 5 (ChatGPT sign-in) is not built, see §5.2, the rest is planned.
+Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only), 3 (machine tools) 4 (Anthropic) and 6 (OpenCode Go) are done, 6 not yet against the real service; 5 (ChatGPT sign-in) is not built, see §5.2, the rest is planned.
 
 ## 1. What and why
 
@@ -485,11 +485,16 @@ so the transcript shows what the model was told.
    - Not done: worktrees for agent sessions are refused, and images (attached or read from a file) do not reach the
      model yet. Both wait for later steps.
 4. **Anthropic Messages.** Thinking, caching, schema fixes. Accounts: Anthropic API key.
-   *Done (2026-11-09), except for a run against the real API:*
+   *Done (2026-11-09):*
    - Anthropic API key accounts appear as harnesses like OpenAI's. `apply_patch` stays OpenAI-only.
    - `AgentAnthropicTest` runs whole sessions against a fake Messages API written from the documented events.
-   - No Anthropic key was available, so nothing has called the real API. `LiveAnthropicKeepsThinkingAcrossAToolCall` does
-     once `BOSOFA_TEST_ANTHROPIC_KEY_FILE` names a file with a key (`BOSOFA_TEST_ANTHROPIC_MODEL` is optional).
+   - The live tests (`BOSOFA_TEST_ANTHROPIC_KEY_FILE`, `BOSOFA_TEST_ANTHROPIC_MODEL`) ran on the real API:
+     - signed thinking accepted back with a tool's result, with no fallback (Opus 5.5);
+     - the second call reading what the first wrote to the cache;
+     - `LiveAnthropicFixesAFailingTest` on a real daemon with approvals on, on Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5.1,
+       Opus 4.8 and Haiku 4.5.
+   - Learned from the real API: keys also come as `sk-ant-usr-…`, and adaptive thinking is the model's choice, so a step
+     may have none (Sonnet 5.5 skipped it on a prompt where Opus 5.5 thought).
 5. **OpenAI subscription.** Not built; see §5.2. PKCE sign-in from the desktop app and the web paste fallback, token refresh as one event,
    the ChatGPT request rules. *Done when* a person signs in and runs a session on their plan.
 6. **OpenCode Go.** The account kind, the model list, its headers, native API per model.

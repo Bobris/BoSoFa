@@ -5,12 +5,13 @@ using System.Text.Json.Nodes;
 using BoSoFa.Daemon;
 using BoSoFa.Daemon.Sessions;
 using BoSoFa.Protocol;
+using Xunit.Abstractions;
 using Tool = BoSoFa.Protocol.MachineTools;
 
 namespace BoSoFa.Server.Tests;
 
 /// <summary>Server agent sessions whose tools run on a real daemon, against a fake model provider (docs/server-agent.md §6).</summary>
-public class AgentMachineTest
+public class AgentMachineTest(ITestOutputHelper output)
 {
     sealed class Machine : IAsyncDisposable
     {
@@ -270,7 +271,7 @@ public class AgentMachineTest
         Assert.Equal(HttpStatusCode.NotFound, (await Create(m.H.Boris, 999_999, m.Work)).StatusCode);
     }
 
-    /// <summary>The goal of this step, on the real API: with approvals on, a model finds and fixes the cause of a failing test.</summary>
+    /// <summary>The goal of the machine tools step, on the real API: with approvals on, a model finds and fixes the cause of a failing test.</summary>
     [ProviderTest.LiveOpenAIFact]
     public async Task LiveOpenAIFixesAFailingTest()
     {
@@ -278,6 +279,24 @@ public class AgentMachineTest
         var key = (await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("BOSOFA_TEST_OPENAI_KEY_FILE")!)).Trim();
         var model = Environment.GetEnvironmentVariable("BOSOFA_TEST_OPENAI_MODEL") is { Length: > 0 } configured ? configured : "gpt-5.4-mini";
         await using var m = await Machine.StartAsync(liveKey: key);
+        await FixesAFailingTestAsync(m, model);
+    }
+
+    [ProviderTest.LiveAnthropicFact]
+    public async Task LiveAnthropicFixesAFailingTest()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var key = (await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_KEY_FILE")!)).Trim();
+        var model = Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_MODEL") is { Length: > 0 } configured ? configured : "claude-opus-5-5";
+        await using var m = await Machine.StartAsync(liveKey: "sk-notusednotusednotusednotused"); // only so that the real endpoints are used
+        var response = await m.H.Boris.PostAsJsonAsync("/api/v1/accounts", new CreateHarnessAccountRequest(AccountKind.AnthropicApiKey, "My Claude API", key));
+        Assert.True(response.IsSuccessStatusCode, $"The key was refused: {(int)response.StatusCode}");
+        m.H.AccountId = (await response.Content.ReadFromJsonAsync<HarnessAccountDto>())!.Id;
+        await FixesAFailingTestAsync(m, model);
+    }
+
+    async Task FixesAFailingTestAsync(Machine m, string model)
+    {
         Git(m.Work, "init", "-q", "-b", "main");
         await File.WriteAllTextAsync(m.PathOf("add.sh"), "add() {\n  echo $(($1 - $2))\n}\n");
         await File.WriteAllTextAsync(m.PathOf("test.sh"), "source ./add.sh\n[ \"$(add 2 3)\" = 5 ] && echo PASS || { echo \"FAIL: expected 5, got $(add 2 3)\"; exit 1; }\n");
@@ -304,9 +323,9 @@ public class AgentMachineTest
             }
             await Task.Delay(100);
         }
+        output.WriteLine($"{model}: {string.Join(' ', items.Select(item => item.Kind))}; approved {string.Join(' ', approved)}; {items[^1].Data}");
         Assert.Equal("completed", items[^1].Text);
         Assert.Contains(Tool.Shell, approved);
-        Assert.Contains(approved, tool => tool is Tool.EditFile or Tool.WriteFile or Tool.ApplyPatch or Tool.Shell);
         Assert.Contains("+  echo $(($1 + $2))", Assert.Single(items, item => item.Kind == SessionItemKind.Diff).Text.Replace("\r", ""));
         Assert.Contains("$1 + $2", await File.ReadAllTextAsync(m.PathOf("add.sh")));
     }

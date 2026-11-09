@@ -45,8 +45,10 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
     public string Api => ApiName;
     public string Endpoint { get; } = endpoint.ToString();
 
-    /// <summary>A signature was refused once in this conversation, so its thinking is no longer sent back.</summary>
     bool _withoutThinking;
+
+    /// <summary>A signature was refused once in this conversation, so its thinking is no longer sent back.</summary>
+    public bool DroppedThinking => _withoutThinking;
 
     public async Task<TurnResponse> ExecuteAsync(TurnRequest request, Func<TurnDelta, ValueTask> onDelta, CancellationToken cancellation)
     {
@@ -221,7 +223,7 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
     async Task<TurnResponse> ReadAsync(Stream stream, ModelOrigin origin, Func<TurnDelta, ValueTask> onDelta, CancellationToken cancellation)
     {
         var blocks = new SortedDictionary<int, Block>();
-        long input = 0, cacheRead = 0, cacheWrite = 0, output = 0;
+        long input = 0, cacheRead = 0, cacheWrite = 0, output = 0, thinking = 0;
         string? stopReason = null, stopDetail = null;
         await foreach (var item in SseParser.Create(stream).EnumerateAsync(cancellation))
         {
@@ -272,9 +274,10 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
                     stopReason = Str(eventData["delta"]?["stop_reason"]) ?? stopReason;
                     stopDetail = Str(eventData["delta"]?["stop_details"]?["explanation"]) ?? Str(eventData["delta"]?["stop_details"]?["category"]) ?? stopDetail;
                     if (eventData["usage"]?["output_tokens"] is { } outputTokens) output = Long(outputTokens);
+                    if (eventData["usage"]?["output_tokens_details"]?["thinking_tokens"] is { } thinkingTokens) thinking = Long(thinkingTokens);
                     break;
                 case "message_stop":
-                    return Finish(blocks.Values, origin, new(input + cacheRead + cacheWrite, cacheRead, cacheWrite, output, 0), stopReason, stopDetail);
+                    return Finish(blocks.Values, origin, new(input + cacheRead + cacheWrite, cacheRead, cacheWrite, output, thinking), stopReason, stopDetail);
                 case "error":
                     var error = eventData["error"];
                     var message = Str(error?["message"]) ?? "The stream reported an error.";

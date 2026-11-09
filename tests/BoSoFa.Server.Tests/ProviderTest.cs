@@ -285,34 +285,54 @@ public class ProviderTest
         }
     }
 
-    /// <summary>The real Messages API: the signed thinking of the first step must be accepted back with the tool's result.</summary>
+    static string LiveAnthropicKey => File.ReadAllText(Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_KEY_FILE")!).Trim();
+    static string LiveAnthropicModel => Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_MODEL") is { Length: > 0 } chosen ? chosen : "claude-opus-5-5";
+
+    /// <summary>The real Messages API: a step that thought and called a tool, and its signed thinking accepted back with the result.
+    /// The executor's own fallback must not have been needed, or it would hide a broken replay.</summary>
     [LiveAnthropicFact]
     public async Task LiveAnthropicKeepsThinkingAcrossAToolCall()
     {
-        var key = File.ReadAllText(Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_KEY_FILE")!).Trim();
-        var model = Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_MODEL") is { Length: > 0 } chosen ? chosen : "claude-opus-5-5";
         using var http = new HttpClient();
-        var executor = new RetryingTurnExecutor(AnthropicMessagesExecutor.WithApiKey(http, key), TimeProvider.System);
-        List<ConversationItem> conversation = [new UserMessage("Use the add tool to add 1234 and 4321, then answer with the sum only.")];
-        var calls = 0;
+        var executor = AnthropicMessagesExecutor.WithApiKey(http, LiveAnthropicKey);
+        List<ConversationItem> conversation = [new UserMessage("Work out how many prime numbers are below 200. Then use the add tool to add that count to 1000, and answer with the sum only.")];
         for (var step = 0; step < 6; step++)
         {
-            var response = await executor.ExecuteAsync(Request(model, conversation), _ => ValueTask.CompletedTask, default);
+            var response = await executor.ExecuteAsync(Request(LiveAnthropicModel, conversation, "high"), _ => ValueTask.CompletedTask, default);
             conversation.AddRange(response.Output);
             if (response.Stop != StopReason.ToolCalls)
             {
-                Assert.True(calls > 0, "The model never called the tool.");
-                Assert.Contains("5555", conversation.OfType<AssistantMessage>().Last().Text);
+                Assert.Contains("1046", conversation.OfType<AssistantMessage>().Last().Text);
+                Assert.Contains(conversation, item => item is ToolCall);
+                // Adaptive thinking is the model's choice: claude-sonnet-5-5 skipped it here, while the default model thinks on this prompt.
+                if (LiveAnthropicModel == "claude-opus-5-5") Assert.Contains(conversation, item => item is ReasoningItem { ProviderData.Length: > 0 });
+                Assert.False(executor.DroppedThinking);
                 return;
             }
             foreach (var call in response.Output.OfType<ToolCall>())
             {
-                calls++;
                 var arguments = JsonNode.Parse(call.Arguments)!;
                 conversation.Add(new ToolResult(call.Id, ((int)arguments["a"]! + (int)arguments["b"]!).ToString()));
             }
         }
         Assert.Fail("The model did not finish.");
+    }
+
+    /// <summary>The cache breakpoints on the real API: the second call reads what the first one wrote. The prompt is long enough to be cached.</summary>
+    [LiveAnthropicFact]
+    public async Task LiveAnthropicCachesTheConversation()
+    {
+        using var http = new HttpClient();
+        var executor = AnthropicMessagesExecutor.WithApiKey(http, LiveAnthropicKey);
+        var instructions = "Answer briefly. " + string.Join(' ', Enumerable.Range(1, 6000).Select(number => $"note{number}-{Guid.NewGuid():N}"));
+        List<ConversationItem> conversation = [new UserMessage("Say one.")];
+        TurnRequest Next() => Request(LiveAnthropicModel, conversation) with { Instructions = instructions };
+        var first = await executor.ExecuteAsync(Next(), _ => ValueTask.CompletedTask, default);
+        Assert.True(first.Usage.CacheWriteTokens > 0, $"Nothing was written to the cache: {first.Usage}");
+        conversation.AddRange(first.Output);
+        conversation.Add(new UserMessage("Say two."));
+        var second = await executor.ExecuteAsync(Next(), _ => ValueTask.CompletedTask, default);
+        Assert.True(second.Usage.CachedInputTokens >= first.Usage.CacheWriteTokens, $"The second call read too little: {second.Usage}, after {first.Usage}");
     }
 
     internal sealed class LiveOpenCodeGoFactAttribute : FactAttribute

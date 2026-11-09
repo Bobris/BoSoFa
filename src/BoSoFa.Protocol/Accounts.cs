@@ -89,7 +89,8 @@ public static partial class AccountSecrets
     [GeneratedRegex(@"^sk-ant-oat\d+-[A-Za-z0-9_\-]{20,}$")]
     private static partial Regex ClaudeOAuthToken();
 
-    [GeneratedRegex(@"^sk-ant-api\d+-[A-Za-z0-9_\-]{20,}$")]
+    // Anthropic has more than one form of key (sk-ant-api03-, sk-ant-usr-); subscription tokens and admin keys are not API keys.
+    [GeneratedRegex(@"^sk-ant-(?!oat|admin)[a-z]+\d*-[A-Za-z0-9_\-]{20,}$")]
     private static partial Regex AnthropicApiKey();
 
     [GeneratedRegex(@"^sk-[A-Za-z0-9_\-]{20,}$")]
