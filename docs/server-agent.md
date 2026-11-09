@@ -1,6 +1,6 @@
 # Server agent: a harness that runs in the server
 
-Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only), 3 (machine tools) 4 (Anthropic), 6 (OpenCode Go) and 7 (system prompts) are done, 6 not yet against the real service; 5 (ChatGPT sign-in) is not built, see §5.2, the rest is planned.
+Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only), 3 (machine tools) 4 (Anthropic), 6 (OpenCode Go), 7 (system prompts) and 8 (context, cost and web) are done, 6 not yet against the real service; 5 (ChatGPT sign-in) is not built, see §5.2, the rest is planned.
 
 ## 1. What and why
 
@@ -338,11 +338,15 @@ Every session, with a machine or without, gets both (decided 2026-11-09):
   tool output). It works the same on every provider.
   - The server never fetches its own network: no private, loopback or link-local addresses, after following
     redirects and resolving names.
-  - Every fetch is recorded in the audit log.
+  - Every fetch is recorded in the audit log, without its query string, which can hold secrets.
+  - The addresses are checked where the connection is made, so redirects and names that later resolve elsewhere pass the
+    same check. Only ports 80 and 443. `BoSoFa:Agent:WebFetchAllowPrivateNetworks` lifts both rules, for tests and closed networks.
 - **The provider's hosted search**, where the provider offers one: OpenAI's `web_search` tool on the Responses API
   (also on the ChatGPT subscription, which CodeAlta allows), and Anthropic's web search tool on the Messages API.
   - The provider runs it, so its results arrive as provider items; we keep them like reasoning, as opaque data with a
-    readable summary.
+    readable summary. On Claude the newer search runs through server-side code, so every server-side block is kept.
+  - A long search can pause; the executor takes it up again by repeating the call with what it wrote so far.
+  - A model that refuses the tool goes without it for the rest of that loop.
   - Where the endpoint lacks it (some OpenCode Go models), the model simply does not get the tool.
 
 ### 6.4 BoSoFa tools
@@ -396,8 +400,13 @@ at the start, the session goes on without it and says so.
 - **Compaction** starts at 90% of the model's input limit, and once more on an overflow error. A summarizing call on
   the same executor keeps the last user message, and the summary becomes a `Notice` plus a compaction marker item.
   Later requests start from that marker.
-- The run's cost goes into `RunEnded` and the session's total, from models.dev prices. Subscription accounts show the
-  API price, marked as an estimate.
+- The loop works out each step's cost, from models.dev prices, and stores it in the event, because handlers cannot read a
+  price list. It adds to the session's total at once and to the run's in `RunEnded`. It is an estimate at list prices: tiered
+  prices and the providers' per-search fees are not counted. On OpenCode Go it is what the usage is worth against the plan.
+- The snapshot is refreshed with `BOSOFA_UPDATE_MODELS=1 dotnet test tests/BoSoFa.Server.Tests --filter SnapshotCanBeRefreshed`.
+- A compaction is a `Compaction` item holding the summary; the conversation restarts from it and the person's last message.
+  The summarizing call keeps the tools listed with `tool_choice: none`, so the cached prefix still serves it. If the
+  conversation is already too large for that, its tool results are cut and thinking dropped first.
 - No step or cost ceiling (decided 2026-11-09). The cost so far shows on the running session, and the person stops a
   run with an interrupt.
 
@@ -520,6 +529,11 @@ at the start, the session goes on without it and says so.
      staying the same while files and profiles change, tool groups, and refused settings.
 8. **Context, cost and web.** Compaction, the models.dev snapshot, costs, `web_fetch` with its address checks, and the
    providers' hosted search.
+   *Done (2026-11-10), except OpenAI's hosted search against the real API, as the test key has no credits left:*
+   - `ModelCatalog`, `WebFetcher`, and compaction in `AgentLoop`. `Domain.ApplicationGeneration` is 7.
+   - `AgentContextTest` covers costs, compaction near the limit and on an overflow, the address rules, the audit log and hosted
+     search. `LiveAnthropicSearchesTheWeb` ran a search on the real API and sent its blocks back.
+   - Learned from the real API: the newer Claude search returns `code_execution` blocks, which must go back with the search's.
 9. **UI polish.** The model picker, tool-call cards with streamed output, account sign-in flows. Run every flow in the
    browser and the desktop app.
 

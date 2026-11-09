@@ -6,8 +6,9 @@ namespace BoSoFa.Server.Agents;
 
 /// <summary>What the transcript says the loop should do next: the conversation for the next model call, the tool calls still
 /// without a result, and whether the model is due.</summary>
+/// <param name="JustCompacted">Nothing has happened since the last summary, so another one would not help.</param>
 public sealed record AgentConversationState(IReadOnlyList<ConversationItem> Conversation, IReadOnlyList<ToolCall> OpenCalls, bool NeedsModel,
-    bool HasQueued);
+    bool HasQueued, bool JustCompacted = false);
 
 /// <summary>
 /// Turns stored items into the conversation (docs/server-agent.md §4.2): the transcript is the loop's only state. People's messages
@@ -23,11 +24,14 @@ public static class AgentConversation
         var steering = new List<UserMessage>();
         var queued = new List<UserMessage>();
         var runOpen = false;
+        UserMessage? lastUser = null;
+        var justCompacted = false;
 
         void Steer(UserMessage message)
         {
             if (open.Count > 0) steering.Add(message);
             else conversation.Add(message);
+            lastUser = message;
         }
 
         foreach (var item in items)
@@ -39,13 +43,22 @@ public static class AgentConversation
                     else Steer(user);
                     runOpen = true;
                     break;
+                case SessionItemKind.Compaction:
+                    // Everything so far becomes the summary, and the person's latest words stay as they were.
+                    conversation.Clear();
+                    conversation.Add(Stored<UserMessage>(item) ?? new UserMessage(item.Text));
+                    if (lastUser != null) conversation.Add(lastUser);
+                    justCompacted = true;
+                    break;
                 case SessionItemKind.Assistant:
+                    justCompacted = false;
                     conversation.Add(Stored<AssistantMessage>(item) ?? new AssistantMessage(item.Text));
                     break;
                 case SessionItemKind.Thinking:
                     if (Stored<ReasoningItem>(item) is { } reasoning) conversation.Add(reasoning);
                     break;
                 case SessionItemKind.ToolUse:
+                    justCompacted = false;
                     var call = Stored<ToolCall>(item) ?? new ToolCall(item.ToolUseId ?? "", item.ToolName ?? "", item.Data ?? "{}");
                     conversation.Add(call);
                     open.Add(call);
@@ -62,11 +75,12 @@ public static class AgentConversation
                 case SessionItemKind.RunEnded:
                     runOpen = queued.Count > 0;
                     conversation.AddRange(queued);
+                    if (queued.Count > 0) lastUser = queued[^1];
                     queued.Clear();
                     break;
             }
         var needsModel = runOpen && open.Count == 0 && conversation.LastOrDefault() is UserMessage or ToolResult;
-        return new(conversation, open, needsModel, queued.Count > 0);
+        return new(conversation, open, needsModel, queued.Count > 0, justCompacted);
     }
 
     public static string Serialize(ConversationItem item) => JsonSerializer.Serialize(item, ServerJsonContext.Default.ConversationItem);

@@ -48,7 +48,7 @@ public class AgentOpenCodeGoTest
         Assert.Equal([session.Id.ToString()], h.Backend.GoSessions);
         Assert.Equal(Key, h.Backend.ModelAuthorizations.Single());
         var request = h.Backend.ModelRequests.Single();
-        Assert.Equal(16384, (int)request["max_tokens"]!);
+        Assert.Equal(64000, (int)request["max_tokens"]!); // the snapshot knows this model's limit is higher
         Assert.Null(request["thinking"]); // not a Claude model, and nobody asked
         Assert.All(request["tools"]!.AsArray(), tool => Assert.Null(tool!["eager_input_streaming"]));
     }

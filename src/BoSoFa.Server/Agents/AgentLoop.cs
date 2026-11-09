@@ -26,7 +26,9 @@ sealed record AgentView(Session Session, AgentRunner Runner, List<SessionItem> I
 /// <summary>Credentials and tools of one loop instance, which end with it.</summary>
 /// <param name="SharedInstructions">The built-in prompt and the profile's.</param>
 /// <param name="RuntimeContext">Date, machine and tools, as of now.</param>
-sealed record AgentEnvironment(IModelTurnExecutor Executor, AgentToolbox Tools, string SharedInstructions, string RuntimeContext);
+/// <param name="Model">What is known about the model; null when the snapshot does not have it.</param>
+/// <param name="MaxOutputTokens">The output limit to ask for; null for the API's own default.</param>
+sealed record AgentEnvironment(IModelTurnExecutor Executor, AgentToolbox Tools, string SharedInstructions, string RuntimeContext, ModelInfo? Model, int? MaxOutputTokens);
 
 /// <summary>The session cannot run at all; the person is told and the run ends.</summary>
 sealed class AgentSetupException(string message) : Exception(message);
@@ -39,6 +41,21 @@ sealed class AgentSetupException(string message) : Exception(message);
 sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
 {
     public static string ApprovalKey(long seq) => $"item-{seq}";
+
+    /// <summary>The share of the model's input limit at which a conversation is summarized.</summary>
+    const double CompactionThreshold = 0.9;
+
+    const string CompactionInstruction = """
+        The conversation is about to be replaced by your summary, so write one the work can go on from without anything else. Do not call tools.
+        Cover: what the person wants and any constraints they gave; what has been done and what was found; files, commands and exact names that matter;
+        decisions and why; what failed; and what is left to do next. Be specific, and leave out what no longer matters.
+        """;
+
+    const string CompactionPrefix = "This conversation was summarized to save space. The summary of everything before this point:\n\n";
+    const int CompactedToolResult = 1000;
+
+    /// <summary>The size of the latest request as the provider counted it; unknown after a restart or a summary.</summary>
+    long? _lastContextTokens;
 
     const string UnknownOutcome = "The server restarted while this ran; whether it took effect is unknown.";
     const string InterruptedResult = "The person interrupted this before it finished.";
@@ -101,7 +118,11 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                 }
             }
             if (state.OpenCalls.Count > 0) await RunToolAsync(view, state.OpenCalls[0], environment, suspectCall, pulse, stopping);
-            else if (InstructionsOf(view) is { } instructions) await CallModelAsync(view, state, environment, instructions, stopping);
+            else if (InstructionsOf(view) is { } instructions)
+            {
+                if (IsNearTheLimit(state, environment)) await CompactAsync(view, state, environment, instructions, false, stopping);
+                else await CallModelAsync(view, state, environment, instructions, stopping);
+            }
             else await RecordInstructionsAsync(view, environment, stopping);
         }
     }
@@ -151,9 +172,10 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         return BlobPrefix + sha256;
     }
 
-    Task RecordAsync(AgentView view, IEnumerable<AgentItem> items, TurnUsage? usage, CancellationToken cancellation) =>
+    Task RecordAsync(AgentView view, IEnumerable<AgentItem> items, TurnUsage? usage, CancellationToken cancellation, double costUsd = 0) =>
         Publisher.PublishAndWaitAsync(new AgentItemsRecorded
         {
+            CostUsd = costUsd,
             SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version,
             ItemsJson = JsonSerializer.Serialize(items.ToArray(), ProtocolJsonContext.Default.AgentItemArray),
             InputTokens = usage?.InputTokens ?? 0, CachedInputTokens = usage?.CachedInputTokens ?? 0,
@@ -229,17 +251,76 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         await RecordAsync(view, items, null, stopping);
     }
 
+    bool IsNearTheLimit(AgentConversationState state, AgentEnvironment environment)
+    {
+        if (state.JustCompacted || environment.Model?.InputLimit is not { } limit) return false;
+        return (_lastContextTokens ?? EstimateTokens(state.Conversation)) >= limit * CompactionThreshold;
+    }
+
+    /// <summary>After a restart nothing says how large the last request was, so roughly four characters to a token will do.</summary>
+    static long EstimateTokens(IReadOnlyList<ConversationItem> conversation) => conversation.Sum(item => (long)(item switch
+    {
+        UserMessage user => user.Text.Length,
+        AssistantMessage assistant => assistant.Text.Length,
+        ToolCall call => call.Arguments.Length,
+        ToolResult result => result.Text.Length,
+        ReasoningItem reasoning => reasoning.ProviderData?.Length ?? reasoning.Text.Length,
+        _ => 0
+    })) / 4;
+
+    /// <summary>Replaces the conversation so far with the model's summary. A conversation too large for even that is summarized with its tool results cut short.</summary>
+    async Task CompactAsync(AgentView view, AgentConversationState state, AgentEnvironment environment, AgentInstructionsRecord instructions, bool shortened, CancellationToken stopping)
+    {
+        IReadOnlyList<ConversationItem> history = shortened ? Shortened(state.Conversation) : state.Conversation;
+        var request = new TurnRequest(view.Session.Model!, instructions.Shared, [..history, new UserMessage(CompactionInstruction)],
+            environment.Tools.SpecsFor(view.Session.PermissionMode), sessionId.ToString(), instructions.Session, view.Session.ReasoningEffort, environment.MaxOutputTokens, NoToolUse: true);
+        TurnResponse response;
+        try
+        {
+            response = await WatchedAsync(cancellation => environment.Executor.ExecuteAsync(request, _ => ValueTask.CompletedTask, cancellation), stopping);
+        }
+        catch (OperationCanceledException) when (!stopping.IsCancellationRequested) { return; } // the next pass sees why
+        catch (ModelProviderException problem) when (problem.Failure == ProviderFailure.ContextOverflow)
+        {
+            if (!shortened) await CompactAsync(view, state, environment, instructions, true, stopping);
+            else await FinishAsync(view, state, "failed", true, "This conversation has grown too long to summarize. Start a new session.", false, stopping);
+            return;
+        }
+        catch (ModelProviderException problem)
+        {
+            await FinishAsync(view, state, "failed", true, problem.Message, false, stopping);
+            return;
+        }
+        var summary = string.Concat(response.Output.OfType<AssistantMessage>().Select(message => message.Text)).Trim();
+        if (summary.Length == 0)
+        {
+            await FinishAsync(view, state, "failed", true, "The model did not summarize the conversation.", false, stopping);
+            return;
+        }
+        _lastContextTokens = null;
+        await RecordAsync(view, [new(SessionItemKind.Compaction, summary, Replay: await StoredFormAsync(new UserMessage(CompactionPrefix + summary), stopping))],
+            response.Usage, stopping, environment.Model?.CostOf(response.Usage) ?? 0);
+    }
+
+    static List<ConversationItem> Shortened(IReadOnlyList<ConversationItem> conversation) => conversation.Where(item => item is not ReasoningItem)
+        .Select(item => item is ToolResult { Text.Length: > CompactedToolResult } result ? result with { Text = result.Text[..CompactedToolResult] + " [cut]" } : item).ToList();
+
     async Task CallModelAsync(AgentView view, AgentConversationState state, AgentEnvironment environment, AgentInstructionsRecord instructions, CancellationToken stopping)
     {
         var itemRef = $"agent-{view.Session.LastSeq}";
         var request = new TurnRequest(view.Session.Model!, instructions.Shared, state.Conversation,
-            environment.Tools.SpecsFor(view.Session.PermissionMode), sessionId.ToString(), instructions.Session, view.Session.ReasoningEffort);
+            environment.Tools.SpecsFor(view.Session.PermissionMode), sessionId.ToString(), instructions.Session, view.Session.ReasoningEffort, environment.MaxOutputTokens);
         TurnResponse response;
         try
         {
             response = await WatchedAsync(cancellation => environment.Executor.ExecuteAsync(request, delta => StreamAsync(itemRef, delta), cancellation), stopping);
         }
         catch (OperationCanceledException) when (!stopping.IsCancellationRequested) { return; } // the next pass sees why
+        catch (ModelProviderException problem) when (problem.Failure == ProviderFailure.ContextOverflow && !state.JustCompacted)
+        {
+            await CompactAsync(view, state, environment, instructions, false, stopping);
+            return;
+        }
         catch (ModelProviderException problem)
         {
             await FinishAsync(view, state, "failed", true, problem.Message, false, stopping);
@@ -280,7 +361,8 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             return;
         }
         if (stopNote != null) items.Add(new(SessionItemKind.Notice, stopNote, IsError: true));
-        await RecordAsync(view, items, response.Usage, stopping);
+        _lastContextTokens = response.Usage.InputTokens + response.Usage.OutputTokens;
+        await RecordAsync(view, items, response.Usage, stopping, environment.Model?.CostOf(response.Usage) ?? 0);
     }
 
     ValueTask StreamAsync(string itemRef, TurnDelta delta)
@@ -355,7 +437,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             }
         }
         // A previous loop may have started this call: running it again could repeat its effect. Reading has none.
-        if (call.Id == suspectCall && kind != AgentToolKind.MachineRead)
+        if (call.Id == suspectCall && kind is not (AgentToolKind.MachineRead or AgentToolKind.Web))
         {
             await RecordAsync(view, [Result(call, UnknownOutcome, true)], null, stopping);
             return;

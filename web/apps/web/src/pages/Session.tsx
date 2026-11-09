@@ -117,6 +117,12 @@ function Item(props: { item: SessionItem }) {
       <Match when={props.item.kind === "Assistant"}>
         <div class="whitespace-pre-wrap leading-relaxed">{props.item.text}</div>
       </Match>
+      <Match when={props.item.kind === "Compaction"}>
+        <details class="text-sm text-muted">
+          <summary class="cursor-pointer select-none">Earlier conversation summarized</summary>
+          <div class="mt-1 whitespace-pre-wrap">{props.item.text}</div>
+        </details>
+      </Match>
       <Match when={props.item.kind === "Instructions"}>
         <details class="text-sm text-muted">
           <summary class="cursor-pointer select-none">System prompt</summary>

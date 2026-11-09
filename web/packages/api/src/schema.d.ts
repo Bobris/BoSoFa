@@ -3730,7 +3730,7 @@ export interface components {
                 /** Format: int64 */
                 seq: number | string;
                 /** @enum {unknown} */
-                kind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff" | "Instructions";
+                kind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff" | "Instructions" | "Compaction";
                 /** Format: date-time */
                 at: string;
                 text: string;
@@ -3972,7 +3972,7 @@ export interface components {
             ref: null | string;
         };
         /** @enum {unknown} */
-        SessionItemKind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff" | "Instructions";
+        SessionItemKind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff" | "Instructions" | "Compaction";
         SessionProfileResponse: {
             mcpServers: components["schemas"]["ResolvedMcpServer"][];
             skills: components["schemas"]["ResolvedSkill"][];

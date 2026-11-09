@@ -15,7 +15,7 @@ namespace BoSoFa.Server.Agents;
 /// <param name="eagerToolInput">Stream tool arguments as they are written. The API then no longer checks them, so the loop's own
 /// handling of bad arguments applies; endpoints that only imitate the API may refuse the field.</param>
 public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpoint, Action<HttpRequestMessage, TurnRequest> authorize,
-    string provider = "Anthropic", bool eagerToolInput = false, int defaultMaxOutputTokens = AnthropicMessagesExecutor.DefaultMaxOutputTokens) : IModelTurnExecutor
+    string provider = "Anthropic", bool eagerToolInput = false, int defaultMaxOutputTokens = AnthropicMessagesExecutor.DefaultMaxOutputTokens, bool hostedSearch = false) : IModelTurnExecutor
 {
     public const string ApiName = "anthropic-messages";
 
@@ -32,7 +32,7 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
     public static readonly Uri OpenCodeGoEndpoint = new("https://opencode.ai/inference/go/anthropic/v1/messages");
 
     public static AnthropicMessagesExecutor WithApiKey(HttpClient http, string apiKey, Uri? endpoint = null) =>
-        new(http, endpoint ?? AnthropicEndpoint, (message, _) => message.Headers.TryAddWithoutValidation("x-api-key", apiKey), eagerToolInput: true);
+        new(http, endpoint ?? AnthropicEndpoint, (message, _) => message.Headers.TryAddWithoutValidation("x-api-key", apiKey), eagerToolInput: true, hostedSearch: true);
 
     /// <summary>OpenCode Go's Messages route: its key, and the stable session id it asks for in <c>x-opencode-session</c>.</summary>
     public static AnthropicMessagesExecutor ForOpenCodeGo(HttpClient http, string apiKey, Uri? endpoint = null) =>
@@ -50,22 +50,46 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
     /// <summary>A signature was refused once in this conversation, so its thinking is no longer sent back.</summary>
     public bool DroppedThinking => _withoutThinking;
 
+    /// <summary>This model or organization does not take the hosted search; it simply goes without.</summary>
+    bool _searchRefused;
+
+    /// <summary>How many times a long turn of the provider's own tools is taken up again.</summary>
+    const int LongestPause = 8;
+
     public async Task<TurnResponse> ExecuteAsync(TurnRequest request, Func<TurnDelta, ValueTask> onDelta, CancellationToken cancellation)
     {
-        try { return await CallAsync(request, onDelta, cancellation); }
-        catch (ModelProviderException problem) when (!_withoutThinking && problem is { Status: 400 } && problem.Message.Contains("signature", StringComparison.OrdinalIgnoreCase) &&
-                                                     request.Conversation.OfType<ReasoningItem>().Any())
+        var output = new List<ConversationItem>();
+        var usage = TurnUsage.None;
+        for (var round = 0; ; round++)
         {
-            // A changed system prompt or tool list after a restart invalidates them. The conversation still holds without its thinking.
-            _withoutThinking = true;
-            return await CallAsync(request, onDelta, cancellation);
+            var response = await WithFallbacksAsync(output.Count == 0 ? request : request with { Conversation = [..request.Conversation, ..output] }, onDelta, cancellation);
+            output.AddRange(response.Output);
+            usage = usage.Add(response.Usage);
+            if (response.Stop != StopReason.Paused) return response with { Output = output, Usage = usage };
+            if (round == LongestPause) return response with { Output = output, Usage = usage, Stop = StopReason.EndTurn };
         }
+    }
+
+    async Task<TurnResponse> WithFallbacksAsync(TurnRequest request, Func<TurnDelta, ValueTask> onDelta, CancellationToken cancellation)
+    {
+        while (true)
+            try { return await CallAsync(request, onDelta, cancellation); }
+            catch (ModelProviderException problem) when (!_withoutThinking && problem is { Status: 400 } && problem.Message.Contains("signature", StringComparison.OrdinalIgnoreCase) &&
+                                                         request.Conversation.OfType<ReasoningItem>().Any())
+            {
+                // A changed system prompt or tool list after a restart invalidates them. The conversation still holds without its thinking.
+                _withoutThinking = true;
+            }
+            catch (ModelProviderException problem) when (hostedSearch && !_searchRefused && problem is { Status: 400 } && problem.Message.Contains("web_search", StringComparison.OrdinalIgnoreCase))
+            {
+                _searchRefused = true;
+            }
     }
 
     async Task<TurnResponse> CallAsync(TurnRequest request, Func<TurnDelta, ValueTask> onDelta, CancellationToken cancellation)
     {
         var origin = new ModelOrigin(Api, Endpoint, request.Model);
-        var body = Body(request, origin, !_withoutThinking, eagerToolInput, defaultMaxOutputTokens);
+        var body = Body(request, origin, !_withoutThinking, eagerToolInput, defaultMaxOutputTokens, hostedSearch && !_searchRefused);
         using var message = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json")
@@ -82,7 +106,7 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
 
     /// <summary>The request body; public for tests.</summary>
     public static JsonObject Body(TurnRequest request, ModelOrigin origin, bool replayThinking = true, bool eagerToolInput = false,
-        int defaultMaxOutputTokens = DefaultMaxOutputTokens)
+        int defaultMaxOutputTokens = DefaultMaxOutputTokens, bool hostedSearch = false)
     {
         var system = new JsonArray((JsonNode)new JsonObject
         {
@@ -91,7 +115,7 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
         if (!string.IsNullOrWhiteSpace(request.SessionInstructions))
             system.Add((JsonNode)new JsonObject { ["type"] = "text", ["text"] = request.SessionInstructions });
         var messages = Messages(request.Conversation, origin, replayThinking);
-        if (messages.LastOrDefault()?["content"] is JsonArray { Count: > 0 } last && last[^1] is JsonObject lastBlock)
+        if (messages.LastOrDefault() is JsonObject { } final && (string?)final["role"] == "user" && final["content"] is JsonArray { Count: > 0 } last && last[^1] is JsonObject lastBlock)
             lastBlock["cache_control"] = Ephemeral();
         var body = new JsonObject
         {
@@ -101,16 +125,19 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
             ["messages"] = messages,
             ["stream"] = true
         };
-        if (request.Tools.Count > 0)
+        var tools = new JsonArray();
+        if (hostedSearch) tools.Add((JsonNode)new JsonObject { ["type"] = WebSearchType(request.Model), ["name"] = "web_search" });
+        foreach (var tool in request.Tools)
         {
-            var tools = new JsonArray(request.Tools.Select(tool =>
-            {
-                var definition = new JsonObject { ["name"] = tool.Name, ["description"] = tool.Description, ["input_schema"] = Schema(tool.InputSchema) };
-                if (eagerToolInput) definition["eager_input_streaming"] = true;
-                return (JsonNode)definition;
-            }).ToArray());
+            var definition = new JsonObject { ["name"] = tool.Name, ["description"] = tool.Description, ["input_schema"] = Schema(tool.InputSchema) };
+            if (eagerToolInput) definition["eager_input_streaming"] = true;
+            tools.Add((JsonNode)definition);
+        }
+        if (tools.Count > 0)
+        {
             ((JsonObject)tools[^1]!)["cache_control"] = Ephemeral();
             body["tools"] = tools;
+            if (request.NoToolUse) body["tool_choice"] = new JsonObject { ["type"] = "none" };
         }
         var generation = GenerationOf(request.Model);
         if (generation == ClaudeGeneration.Adaptive || (generation == ClaudeGeneration.NotClaude && request.ReasoningEffort != null))
@@ -121,6 +148,12 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
         }
         return body;
     }
+
+    /// <summary>The search with dynamic filtering exists on the Opus and Sonnet models from 4.6 on; the others have the basic one.</summary>
+    static string WebSearchType(string model) =>
+        GenerationOf(model) == ClaudeGeneration.Adaptive && (model.StartsWith("claude-opus-", StringComparison.Ordinal) || model.StartsWith("claude-sonnet-", StringComparison.Ordinal))
+            ? "web_search_20260209"
+            : "web_search_20250305";
 
     enum ClaudeGeneration
     {
@@ -189,6 +222,9 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
                         ["type"] = "tool_result", ["tool_use_id"] = result.CallId, ["content"] = result.Text, ["is_error"] = result.IsError
                     });
                     break;
+                case AssistantMessage assistant when replayThinking && assistant.Origin == origin && ProviderHttp.ParseObject(assistant.ProviderData) is { } cited:
+                    Add("assistant", cited); // with its citations, unchanged
+                    break;
                 case AssistantMessage { Text.Length: > 0 } assistant:
                     Add("assistant", new JsonObject { ["type"] = "text", ["text"] = assistant.Text });
                     break;
@@ -218,6 +254,8 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
         public string Type = "";
         public string? Id, Name, Data;
         public readonly StringBuilder Text = new(), Signature = new(), Json = new();
+        public JsonObject? Raw;
+        public readonly JsonArray Citations = [];
     }
 
     async Task<TurnResponse> ReadAsync(Stream stream, ModelOrigin origin, Func<TurnDelta, ValueTask> onDelta, CancellationToken cancellation)
@@ -243,7 +281,7 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
                     var start = eventData["content_block"];
                     var block = new Block
                     {
-                        Type = Str(start?["type"]) ?? "", Id = Str(start?["id"]), Name = Str(start?["name"]), Data = Str(start?["data"])
+                        Type = Str(start?["type"]) ?? "", Id = Str(start?["id"]), Name = Str(start?["name"]), Data = Str(start?["data"]), Raw = start?.DeepClone() as JsonObject
                     };
                     block.Text.Append(Str(start?["text"]) ?? Str(start?["thinking"]));
                     blocks[(int)Long(eventData["index"])] = block;
@@ -260,6 +298,9 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
                         case "thinking_delta":
                             target.Text.Append(Str(delta?["thinking"]));
                             await onDelta(new(TurnDeltaKind.Reasoning, Str(delta?["thinking"]) ?? ""));
+                            break;
+                        case "citations_delta":
+                            if (delta?["citation"] is { } citation) target.Citations.Add(citation.DeepClone());
                             break;
                         case "signature_delta":
                             target.Signature.Append(Str(delta?["signature"]));
@@ -294,7 +335,10 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
             switch (block.Type)
             {
                 case "text":
-                    conversation.Add(new AssistantMessage(block.Text.ToString(), origin));
+                    conversation.Add(new AssistantMessage(block.Text.ToString(), origin, block.Citations.Count == 0 ? null : new JsonObject
+                    {
+                        ["type"] = "text", ["text"] = block.Text.ToString(), ["citations"] = block.Citations.DeepClone()
+                    }.ToJsonString()));
                     break;
                 case "thinking":
                     conversation.Add(new ReasoningItem(block.Text.ToString(), origin, new JsonObject
@@ -306,14 +350,27 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
                     conversation.Add(new ReasoningItem("", origin,
                         new JsonObject { ["type"] = "redacted_thinking", ["data"] = block.Data }.ToJsonString()));
                     break;
+                case "server_tool_use":
+                    // The search with dynamic filtering runs through server-side code, so other server tools come back too. Everything but the input is as it came.
+                    var serverCall = block.Raw ?? new JsonObject();
+                    var input = ProviderHttp.ParseObject(block.Json.Length > 0 ? block.Json.ToString() : "{}") ?? new JsonObject();
+                    serverCall["input"] = input;
+                    var searched = block.Name != "web_search" ? "" : Str(input["query"]) is { Length: > 0 } query ? $"Searched the web: {query}" : "Searched the web";
+                    conversation.Add(new ReasoningItem(searched, origin, serverCall.ToJsonString()));
+                    break;
                 case "tool_use":
                     conversation.Add(new ToolCall(block.Id ?? "", block.Name ?? "", block.Json.Length > 0 ? block.Json.ToString() : "{}",
                         origin));
+                    break;
+                default:
+                    // The results of the provider's own tools, whatever they are called: the API wants each back with its call.
+                    if (block.Raw != null) conversation.Add(new ReasoningItem("", origin, block.Raw.ToJsonString()));
                     break;
             }
         var stop = stopReason switch
         {
             "tool_use" => StopReason.ToolCalls,
+            "pause_turn" => StopReason.Paused,
             "max_tokens" or "model_context_window_exceeded" => StopReason.MaxTokens,
             "refusal" => StopReason.Refused,
             _ => conversation.OfType<ToolCall>().Any() ? StopReason.ToolCalls : StopReason.EndTurn

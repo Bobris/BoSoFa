@@ -28,6 +28,9 @@ public class AgentRunner
     public long CacheWriteTokens { get; set; }
     public long OutputTokens { get; set; }
     public long ReasoningTokens { get; set; }
+
+    /// <summary>What this run has cost so far, at list prices.</summary>
+    public double CostUsd { get; set; }
 }
 
 public interface IAgentRunnerTable : IRelation<AgentRunner>
@@ -53,6 +56,9 @@ public class AgentItemsRecorded : EventWithResult<SessionCommandResult>
     public long CacheWriteTokens { get; set; }
     public long OutputTokens { get; set; }
     public long ReasoningTokens { get; set; }
+
+    /// <summary>Worked out by the loop, which knows the model's prices; handlers must not read a price list.</summary>
+    public double CostUsd { get; set; }
 }
 
 /// <summary>A tool call waits for a person. <see cref="Key"/> comes from the call's place in the transcript, so a resumed loop finds the same
@@ -170,6 +176,8 @@ public sealed class AgentItemsRecordedHandler(IDomainSignals signals) : IEventHa
         runner.CacheWriteTokens += ev.CacheWriteTokens;
         runner.OutputTokens += ev.OutputTokens;
         runner.ReasoningTokens += ev.ReasoningTokens;
+        runner.CostUsd += ev.CostUsd;
+        session.CostUsd += ev.CostUsd; // so a running session shows what it has cost so far
         Ambient.Relation<IAgentRunnerTable>().Update(runner);
         Sessions.Changed(signals, session, ev.When);
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
@@ -221,7 +229,7 @@ public sealed class AgentRunFinishedHandler(IDomainSignals signals) : IEventHand
         var runners = Ambient.Relation<IAgentRunnerTable>();
         AgentRunners.Append(session, AgentRunners.Items(ev.ItemsJson), ev.When);
         if (ev.Error != null) Sessions.AppendItem(session, SessionItemKind.Notice, ev.When, ev.Error, isError: true);
-        var report = new RunEndedReport(ev.When, ev.Outcome, ev.IsError, 0, runner!.InputTokens, runner.OutputTokens,
+        var report = new RunEndedReport(ev.When, ev.Outcome, ev.IsError, runner!.CostUsd, runner.InputTokens, runner.OutputTokens,
             (long)(ev.When - runner.RunStartedAt).TotalMilliseconds);
         Sessions.AppendItem(session, SessionItemKind.RunEnded, ev.When, ev.Outcome,
             data: JsonSerializer.Serialize<SessionReport>(report, ProtocolJsonContext.Default.SessionReport), isError: ev.IsError);
@@ -233,6 +241,7 @@ public sealed class AgentRunFinishedHandler(IDomainSignals signals) : IEventHand
             runner.InterruptRequested = false;
             runner.RunStartedAt = ev.When;
             runner.InputTokens = runner.CachedInputTokens = runner.CacheWriteTokens = runner.OutputTokens = runner.ReasoningTokens = 0;
+            runner.CostUsd = 0;
             runners.Update(runner);
             session.Status = SessionStatus.Running;
         }

@@ -53,7 +53,7 @@ public class AgentAnthropicTest
         Assert.Equal(AnthropicDefaults.Streaming, (int)first["max_tokens"]!);
         Assert.Equal(("adaptive", "summarized"), ((string)first["thinking"]!["type"]!, (string)first["thinking"]!["display"]!));
         var tools = first["tools"]!.AsArray();
-        Assert.All(tools, tool => Assert.True((bool)tool!["eager_input_streaming"]!));
+        Assert.All(tools.Where(tool => tool!["input_schema"] != null), tool => Assert.True((bool)tool!["eager_input_streaming"]!)); // not valid on the hosted search
         Assert.Equal("ephemeral", (string)tools[^1]!["cache_control"]!["type"]!);
         Assert.Equal("ephemeral", (string)first["system"]![0]!["cache_control"]!["type"]!);
 

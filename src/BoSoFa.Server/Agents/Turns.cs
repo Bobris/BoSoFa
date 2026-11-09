@@ -44,9 +44,10 @@ public sealed record ToolSpec(string Name, string Description, JsonObject InputS
 /// the cached prefix.</param>
 /// <param name="SessionId">Stable for a conversation: a cache key and, where an endpoint asks for one, its session header.</param>
 /// <param name="ReasoningEffort">low, medium, high or null for the model's default.</param>
+/// <param name="NoToolUse">The tools stay listed, as the conversation mentions them and the cached prefix has them, but none may be called.</param>
 public sealed record TurnRequest(string Model, string Instructions, IReadOnlyList<ConversationItem> Conversation,
     IReadOnlyList<ToolSpec> Tools, string SessionId, string? SessionInstructions = null, string? ReasoningEffort = null,
-    int? MaxOutputTokens = null);
+    int? MaxOutputTokens = null, bool NoToolUse = false);
 
 public enum StopReason
 {
@@ -60,13 +61,19 @@ public enum StopReason
     MaxTokens,
 
     /// <summary>The provider refused or filtered the answer.</summary>
-    Refused
+    Refused,
+
+    /// <summary>A long turn of the provider's own tools stopped half way; the same call goes on from what it wrote.</summary>
+    Paused
 }
 
 /// <param name="InputTokens">All input, cached or not.</param>
 public sealed record TurnUsage(long InputTokens, long CachedInputTokens, long CacheWriteTokens, long OutputTokens, long ReasoningTokens)
 {
     public static readonly TurnUsage None = new(0, 0, 0, 0, 0);
+
+    public TurnUsage Add(TurnUsage other) => new(InputTokens + other.InputTokens, CachedInputTokens + other.CachedInputTokens, CacheWriteTokens + other.CacheWriteTokens,
+        OutputTokens + other.OutputTokens, ReasoningTokens + other.ReasoningTokens);
 }
 
 /// <summary>The model's output of one call, in order, and what it cost.</summary>

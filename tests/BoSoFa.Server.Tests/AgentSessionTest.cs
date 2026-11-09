@@ -32,10 +32,11 @@ public class AgentSessionTest
         public ulong AccountId;
 
         /// <param name="liveKey">An OpenAI key: the real API answers instead of the script.</param>
-        public static async Task<Harness> StartAsync(string? liveKey = null)
+        /// <param name="allowPrivateFetch">Lets <c>web_fetch</c> reach the fake server on the loopback address.</param>
+        public static async Task<Harness> StartAsync(string? liveKey = null, bool allowPrivateFetch = false)
         {
             var harness = new Harness { Backend = await FakeAgentBackend.StartAsync() };
-            harness.Server = await TestServer.StartAsync(extraArgs: liveKey != null ? [] : ["--BoSoFa:Agent:OpenAIEndpoint", harness.Backend.ResponsesUrl, "--BoSoFa:Agent:AnthropicEndpoint", harness.Backend.MessagesUrl, "--BoSoFa:Agent:OpenCodeGoBaseUrl", harness.Backend.GoBaseUrl]);
+            harness.Server = await TestServer.StartAsync(extraArgs: liveKey != null ? [] : ["--BoSoFa:Agent:OpenAIEndpoint", harness.Backend.ResponsesUrl, "--BoSoFa:Agent:AnthropicEndpoint", harness.Backend.MessagesUrl, "--BoSoFa:Agent:OpenCodeGoBaseUrl", harness.Backend.GoBaseUrl, "--BoSoFa:Agent:WebFetchAllowPrivateNetworks", allowPrivateFetch ? "true" : "false"]);
             harness.Boris = harness.Server.Client();
             (await harness.Boris.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("boris@example.com", "Boris"))).EnsureSuccessStatusCode();
             await harness.Boris.PostAsJsonAsync("/api/v1/mcp-servers", new PublishMcpServer("facts", McpTransport.Http, null, null, harness.Backend.McpUrl,
@@ -79,7 +80,7 @@ public class AgentSessionTest
 
     internal static JsonArray Input(JsonObject request) => request["input"]!.AsArray();
     internal static IEnumerable<JsonObject> OfType(JsonObject request, string type) => Input(request).OfType<JsonObject>().Where(item => item["type"]?.GetValue<string>() == type);
-    internal static string[] Tools(JsonObject request) => request["tools"]!.AsArray().Select(tool => tool!["name"]!.GetValue<string>()).ToArray();
+    internal static string[] Tools(JsonObject request) => request["tools"]!.AsArray().Select(tool => tool!["name"]?.GetValue<string>() ?? tool!["type"]!.GetValue<string>()).ToArray();
 
     [Fact]
     public async Task ASessionWithNoMachineAnswersThroughAnHttpMcpServer()

@@ -12,7 +12,7 @@ namespace BoSoFa.Server.Agents;
 /// stored, the API cannot resolve an id.
 /// </summary>
 public sealed class OpenAIResponsesExecutor(HttpClient http, Uri endpoint, Action<HttpRequestMessage, TurnRequest> authorize,
-    string provider = "OpenAI", bool includeEncryptedReasoning = true) : IModelTurnExecutor
+    string provider = "OpenAI", bool includeEncryptedReasoning = true, bool hostedSearch = false) : IModelTurnExecutor
 {
     public const string ApiName = "openai-responses";
     public static readonly Uri OpenAIEndpoint = new("https://api.openai.com/v1/responses");
@@ -20,7 +20,7 @@ public sealed class OpenAIResponsesExecutor(HttpClient http, Uri endpoint, Actio
 
     /// <summary>The OpenAI API with an API key (<c>Authorization: Bearer</c>).</summary>
     public static OpenAIResponsesExecutor WithApiKey(HttpClient http, string apiKey, Uri? endpoint = null) =>
-        new(http, endpoint ?? OpenAIEndpoint, (message, _) => message.Headers.Authorization = new("Bearer", apiKey));
+        new(http, endpoint ?? OpenAIEndpoint, (message, _) => message.Headers.Authorization = new("Bearer", apiKey), hostedSearch: true);
 
     /// <summary>OpenCode Go: its key, and the stable session id it asks for in <c>x-opencode-session</c>.</summary>
     public static OpenAIResponsesExecutor ForOpenCodeGo(HttpClient http, string apiKey, Uri? endpoint = null, bool includeEncryptedReasoning = true) =>
@@ -33,7 +33,20 @@ public sealed class OpenAIResponsesExecutor(HttpClient http, Uri endpoint, Actio
     public string Api => ApiName;
     public string Endpoint { get; } = endpoint.ToString();
 
+    /// <summary>This model does not take the hosted search; it simply goes without.</summary>
+    bool _searchRefused;
+
     public async Task<TurnResponse> ExecuteAsync(TurnRequest request, Func<TurnDelta, ValueTask> onDelta, CancellationToken cancellation)
+    {
+        try { return await CallAsync(request, onDelta, cancellation); }
+        catch (ModelProviderException problem) when (hostedSearch && !_searchRefused && problem is { Status: 400 } && problem.Message.Contains("web_search", StringComparison.OrdinalIgnoreCase))
+        {
+            _searchRefused = true;
+            return await CallAsync(request, onDelta, cancellation);
+        }
+    }
+
+    async Task<TurnResponse> CallAsync(TurnRequest request, Func<TurnDelta, ValueTask> onDelta, CancellationToken cancellation)
     {
         var origin = new ModelOrigin(Api, Endpoint, request.Model);
         using var message = new HttpRequestMessage(HttpMethod.Post, endpoint)
@@ -65,12 +78,14 @@ public sealed class OpenAIResponsesExecutor(HttpClient http, Uri endpoint, Actio
             ["stream"] = true,
             ["store"] = false
         };
-        if (request.Tools.Count > 0)
-            body["tools"] = new JsonArray(request.Tools.Select(tool => (JsonNode)new JsonObject
-            {
-                ["type"] = "function", ["name"] = tool.Name, ["description"] = tool.Description,
-                ["parameters"] = tool.InputSchema.DeepClone(), ["strict"] = false
-            }).ToArray());
+        var tools = new JsonArray(request.Tools.Select(tool => (JsonNode)new JsonObject
+        {
+            ["type"] = "function", ["name"] = tool.Name, ["description"] = tool.Description,
+            ["parameters"] = tool.InputSchema.DeepClone(), ["strict"] = false
+        }).ToArray());
+        if (hostedSearch && !_searchRefused) tools.Add((JsonNode)new JsonObject { ["type"] = "web_search" });
+        if (tools.Count > 0) body["tools"] = tools;
+        if (request.NoToolUse && tools.Count > 0) body["tool_choice"] = "none";
         if (request.ReasoningEffort != null) body["reasoning"] = new JsonObject { ["effort"] = request.ReasoningEffort, ["summary"] = "auto" };
         if (includeEncryptedReasoning) body["include"] = new JsonArray("reasoning.encrypted_content");
         if (request.MaxOutputTokens is { } limit) body["max_output_tokens"] = limit;
@@ -167,6 +182,10 @@ public sealed class OpenAIResponsesExecutor(HttpClient http, Uri endpoint, Actio
                         .Concat((item["content"] as JsonArray ?? []).OfType<JsonObject>().Select(part => Str(part["text"])))
                         .Where(part => !string.IsNullOrEmpty(part));
                     conversation.Add(new ReasoningItem(string.Join("\n\n", summary), origin, data));
+                    break;
+                case "web_search_call":
+                    // Kept like reasoning: the reasoning before it must not go back without it.
+                    conversation.Add(new ReasoningItem(Str(item["action"]?["query"]) is { Length: > 0 } query ? $"Searched the web: {query}" : "Searched the web", origin, data));
                     break;
                 case "function_call":
                     conversation.Add(new ToolCall(Str(item["call_id"]) ?? "", Str(item["name"]) ?? "", Str(item["arguments"]) ?? "",

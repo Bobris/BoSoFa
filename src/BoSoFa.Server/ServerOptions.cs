@@ -53,6 +53,9 @@ public sealed class AgentOptions
 
     /// <summary>Another address for OpenCode Go, up to and including <c>/inference/go</c>; empty uses OpenCode's own.</summary>
     public string OpenCodeGoBaseUrl { get; set; } = "";
+
+    /// <summary>Lets the agent's <c>web_fetch</c> reach private networks and any port. Off, it reaches only the public internet.</summary>
+    public bool WebFetchAllowPrivateNetworks { get; set; }
 }
 
 public sealed class ClusterOptions

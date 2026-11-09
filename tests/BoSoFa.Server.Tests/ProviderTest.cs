@@ -173,7 +173,7 @@ public class ProviderTest
         Assert.Equal(AnthropicMessagesExecutor.ApiVersion, request.Headers.GetValues("anthropic-version").Single());
         Assert.Equal("ephemeral", (string)body["system"]![0]!["cache_control"]!["type"]!);
         Assert.Equal("Answer in English.", (string)body["system"]![1]!["text"]!);
-        Assert.Equal("ephemeral", (string)body["tools"]![0]!["cache_control"]!["type"]!);
+        Assert.Equal("ephemeral", (string)body["tools"]!.AsArray().Last()!["cache_control"]!["type"]!);
         Assert.Equal(("adaptive", "high"), ((string)body["thinking"]!["type"]!, (string)body["output_config"]!["effort"]!));
         Assert.Equal(AnthropicMessagesExecutor.DefaultMaxOutputTokens, (int)body["max_tokens"]!);
 
@@ -333,6 +333,55 @@ public class ProviderTest
         conversation.Add(new UserMessage("Say two."));
         var second = await executor.ExecuteAsync(Next(), _ => ValueTask.CompletedTask, default);
         Assert.True(second.Usage.CachedInputTokens >= first.Usage.CacheWriteTokens, $"The second call read too little: {second.Usage}, after {first.Usage}");
+    }
+
+    /// <summary>The hosted search on the real API, and its items accepted back in the next request.</summary>
+    [LiveAnthropicFact]
+    public async Task LiveAnthropicSearchesTheWeb()
+    {
+        using var http = new HttpClient();
+        var executor = AnthropicMessagesExecutor.WithApiKey(http, LiveAnthropicKey);
+        List<ConversationItem> conversation = [new UserMessage("Use web search to find the name of the capital of France, then answer in one word.")];
+        var first = await executor.ExecuteAsync(Request(LiveAnthropicModel, conversation), _ => ValueTask.CompletedTask, default);
+        conversation.AddRange(first.Output);
+        Assert.Contains(first.Output, item => item is ReasoningItem { Text: var text } && text.StartsWith("Searched the web", StringComparison.Ordinal));
+        conversation.Add(new UserMessage("And which country is it in? One word."));
+        var second = await executor.ExecuteAsync(Request(LiveAnthropicModel, conversation), _ => ValueTask.CompletedTask, default);
+        Assert.Contains("France", second.Output.OfType<AssistantMessage>().Last().Text);
+        Assert.False(executor.DroppedThinking);
+    }
+
+    /// <summary>What a compaction sends on the real API: the whole conversation and its tools, none of them to be called.</summary>
+    [LiveAnthropicFact]
+    public async Task LiveAnthropicSummarizesWithoutCallingTools()
+    {
+        using var http = new HttpClient();
+        var executor = AnthropicMessagesExecutor.WithApiKey(http, LiveAnthropicKey);
+        List<ConversationItem> conversation = [new UserMessage("Use the add tool to add 2 and 3.")];
+        var first = await executor.ExecuteAsync(Request(LiveAnthropicModel, conversation), _ => ValueTask.CompletedTask, default);
+        conversation.AddRange(first.Output);
+        foreach (var call in first.Output.OfType<ToolCall>()) conversation.Add(new ToolResult(call.Id, "5"));
+        conversation.Add(new UserMessage("Summarize this conversation in one sentence. Do not call tools."));
+        var summary = await executor.ExecuteAsync(Request(LiveAnthropicModel, conversation) with { NoToolUse = true }, _ => ValueTask.CompletedTask, default);
+        Assert.DoesNotContain(summary.Output, item => item is ToolCall);
+        Assert.NotEmpty(summary.Output.OfType<AssistantMessage>().Last().Text);
+        Assert.False(executor.DroppedThinking);
+    }
+
+    [LiveOpenAIFact]
+    public async Task LiveOpenAISearchesTheWeb()
+    {
+        var key = File.ReadAllText(Environment.GetEnvironmentVariable("BOSOFA_TEST_OPENAI_KEY_FILE")!).Trim();
+        var model = Environment.GetEnvironmentVariable("BOSOFA_TEST_OPENAI_MODEL") is { Length: > 0 } chosen ? chosen : "gpt-5.4-mini";
+        using var http = new HttpClient();
+        var executor = OpenAIResponsesExecutor.WithApiKey(http, key);
+        List<ConversationItem> conversation = [new UserMessage("Use web search to find the name of the capital of France, then answer in one word.")];
+        var first = await executor.ExecuteAsync(Request(model, conversation), _ => ValueTask.CompletedTask, default);
+        conversation.AddRange(first.Output);
+        Assert.Contains(first.Output, item => item is ReasoningItem { Text: var text } && text.StartsWith("Searched the web", StringComparison.Ordinal));
+        conversation.Add(new UserMessage("And which country is it in? One word."));
+        var second = await executor.ExecuteAsync(Request(model, conversation), _ => ValueTask.CompletedTask, default);
+        Assert.Contains("France", second.Output.OfType<AssistantMessage>().Last().Text);
     }
 
     internal sealed class LiveOpenCodeGoFactAttribute : FactAttribute

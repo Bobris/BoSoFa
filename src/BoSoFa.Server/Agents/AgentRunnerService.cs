@@ -6,6 +6,7 @@ using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Live;
 using BoSoFa.Server.Machines;
+using BoSoFa.Server.Tokens;
 using BTDB.Replication;
 using BTDB.Replication.EventSourcing;
 using Microsoft.AspNetCore.DataProtection;
@@ -45,6 +46,7 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
         ConnectTimeout = TimeSpan.FromSeconds(15), PooledConnectionLifetime = TimeSpan.FromMinutes(10)
     }) { Timeout = Timeout.InfiniteTimeSpan };
 
+    readonly WebFetcher _webFetcher = new(options.Agent.WebFetchAllowPrivateNetworks);
     readonly ConcurrentDictionary<ulong, RunningLoop> _loops = new();
     readonly Channel<ulong> _changed = Channel.CreateUnbounded<ulong>(new() { SingleReader = true });
 
@@ -190,8 +192,18 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
             _ => throw new AgentSetupException($"The server agent cannot use a {kind} account yet.")
         };
         var (tools, problems) = await AgentToolbox.LoadAsync(Http, servers, MachineOf(session), 
-            offersPatch: kind == AccountKind.OpenAIApiKey || (kind == AccountKind.OpenCodeGoApiKey && OpenCodeGo.OffersPatch(session.Model!)), ToolGroupOf(session), cancellation);
+            offersPatch: kind == AccountKind.OpenAIApiKey || (kind == AccountKind.OpenCodeGoApiKey && OpenCodeGo.OffersPatch(session.Model!)), ToolGroupOf(session),
+            async (url, offset, stop) =>
+            {
+                var result = await _webFetcher.FetchAsync(url, offset, stop);
+                await AuditEndpoints.RecordAsync(publisher, session.CreatedById, "web.fetched", WebFetcher.ForAudit(url), result.IsError ? "failed" : $"session {session.Id}", logger);
+                return result;
+            }, cancellation);
+        var model = ModelCatalog.Find(kind, session.Model!);
+        // The Messages API needs a limit, and an older model's is lower than the usual one; the Responses API has no need of one.
+        var speaksMessages = kind == AccountKind.AnthropicApiKey || (kind == AccountKind.OpenCodeGoApiKey && OpenCodeGo.UsesMessages(session.Model!));
+        var maxOutput = speaksMessages && model?.OutputLimit is { } limit ? (int)Math.Min(limit, AnthropicMessagesExecutor.DefaultMaxOutputTokens) : (int?)null;
         return (new AgentEnvironment(new RetryingTurnExecutor(executor, time), tools, AgentInstructions.Shared(profilePrompt, profileMode),
-            AgentInstructions.Runtime(time.GetUtcNow(), os, session.WorkingDirectory, ToolGroupOf(session))), problems);
+            AgentInstructions.Runtime(time.GetUtcNow(), os, session.WorkingDirectory, ToolGroupOf(session)), model, maxOutput), problems);
     }
 }

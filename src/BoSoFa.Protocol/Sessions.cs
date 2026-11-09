@@ -36,7 +36,10 @@ public enum SessionItemKind
     Diff,
 
     /// <summary>What a server agent session's model was told, fixed when the session starts.</summary>
-    Instructions
+    Instructions,
+
+    /// <summary>A summary that stands in for everything before it, so a long conversation fits the model.</summary>
+    Compaction
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<RuntimeRequestStatus>))]

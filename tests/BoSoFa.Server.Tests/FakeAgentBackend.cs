@@ -47,6 +47,16 @@ sealed class FakeAgentBackend : IAsyncDisposable
         app.MapPost("/go/openai/v1/responses", backend.ModelAsync);
         app.MapPost("/go/anthropic/v1/messages", backend.ModelAsync);
         app.MapGet("/go/v1/models", backend.GoModelsAsync);
+        app.MapGet("/page", (HttpContext http) =>
+        {
+            http.Response.ContentType = "text/html; charset=utf-8";
+            return http.Response.WriteAsync("<html><head><title>x</title><script>evil()</script></head><body><h1>Big news</h1><p>Hello &amp; <a href=\"/more\">more</a></p></body></html>");
+        });
+        app.MapGet("/redirect", (HttpContext http) =>
+        {
+            http.Response.Redirect("/page");
+            return Task.CompletedTask;
+        });
         app.MapPost("/mcp", backend.McpAsync);
         await app.StartAsync();
         return backend;
@@ -54,7 +64,31 @@ sealed class FakeAgentBackend : IAsyncDisposable
 
     public void Answer(string text) => _script.Enqueue(http => Completed(http, [Message(text)]));
 
-    public void Call(string id, string name, string arguments) => _script.Enqueue(http => Completed(http, [Function(id, name, arguments)]));
+    public void Call(string id, string name, string arguments, long inputTokens = 10) => _script.Enqueue(http => Completed(http, [Function(id, name, arguments)], inputTokens: inputTokens));
+
+    /// <summary>A hosted web search and the answer that used it, as one response.</summary>
+    public void SearchedAndAnswered(string query, string text) => _script.Enqueue(http => Completed(http,
+    [
+        new JsonObject { ["type"] = "web_search_call", ["id"] = "ws_1", ["status"] = "completed", ["action"] = new JsonObject { ["type"] = "search", ["query"] = query } },
+        Message(text)
+    ]));
+
+    public string PageUrl => Address + "/page";
+    public string RedirectUrl => Address + "/redirect";
+
+    /// <summary>A Messages API step that searched and paused; the same call goes on from there.</summary>
+    public void AnthropicSearchPaused(string query) => _script.Enqueue(http => AnthropicStream(http, "pause_turn",
+        Block(0, new JsonObject { ["type"] = "server_tool_use", ["id"] = "srvtoolu_1", ["name"] = "web_search", ["input"] = new JsonObject() }),
+        Delta(0, new JsonObject { ["type"] = "input_json_delta", ["partial_json"] = new JsonObject { ["query"] = query }.ToJsonString() }),
+        Block(1, new JsonObject { ["type"] = "web_search_tool_result", ["tool_use_id"] = "srvtoolu_1", ["content"] = new JsonArray(new JsonObject { ["type"] = "web_search_result", ["url"] = "https://example.com", ["encrypted_content"] = "opaque" }) }),
+        Block(2, new JsonObject { ["type"] = "server_tool_use", ["id"] = "srvtoolu_2", ["name"] = "code_execution", ["input"] = new JsonObject(), ["caller"] = new JsonObject { ["type"] = "direct" } }),
+        Delta(2, new JsonObject { ["type"] = "input_json_delta", ["partial_json"] = "{\"code\":\"print(1)\"}" }),
+        Block(3, new JsonObject { ["type"] = "code_execution_tool_result", ["tool_use_id"] = "srvtoolu_2", ["content"] = new JsonObject { ["stdout"] = "1" } })));
+
+    /// <summary>A Messages API answer with a citation.</summary>
+    public void AnthropicCitedAnswer(string text) => _script.Enqueue(http => AnthropicStream(http, "end_turn",
+        Block(0, new JsonObject { ["type"] = "text", ["text"] = "" }), Delta(0, new JsonObject { ["type"] = "text_delta", ["text"] = text }),
+        Delta(0, new JsonObject { ["type"] = "citations_delta", ["citation"] = new JsonObject { ["type"] = "web_search_result_location", ["url"] = "https://example.com" } })));
 
     public void Reasoned(string encrypted, string id, string name, string arguments) => _script.Enqueue(http => Completed(http,
     [
@@ -162,7 +196,7 @@ sealed class FakeAgentBackend : IAsyncDisposable
         await http.Response.Body.FlushAsync(http.RequestAborted);
     }
 
-    static async Task Completed(HttpContext http, JsonObject[] output, bool start = true)
+    static async Task Completed(HttpContext http, JsonObject[] output, bool start = true, long inputTokens = 10)
     {
         if (start) await StartStream(http);
         foreach (var item in output)
@@ -174,7 +208,7 @@ sealed class FakeAgentBackend : IAsyncDisposable
             ["response"] = new JsonObject
             {
                 ["status"] = "completed", ["output"] = new JsonArray(output.Select(item => (JsonNode)item.DeepClone()).ToArray()),
-                ["usage"] = new JsonObject { ["input_tokens"] = 10, ["output_tokens"] = 5 }
+                ["usage"] = new JsonObject { ["input_tokens"] = inputTokens, ["output_tokens"] = 5 }
             }
         });
     }
