@@ -54,8 +54,6 @@ Where we differ:
 - **Our own thin HTTP clients**, not the OpenAI and Anthropic SDKs. Every product assembly must stay AOT-compatible with
   source-generated JSON, and we need full control of headers, fields and reasoning items anyway. The wire formats we
   need are small.
-- **A step limit.** CodeAlta has none. A server spending someone's API money needs a ceiling (default 200 model calls a
-  run, set in the profile).
 - **Durability across nodes.** CodeAlta's session lives in one process. Ours must survive the node that runs it dying
   (§4.2).
 
@@ -65,7 +63,7 @@ A session with harness `agent` has:
 
 | Setting | Where it comes from |
 |---|---|
-| Provider account | One of the creator's harness accounts: OpenAI API key, OpenAI subscription, OpenCode Go key, Anthropic API key. |
+| Provider account | One of the creator's harness accounts: OpenAI API key, OpenAI subscription, OpenCode Go key, Anthropic API key. The harness list shows each such account under the name its owner gave it (§9). |
 | Model | Chosen when starting; the profile may give a default. Listed from the provider where it can say (`/v1/models`). |
 | Reasoning effort | Optional; providers that cannot take it ignore it. |
 | System prompt | Built-in base, then the profile's, then the session's (§7). |
@@ -73,7 +71,7 @@ A session with harness `agent` has:
 | Machine tools | `none`, `read` (read, list, search) or `full` (also write, edit, shell). The profile sets the most it allows. |
 | MCP servers | From the profile, as today. |
 | Permission mode | As today: `default`, `acceptEdits`, `plan` (read tools only), `bypassPermissions`. |
-| Limits | Steps a run (default 200), tool output kept inline (16 KiB, the rest in a blob), shell timeout. |
+| Limits | None on steps or cost: a run goes on until the model stops or someone interrupts it, as in CodeAlta (decided 2026-11-09). Tool output is kept inline up to 16 KiB, the rest in a blob; shell commands have a timeout. |
 
 Sessions stay visible only to their creator. Machine tools need the creator to be able to control the machine,
 checked on every call, not only at the start.
@@ -292,30 +290,45 @@ the same guard file browsing uses.
 
 - **HTTP MCP servers** are called from the server. Their secrets are already there, in the catalog.
 - **Stdio MCP servers** need a process. With a machine, the daemon starts them in the session's working directory and
-  passes `tools/list` and `tools/call` through a new RPC. Without a machine, the session cannot use them, and starting
-  it says so.
+  passes `tools/list` and `tools/call` through a new RPC (decided 2026-11-09). Without a machine, the session cannot
+  use them, and starting it says so.
 - Tools are named `mcp__<server>__<tool>`, with the server's schema passed through. Results keep text and images.
 
-### 6.3 BoSoFa tools
+### 6.3 Web access
+
+Every session, with a machine or without, gets both (decided 2026-11-09):
+
+- **`web_fetch`, our own.** The server fetches a URL and returns its text (HTML turned into Markdown, capped like any
+  tool output). It works the same on every provider.
+  - The server never fetches its own network: no private, loopback or link-local addresses, after following
+    redirects and resolving names.
+  - Every fetch is recorded in the audit log.
+- **The provider's hosted search**, where the provider offers one: OpenAI's `web_search` tool on the Responses API
+  (also on the ChatGPT subscription, which CodeAlta allows), and Anthropic's web search tool on the Messages API.
+  - The provider runs it, so its results arrive as provider items; we keep them like reasoning, as opaque data with a
+    readable summary.
+  - Where the endpoint lacks it (some OpenCode Go models), the model simply does not get the tool.
+
+### 6.4 BoSoFa tools
 
 `ask_user` (yes or no, shown as an approval), `notify_user` and `upload_file` (machine sessions only). These are the
 same tools the daemon's MCP endpoint gives daemon harnesses, implemented in the server.
 
-### 6.4 Approvals
+### 6.5 Approvals
 
 The existing runtime requests and permission modes:
 
-- **Read tools and MCP tools the profile marks safe** need no approval.
+- **Read tools, web access, and MCP tools the profile marks safe** need no approval.
 - **Writes** need approval unless the mode is `acceptEdits`.
 - **Shell and other MCP tools** need approval unless the mode is `bypassPermissions`.
 - **`plan`** offers read tools only.
 
 A denial becomes the tool's result, with the person's message.
 
-### 6.5 An MCP-only session
+### 6.6 An MCP-only session
 
-No machine, so no machine tools. Its tools are the profile's HTTP MCP servers and the BoSoFa tools without
-`upload_file`. This is the first thing built (step 2), because it needs no daemon change.
+No machine, so no machine tools. Its tools are the profile's HTTP MCP servers, web access, and the BoSoFa tools
+without `upload_file`. This is the first thing built (step 2), because it needs no daemon change.
 
 ## 7. System prompt
 
@@ -341,8 +354,8 @@ so the transcript shows what the model was told.
   Later requests start from that marker.
 - The run's cost goes into `RunEnded` and the session's total, from models.dev prices. Subscription accounts show the
   API price, marked as an estimate.
-- Limits per run: the step ceiling, and an optional cost ceiling from the profile. Hitting one ends the run with a
-  notice.
+- No step or cost ceiling (decided 2026-11-09). The cost so far shows on the running session, and the person stops a
+  run with an interrupt.
 
 ## 9. Server, API and UI changes
 
@@ -355,15 +368,16 @@ so the transcript shows what the model was told.
   - `AgentRunner`;
   - session fields: system prompt, tool group, reasoning effort, limits;
   - events `AgentRunClaimed`, `AgentStepRecorded`, `AgentToolCompleted`, `AccountTokensRefreshed`;
-  - profile fields: system prompt and mode, most tool group allowed, step and cost ceilings, model default.
+  - profile fields: system prompt and mode, most tool group allowed, model default.
 - **`SessionCreated`** allows no machine for `agent` sessions. Every other harness still needs one.
 - **API:**
   - `GET /api/v1/accounts/{id}/models`
   - the OpenAI sign-in start and finish endpoints
   - session creation fields for the agent
 - **UI:**
-  - the new-session form gets an "Agent (server)" harness with account, model, effort, system prompt, and "No machine
-    (MCP only)";
+  - the new-session form lists each of the person's provider accounts as a harness, under the name they gave the
+    account ("Work OpenAI", "My Claude API"), next to Claude Code, Codex and OpenCode (decided 2026-11-09). Choosing
+    one shows model, effort, system prompt, and "No machine (MCP only)";
   - the Accounts page gets "Sign in with ChatGPT" (desktop) or the paste-the-address fallback (web), and OpenCode Go;
   - the session view shows tool calls with their streamed output.
 
@@ -375,7 +389,7 @@ so the transcript shows what the model was told.
   - tool dispatch and approvals;
   - a step that was streaming when the node died is resumed on another node of the in-process cluster;
   - a tool that was running when the node died gets the "unknown" result;
-  - steer, interrupt, the step ceiling, compaction.
+  - steer, interrupt, compaction.
 - **Live tests, opt-in and never in CI:**
   - OpenAI with the key file named by `BOSOFA_TEST_OPENAI_KEY_FILE` (`~/.openaikey/key.txt` here);
   - Anthropic with an Anthropic API key once there is one to test with;
@@ -400,20 +414,21 @@ so the transcript shows what the model was told.
    the ChatGPT request rules. *Done when* a person signs in and runs a session on their plan.
 6. **OpenCode Go.** The account kind, the model list, its headers, native API per model.
 7. **System prompt and profiles.** The layers of §7, the profile and new-session fields, `AGENTS.md`.
-8. **Context and cost.** Compaction, the models.dev snapshot, costs, step and cost ceilings.
+8. **Context, cost and web.** Compaction, the models.dev snapshot, costs, `web_fetch` with its address checks, and the
+   providers' hosted search.
 9. **UI polish.** The model picker, tool-call cards with streamed output, account sign-in flows. Run every flow in the
    browser and the desktop app.
 
-## 12. Open questions
+## 12. Decisions (2026-11-09)
 
-1. **Shared keys.** Should an admin be able to add an API key every member may use, billed to the company? Accounts
-   are personal now. OpenCode Go and the ChatGPT subscription can never be shared; an OpenAI or Anthropic API key
-   could.
-2. **Default ceilings.** 200 model calls a run, and no cost ceiling unless the profile sets one?
-3. **Stdio MCP servers** in sessions with a machine: run them on the daemon (planned), or allow only HTTP MCP servers
-   for the agent?
-4. **Hosted tools.** Offer OpenAI's hosted `web_search`, or a web fetch tool of our own, on sessions without a machine?
-5. **The name in the UI.** "Agent (server)", or something else?
+1. **Accounts are personal for now.** Sharing an account with other people or teams comes later, so an account keeps
+   one owner and every use records who ran it; a later grant (a person, a team, everyone) adds to that without
+   changing the sessions. OpenCode Go keys and ChatGPT subscriptions stay personal even then, by their terms.
+2. **No limits** on steps or cost per run. The running cost shows, and an interrupt stops it.
+3. **Stdio MCP servers** run on the session's machine through the daemon; sessions without a machine use HTTP MCP
+   servers only.
+4. **Web access:** both our own `web_fetch` and the provider's hosted search where it exists (§6.3).
+5. **Name in the UI:** each provider account appears as a harness under the name its owner gave it.
 
 ## 13. Risks
 
@@ -423,4 +438,5 @@ so the transcript shows what the model was told.
 | A tool with side effects runs twice after a failover. | The daemon remembers tool call ids, and an unfinished call is reported as unknown, never run again. |
 | Transcripts with large tool output make the event log, which is kept forever, grow fast. | Inline limit of 16 KiB, the rest in blobs. Deltas stay ephemeral. |
 | Provider wire formats change. | Thin clients with recorded streams in tests. A failed parse becomes a clear error in the run, not a stuck session. |
-| A runaway loop spends money. | Step and cost ceilings, interrupt, and the cost on every run. |
+| A runaway loop spends money (there are no ceilings, by decision). | The running cost shows on the session, and interrupt stops it. Ceilings can be added to profiles later. |
+| `web_fetch` is used to reach the server's own network. | Private, loopback and link-local addresses are refused after redirects and name resolution; fetches are audited. |

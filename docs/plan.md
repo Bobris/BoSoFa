@@ -623,7 +623,7 @@ Done when: 3 replicas run on a real AKS cluster over workload identity, and a ro
 
 ### M9 steps
 
-Planned in [server-agent.md](server-agent.md) §11 (2026-11-09): providers alone, the loop with MCP only, machine tools through the daemon, Anthropic Messages, the ChatGPT subscription sign-in, OpenCode Go, system prompts and profiles, context and cost, UI. Its open questions are in §12 there.
+Planned in [server-agent.md](server-agent.md) §11 (2026-11-09): providers alone, the loop with MCP only, machine tools through the daemon, Anthropic Messages, the ChatGPT subscription sign-in, OpenCode Go, system prompts and profiles, context and cost, UI. Its questions were answered the same day (§12 there): personal accounts for now with sharing later, no step or cost limits, stdio MCP servers on the daemon, both our own web fetch and the providers' hosted search, and provider accounts listed as harnesses under their owners' names.
 
 ## 10. Risks
 
