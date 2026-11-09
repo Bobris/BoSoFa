@@ -17,7 +17,9 @@
         try { $response = Invoke-WebRequest -UseBasicParsing -Uri "$server/api/v1/downloads/desktop/latest/$rid" -OutFile $file -PassThru }
         catch { throw "This server has no desktop release for $rid." }
         $expected = [string]($response.Headers['X-BoSoFa-Sha256'] | Select-Object -First 1)
-        $actual = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()
+        $stream = [IO.File]::OpenRead($file)
+        try { $actual = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
+        finally { $stream.Dispose() }
         if ($actual -ne $expected) { throw "The download is damaged: its SHA-256 is $actual, expected $expected." }
         Expand-Archive -Path $file -DestinationPath $work
         if (Test-Path $target) {

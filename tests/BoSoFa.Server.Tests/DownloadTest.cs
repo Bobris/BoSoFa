@@ -144,6 +144,8 @@ public class DownloadTest
         var info = new ProcessStartInfo(executable) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var argument in arguments) info.ArgumentList.Add(argument);
         foreach (var (name, value) in environment) info.Environment[name] = value;
+        // A PowerShell 7 parent (the CI shell) leaves its module path, which makes Windows PowerShell load the wrong modules.
+        info.Environment.Remove("PSModulePath");
         using var process = Process.Start(info)!;
         var error = process.StandardError.ReadToEndAsync();
         var output = await process.StandardOutput.ReadToEndAsync();

@@ -16,7 +16,9 @@
         try { $response = Invoke-WebRequest -UseBasicParsing -Uri "$server/api/v1/downloads/daemon/latest/$rid" -OutFile $file -PassThru }
         catch { throw "This server has no daemon release for $rid." }
         $expected = [string]($response.Headers['X-BoSoFa-Sha256'] | Select-Object -First 1)
-        $actual = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()
+        $stream = [IO.File]::OpenRead($file)
+        try { $actual = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
+        finally { $stream.Dispose() }
         if ($actual -ne $expected) { throw "The download is damaged: its SHA-256 is $actual, expected $expected." }
 
         $data = if ($env:BOSOFA_DATA_DIR) { @('--data-dir', $env:BOSOFA_DATA_DIR) } else { @() }
