@@ -436,6 +436,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
 | **M6 Desktop** | NeoAstra app, desktop auth flow, LocalDaemon RPC (install/enroll this machine), "Add Claude account" through `claude setup-token`, notifications, deep links. | Fresh machine: install the desktop, click "enable this machine", and run a session. |
 | **M7 AKS production** | Image and deployment contract (Pulumi), workload identity, Key Vault Data Protection, one plain HTTP port behind a TLS-terminating reverse proxy (no buffering, WebSocket idle timeouts), OpenTelemetry, backups. | Staging cluster, 3 replicas, a rolling upgrade with an `ApplicationGeneration` bump. |
 | **M8 Cloud machines** | Provisioner interface + one implementation, ephemeral machines, label scheduling. | "Run on any linux machine" starts a pod and cleans up after it. |
+| **M9 Server agent** | A harness of our own whose loop runs in the server: OpenAI Responses (API key, ChatGPT subscription, OpenCode Go) and Anthropic Messages, server-defined tools run by a daemon or none at all (MCP only), system prompts in profiles and sessions. Plan: [server-agent.md](server-agent.md). | A session with no machine answers through an MCP server; another fixes a failing test on a machine; both survive their node being killed. |
 
 ### M0 outcomes (2026-11-08)
 
@@ -619,6 +620,10 @@ Done when: 3 replicas run on a real AKS cluster over workload identity, and a ro
 4. **Image and deployment.** *Done:* `deploy/Dockerfile`, which CI builds. Staging ran from a Helm chart; production deployments are Pulumi projects in the operations repositories, like SkillShare's, so the chart was removed (2026-11-09) and [deploy-aks.md](deploy-aks.md) states what such a project must create (StatefulSet, headless Service, one HTTP port, NetworkPolicy, workload identity).
 5. **Staging.** *Done:* 3 replicas on AKS 1.36 behind internal ingress-nginx, a real daemon and sessions through the ingress, forwarded calls between pods, and a rolling upgrade from generation 1 to 2 with a schema change that kept the data. BTDB 36.5.2 limits peer connection attempts; before that, writes stalled over 2.5 minutes when the leading pod went away, and now they pause about 35 seconds. Caddy itself has not been tried.
 6. **Backups.** *Done, restore run on staging:* Azure point-in-time restore of the container returned the cluster to the chosen moment. Daemons keep working with a restored server: a command is identified by ID and issue time, and a report gap below what the server had acknowledged counts as lost history (`RestoreTest`).
+
+### M9 steps
+
+Planned in [server-agent.md](server-agent.md) §11 (2026-11-09): providers alone, the loop with MCP only, machine tools through the daemon, Anthropic Messages, the ChatGPT subscription sign-in, OpenCode Go, system prompts and profiles, context and cost, UI. Its open questions are in §12 there.
 
 ## 10. Risks
 
