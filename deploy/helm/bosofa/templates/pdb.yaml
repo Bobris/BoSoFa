@@ -1,9 +1,0 @@
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: {{ include "bosofa.name" . }}
-  labels: {{- include "bosofa.labels" . | nindent 4 }}
-spec:
-  maxUnavailable: 1
-  selector:
-    matchLabels: {{- include "bosofa.selector" . | nindent 6 }}

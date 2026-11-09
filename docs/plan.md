@@ -49,6 +49,7 @@ flowchart LR
 | Desktop | NeoAstra (the CodeAlta UI technology) hosting the same SolidJS SPA. It is a client of the server and can also manage the local daemon. |
 | Distribution | The server is the only source of both the daemon and the desktop app (decided 2026-11-09): a computer installs them from the server's install page, and every update comes from the same server, signed with the release key. No package registry or store is involved. |
 | Release key | A PEM file kept as a GitHub secret of a protected `release` environment (decided 2026-11-09). The release workflow signs with it; nothing else holds it ([releasing.md](releasing.md)). |
+| AKS deployment | A Pulumi project in the operations repositories, like SkillShare's (decided 2026-11-09). This repository ships the image and the contract in [deploy-aks.md](deploy-aks.md), not a Helm chart. |
 | White labeling | The server's configuration (`BoSoFa:Branding`) names the product in the UI (decided 2026-11-09). |
 
 ## 2. Lessons taken from the reference projects
@@ -97,7 +98,7 @@ bosofa/
     apps/web/                    SPA entry (browser platform).
     apps/desktop/                SPA entry (NeoAstra platform: adds the local-daemon features).
   tests/                         MSTest/xUnit per project; Server.MultiNode tests on Azurite; Playwright e2e.
-  deploy/                        Dockerfile, Helm chart (AKS), docker-compose (3 nodes + Azurite).
+  deploy/                        Dockerfile. The AKS workload is a Pulumi project in the operations repositories.
   docs/
 ```
 
@@ -425,7 +426,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
 | **M4 MCP, skills, files, terminals** | BoSoFa MCP endpoint, managed MCP catalog + profiles, skill bundles, file upload/download + browser, attach/observe PTY terminals. | A profile pushes a new skill and an MCP server to a machine and a session uses them. |
 | **M5 Operations** | Service install on all 3 OSes, launcher + signed self-update + rollout channels, long-poll fallback, API tokens, audit UI. | Install on Windows/macOS/Linux, roll out a new daemon version remotely, roll back a broken one automatically. |
 | **M6 Desktop** | NeoAstra app, desktop auth flow, LocalDaemon RPC (install/enroll this machine), "Add Claude account" through `claude setup-token`, notifications, deep links. | Fresh machine: install the desktop, click "enable this machine", and run a session. |
-| **M7 AKS production** | Helm chart, workload identity, Key Vault Data Protection, one plain HTTP port behind a TLS-terminating reverse proxy (no buffering, WebSocket idle timeouts), OpenTelemetry, backups. | Staging cluster, 3 replicas, a rolling upgrade with an `ApplicationGeneration` bump. |
+| **M7 AKS production** | Image and deployment contract (Pulumi), workload identity, Key Vault Data Protection, one plain HTTP port behind a TLS-terminating reverse proxy (no buffering, WebSocket idle timeouts), OpenTelemetry, backups. | Staging cluster, 3 replicas, a rolling upgrade with an `ApplicationGeneration` bump. |
 | **M8 Cloud machines** | Provisioner interface + one implementation, ephemeral machines, label scheduling. | "Run on any linux machine" starts a pod and cleans up after it. |
 
 ### M0 outcomes (2026-11-08)
@@ -607,7 +608,7 @@ Done when: 3 replicas run on a real AKS cluster over workload identity, and a ro
 1. **Server production settings.** *Done, tested:* `/health/live` and a `/health/ready` that waits for the event loop, forwarded headers behind the proxy (`BoSoFa:TrustForwardedHeaders`), and one port for clients and peers, plain HTTP, with TLS at a reverse proxy. Peer routes refuse any request carrying `X-Forwarded-For`. BTDB 36.5.2 allows HTTP peer endpoints.
 2. **Azure identity.** *Done, run on AKS:* `BoSoFa:Cluster:Azure:ServiceUri` reaches Blob through workload identity, and `KeyVaultKey` wraps the Data Protection key ring (checked in the stored `keys.xml`).
 3. **OpenTelemetry.** *Done, tested against a fake collector:* traces, metrics and logs over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; meter `BoSoFa.Server` adds connected daemons, leadership and applied events.
-4. **Image and chart.** *Done:* `deploy/Dockerfile` and `deploy/helm/bosofa` (StatefulSet, headless Service, one HTTP port, NetworkPolicy, optional Ingress). The runbook is [deploy-aks.md](deploy-aks.md). CI lints the chart and builds the image.
+4. **Image and deployment.** *Done:* `deploy/Dockerfile`, which CI builds. Staging ran from a Helm chart; production deployments are Pulumi projects in the operations repositories, like SkillShare's, so the chart was removed (2026-11-09) and [deploy-aks.md](deploy-aks.md) states what such a project must create (StatefulSet, headless Service, one HTTP port, NetworkPolicy, workload identity).
 5. **Staging.** *Done:* 3 replicas on AKS 1.36 behind internal ingress-nginx, a real daemon and sessions through the ingress, forwarded calls between pods, and a rolling upgrade from generation 1 to 2 with a schema change that kept the data. BTDB 36.5.2 limits peer connection attempts; before that, writes stalled over 2.5 minutes when the leading pod went away, and now they pause about 35 seconds. Caddy itself has not been tried.
 6. **Backups.** *Done, restore run on staging:* Azure point-in-time restore of the container returned the cluster to the chosen moment. Daemons keep working with a restored server: a command is identified by ID and issue time, and a report gap below what the server had acknowledged counts as lost history (`RestoreTest`).
 

@@ -35,7 +35,8 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 - Distribution: computers install both products from the server's `/install` page and update from it. A desktop package:
   `pnpm --dir web build`, then `dotnet publish src/BoSoFa.Desktop -c Release -r osx-arm64 -p:BoSoFaPackage=true -p:Version=<v>`
   writes `artifacts/package/bosofa-desktop-<rid>.tar.gz` (`.zip` on Windows).
-- AKS: `deploy/helm/bosofa` and `deploy/Dockerfile`; the runbook is [docs/deploy-aks.md](docs/deploy-aks.md). A change to persisted relations raises `Domain.ApplicationGeneration`.
+- AKS: `deploy/Dockerfile`; the workload itself is a Pulumi project in the operations repositories, built to the contract in
+  [docs/deploy-aks.md](docs/deploy-aks.md). A change to persisted relations raises `Domain.ApplicationGeneration`.
 - API changed: `BOSOFA_UPDATE_CONTRACT=1 dotnet test tests/BoSoFa.Server.Tests --filter ContractTest`, then
   `pnpm --dir web gen:api`. CI fails when either `openapi.json` or `schema.d.ts` is stale.
 
