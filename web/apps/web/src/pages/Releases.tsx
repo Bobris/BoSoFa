@@ -1,5 +1,6 @@
 import { api, type DaemonRollout, type Release } from "@bosofa/api";
 import { createMemo, createSignal, For, onSettled, refresh, Show } from "solid-js";
+import { branding } from "../branding";
 
 /** Daemon releases and rolling them out, a few machines at a time; desktop apps fetch new releases themselves. */
 export default function Releases() {
@@ -65,7 +66,7 @@ export default function Releases() {
           </For>
           <Show when={releases().length === 0}>
             <li class="px-4 py-2 text-muted">
-              None yet. Publish one with <code class="font-mono text-xs">bosofad release-publish</code>.
+              None yet. Publish one with <code class="font-mono text-xs">{branding().daemon} release-publish</code>.
             </li>
           </Show>
         </ul>
@@ -86,7 +87,7 @@ export default function Releases() {
           </For>
           <Show when={desktopReleases().length === 0}>
             <li class="px-4 py-2 text-muted">
-              None yet. Publish one with <code class="font-mono text-xs">bosofad release-publish --product desktop</code>; apps
+              None yet. Publish one with <code class="font-mono text-xs">{branding().daemon} release-publish --product desktop</code>; apps
               pick up the newest stable one by themselves.
             </li>
           </Show>

@@ -5,6 +5,7 @@ import Terminals from "../components/Terminals";
 import { createEffect, createMemo, createSignal, For, Loading, refresh, Show } from "solid-js";
 import { paths } from "../router";
 import { fetchMe } from "../session";
+import { branding } from "../branding";
 
 type Listing = { path: string | null; parent: string | null; entries: FileEntry[]; truncated: boolean; error?: string };
 
@@ -190,7 +191,7 @@ function Files(props: { machineId: number; onTerminalHere: (directory: string) =
         </For>
         <Show when={listing().entries.length === 0 && !listing().error}>
           <li class="px-4 py-2 text-muted">
-            {listing().path === null ? "This machine shares no folders yet: start a session, or run bosofad with --roots." : "Empty."}
+            {listing().path === null ? `This machine shares no folders yet: start a session, or run ${branding().daemon} with --roots.` : "Empty."}
           </li>
         </Show>
         <Show when={listing().truncated}>

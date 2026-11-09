@@ -37,7 +37,7 @@ public sealed class DaemonUpdater(string dataDirectory, IBlobDownloader? blobs, 
     {
         if (!launched)
         {
-            Refuse("this daemon does not run under the launcher (bosofad install).");
+            Refuse($"this daemon does not run under the launcher ({Brand.Daemon} install).");
             return;
         }
         if (publicKey == null || blobs == null)

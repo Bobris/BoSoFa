@@ -141,7 +141,7 @@ public sealed class DesktopAccount(string dataDirectory, ITokenVault vault, Func
                 var matches = context.Request.Url?.AbsolutePath == RedirectPath && query["state"] == state && query["code"] is { Length: > 0 };
                 context.Response.StatusCode = matches ? 200 : 404;
                 context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.OutputStream.WriteAsync("<!doctype html><title>BoSoFa</title><p>You can close this tab and go back to BoSoFa.</p>"u8.ToArray(), cancellation);
+                await context.Response.OutputStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes($"<!doctype html><title>{Brand.Name}</title><p>You can close this tab and go back to {Brand.Name}.</p>"), cancellation);
                 context.Response.Close();
                 if (matches) return query["code"]!;
             }

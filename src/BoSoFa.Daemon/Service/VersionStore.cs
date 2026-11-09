@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon.Service;
 
@@ -17,7 +18,7 @@ public sealed class VersionStore(string dataDirectory)
     string StatePath => Path.Combine(Root, "state.json");
     string ConfirmedPath => Path.Combine(Root, "confirmed");
 
-    public static string ExecutableName => OperatingSystem.IsWindows() ? "bosofad.exe" : "bosofad";
+    public static string ExecutableName => OperatingSystem.IsWindows() ? Brand.Daemon + ".exe" : Brand.Daemon;
 
     public string ExecutableOf(string version) => Path.Combine(Root, version, ExecutableName);
 

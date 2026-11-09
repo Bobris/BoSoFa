@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading.Channels;
+using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon.Harnesses.Claude;
 
@@ -109,7 +110,7 @@ public sealed class ClaudeProcess : IClaudeTransport
             start.Environment[name] = value;
         start.Environment["CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"] = "1";
         start.Environment["CLAUDE_CODE_STARTUP_FAILURE_RESULTS"] = "1";
-        start.Environment["CLAUDE_AGENT_SDK_CLIENT_APP"] = $"bosofa/{Cli.Version}";
+        start.Environment["CLAUDE_AGENT_SDK_CLIENT_APP"] = $"{Brand.Id}/{Cli.Version}";
         start.Environment["DISABLE_AUTOUPDATER"] = "1";
         foreach (var (name, value) in launch.Environment ?? new Dictionary<string, string>()) start.Environment[name] = value;
         return new ClaudeProcess(Process.Start(start) ?? throw new InvalidOperationException("claude did not start."));

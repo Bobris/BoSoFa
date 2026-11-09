@@ -67,7 +67,7 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
         if (_transport is not { } transport || !_approvals.TryRemove(key, out var input)) return;
         var answer = allow
             ? new PermissionResult("allow", UpdatedInput: input)
-            : new PermissionResult("deny", Message: string.IsNullOrWhiteSpace(message) ? "Denied in BoSoFa." : message);
+            : new PermissionResult("deny", Message: string.IsNullOrWhiteSpace(message) ? $"Denied in {Brand.Name}." : message);
         try
         {
             await transport.RespondAsync(key, JsonSerializer.SerializeToElement(answer, ClaudeJson.Default.PermissionResult));
@@ -142,7 +142,7 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
                 await transport.RespondAsync(id, ClaudeJson.Empty); // no opinion
                 break;
             default:
-                await transport.RespondErrorAsync(id, $"BoSoFa does not support {subtype} yet.");
+                await transport.RespondErrorAsync(id, $"{Brand.Name} does not support {subtype} yet.");
                 break;
         }
     }

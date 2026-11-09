@@ -65,10 +65,10 @@ public class McpEndpointTest
             Assert.Equal(HttpStatusCode.Accepted, (await client.PostAsync(server.Url, new StringContent("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"))).StatusCode);
             Assert.Equal(3, (await Call(client, server.Url!, "tools/list")).GetProperty("tools").GetArrayLength());
 
-            await Call(client, server.Url!, "tools/call", "{\"name\":\"bosofa_notify_user\",\"arguments\":{\"message\":\"half way\"}}");
+            await Call(client, server.Url!, "tools/call", "{\"name\":\"" + McpEndpoint.NotifyTool + "\",\"arguments\":{\"message\":\"half way\"}}");
             Assert.Contains(sink.Reports, report => report is ItemReport { Kind: SessionItemKind.Notice, Text: "half way" });
 
-            var asking = Call(client, server.Url!, "tools/call", "{\"name\":\"bosofa_ask_user\",\"arguments\":{\"question\":\"Ship it?\"}}");
+            var asking = Call(client, server.Url!, "tools/call", "{\"name\":\"" + McpEndpoint.AskTool + "\",\"arguments\":{\"question\":\"Ship it?\"}}");
             while (!sink.Reports.OfType<ApprovalRequestedReport>().Any()) await Task.Delay(10);
             var question = sink.Reports.OfType<ApprovalRequestedReport>().Single();
             Assert.Equal("Ship it?", question.Description);
@@ -76,7 +76,7 @@ public class McpEndpointTest
             Assert.Equal("The person answered yes. They added: after lunch", Text(await asking.WaitAsync(TimeSpan.FromSeconds(10))));
             Assert.False(endpoint.TryAnswer("not-ours", true, null));
 
-            string Upload(string path) => "{\"name\":\"bosofa_upload_file\",\"arguments\":{\"path\":" + JsonSerializer.Serialize(path) + "}}";
+            string Upload(string path) => "{\"name\":\"" + McpEndpoint.UploadTool + "\",\"arguments\":{\"path\":" + JsonSerializer.Serialize(path) + "}}";
             Assert.Equal("Uploaded report.txt.", Text(await Call(client, server.Url!, "tools/call", Upload("report.txt"))));
             Assert.Equal(Path.Combine(work, "report.txt"), Assert.Single(uploader.Files));
             Assert.Contains(sink.Reports, report => report is ItemReport { Data: not null } item && item.Data.Contains(new string('a', 64)));

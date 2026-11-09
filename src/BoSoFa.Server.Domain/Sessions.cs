@@ -208,6 +208,12 @@ public class DaemonReportsReceived : PureEvent
     public string RecordsJson { get; set; } = "";
 }
 
+public static class SessionAccess
+{
+    /// <summary>Only its creator sees a session: its transcript, requests and live updates (decided 2026-11-09).</summary>
+    public static bool CanSee(ulong userId, Session session) => userId != 0 && session.CreatedById == userId;
+}
+
 static class Sessions
 {
     public const int MaximumPromptLength = 100_000;
@@ -254,11 +260,12 @@ static class Sessions
         Ambient.RegisterPostCommit(() => signals.SessionChanged(id));
     }
 
-    /// <summary>The session and its machine when the user may control it.</summary>
+    /// <summary>The session and its machine when the user may control it: their own session, on a machine they may still use.
+    /// Someone else's session is not found, so its existence does not show.</summary>
     public static (Session? Session, Machine? Machine, CommandOutcome Outcome) Controlled(ulong sessionId, ulong userId)
     {
         var session = Ambient.Relation<ISessionTable>().FindByIdOrDefault(sessionId);
-        if (session == null) return (null, null, CommandOutcome.NotFound);
+        if (session == null || !SessionAccess.CanSee(userId, session)) return (null, null, CommandOutcome.NotFound);
         var machine = Ambient.Relation<IMachineTable>().FindByIdOrDefault(session.MachineId);
         if (machine == null) return (null, null, CommandOutcome.NotFound);
         return MachineAccess.CanControl(userId, machine) ? (session, machine, CommandOutcome.Ok) : (null, null, CommandOutcome.Forbidden);

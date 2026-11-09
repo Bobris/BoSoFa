@@ -19,7 +19,8 @@ public static class Api
         var api = app.MapGroup("/api/v1");
         api.MapGet("/version", () => new VersionInfo("server", Version, ProtocolVersion.Current));
         // Without a sign-in: the sign-in page and the install page show it too.
-        var branding = new Branding(options.Branding.Name?.Trim() is { Length: > 0 } name ? name : "BoSoFa", options.Branding.Tagline?.Trim() ?? "");
+        var branding = new Branding(options.Branding.Name?.Trim() is { Length: > 0 } name ? name : Brand.Name, options.Branding.Tagline?.Trim() ?? "",
+            Brand.Daemon);
         api.MapGet("/branding", () => branding);
 
         var authorized = api.MapGroup("").RequireAuthorization();
@@ -43,7 +44,8 @@ public static class Api
 /// <summary>What this server calls itself in the UI (configuration <c>BoSoFa:Branding</c>).</summary>
 /// <param name="Name">The short product name.</param>
 /// <param name="Tagline">Shown beside the name; empty for none.</param>
-public sealed record Branding(string Name, string Tagline);
+/// <param name="Daemon">The daemon's command, fixed by the build's brand.</param>
+public sealed record Branding(string Name, string Tagline, string Daemon);
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(DevLoginRequest))]

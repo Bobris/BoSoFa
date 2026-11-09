@@ -1702,6 +1702,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not Found"
           }
         }
       }
@@ -1739,6 +1742,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not Found"
           }
         }
       }
@@ -2799,7 +2805,8 @@
       "Branding": {
         "required": [
           "name",
-          "tagline"
+          "tagline",
+          "daemon"
         ],
         "type": "object",
         "properties": {
@@ -2807,6 +2814,9 @@
             "type": "string"
           },
           "tagline": {
+            "type": "string"
+          },
+          "daemon": {
             "type": "string"
           }
         }

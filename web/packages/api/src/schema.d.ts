@@ -2097,6 +2097,13 @@ export interface paths {
                         "application/json": components["schemas"]["SessionItemDto"][];
                     };
                 };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         put?: never;
@@ -2133,6 +2140,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["RuntimeRequestDto"][];
                     };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -3203,6 +3217,7 @@ export interface components {
         Branding: {
             name: string;
             tagline: string;
+            daemon: string;
         };
         CodexUsageResult: {
             signedIn: boolean;

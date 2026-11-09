@@ -8,5 +8,8 @@
     <UseArtifactsOutput>true</UseArtifactsOutput>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <Version>0.1.0</Version>
+    <!-- White labeling at build time: -p:Brand=qsf picks brands/qsf.props (docs/branding.md). -->
+    <Brand Condition="'$(Brand)' == ''">bosofa</Brand>
   </PropertyGroup>
+  <Import Project="$(MSBuildThisFileDirectory)brands/$(Brand).props" />
 </Project>

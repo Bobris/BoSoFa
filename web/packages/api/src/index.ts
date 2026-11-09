@@ -53,6 +53,8 @@ export interface Platform {
     disable(): Promise<string | undefined>;
     addClaudeAccount(label: string): Promise<string | undefined>;
   };
+  /** Desktop only: the names this app was built with, shown until a server tells its own. */
+  readonly branding?: Branding;
   /** Desktop only: this app's own updates, which come from the server it signs in to. */
   readonly updates?: {
     check(): Promise<{ current?: string | null; supported: boolean; available?: string | null; ready: boolean; problem?: string | null }>;

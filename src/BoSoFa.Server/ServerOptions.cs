@@ -1,3 +1,5 @@
+using BoSoFa.Protocol;
+
 namespace BoSoFa.Server;
 
 /// <summary>Configuration section "BoSoFa".</summary>
@@ -74,11 +76,12 @@ public sealed class AzureStorageOptions
 
 public sealed class BrandingOptions
 {
-    /// <summary>The short name: the header, the window and tab titles, and sentences such as "Sign in to BoSoFa Desktop".</summary>
-    public string Name { get; set; } = "BoSoFa";
+    /// <summary>The short name: the header, the window and tab titles, and sentences such as "Sign in to BoSoFa Desktop".
+    /// Defaults to the build's brand (<see cref="Brand"/>), which also names the daemon and the desktop app.</summary>
+    public string Name { get; set; } = Brand.Name;
 
     /// <summary>The text beside the name in the header; empty shows none.</summary>
-    public string Tagline { get; set; } = "Bobris Software Factory";
+    public string Tagline { get; set; } = Brand.FullName;
 }
 
 public sealed class OidcOptions

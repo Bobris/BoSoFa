@@ -4,6 +4,7 @@ using NeoAstra;
 using NeoAstra.Desktop;
 using NeoAstra.Desktop.SafeStorage;
 using NeoAstra.Rpc;
+using BoSoFa.Protocol;
 
 // A desktop client of a BoSoFa server: the same SolidJS page as the web, in a NeoAstra window. Environment:
 //   BOSOFA_DESKTOP_DATA        this app's data folder (default: the per-user data folder)
@@ -18,7 +19,7 @@ if (args is [UpdateHelper.Argument, var updatePlan]) return await UpdateHelper.R
 
 var dataRoot = Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DATA") is { Length: > 0 } configured
     ? Path.GetFullPath(configured)
-    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "BoSoFa", "desktop");
+    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), Brand.Name, "desktop");
 Directory.CreateDirectory(dataRoot);
 var spa = Path.Combine(AppContext.BaseDirectory, "spa");
 if (!File.Exists(Path.Combine(spa, "index.html")))
@@ -27,7 +28,7 @@ if (!File.Exists(Path.Combine(spa, "index.html")))
     return 2;
 }
 
-using var account = new DesktopAccount(dataRoot, new SafeStorageVault(NeoSafeStorage.CreateSystem("dev.bosofa.desktop", Path.Combine(dataRoot, "secrets"))));
+using var account = new DesktopAccount(dataRoot, new SafeStorageVault(NeoSafeStorage.CreateSystem($"dev.{Brand.Id}.desktop", Path.Combine(dataRoot, "secrets"))));
 // The install script starts the app with the server it came from.
 if (args is ["--server", var installedFrom]) account.Preset(installedFrom);
 using var daemonHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
@@ -37,11 +38,11 @@ var localDaemon = new LocalDaemon(account, dataRoot,
     Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON_DATA") is { Length: > 0 } daemonData ? Path.GetFullPath(daemonData) : LocalDaemon.DefaultDirectory(),
     new ProcessCommandRunner(), daemonHttp, LocalDaemon.EmbeddedReleaseKey, Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON") is { Length: > 0 } daemonPath ? daemonPath : null,
     Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON_INSTALL_ARGS")?.Split(' ', StringSplitOptions.RemoveEmptyEntries));
-return NeoApplication.Run(new NeoApplicationOptions { ApplicationName = "BoSoFa", ShutdownMode = NeoApplicationShutdownMode.Explicit }, async application =>
+return NeoApplication.Run(new NeoApplicationOptions { ApplicationName = Brand.Name, ShutdownMode = NeoApplicationShutdownMode.Explicit }, async application =>
 {
     try
     {
-        await using var window = application.CreateWindow(new NeoWindowOptions { Label = "main", Title = "BoSoFa", Width = 1200, Height = 800, IsVisible = false });
+        await using var window = application.CreateWindow(new NeoWindowOptions { Label = "main", Title = Brand.Name, Width = 1200, Height = 800, IsVisible = false });
         application.MainWindow = window;
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         window.Closed += (_, _) => closed.TrySetResult();

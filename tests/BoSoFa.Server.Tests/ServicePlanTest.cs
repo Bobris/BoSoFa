@@ -1,4 +1,5 @@
 using BoSoFa.Daemon.Service;
+using BoSoFa.Protocol;
 
 namespace BoSoFa.Server.Tests;
 
@@ -12,14 +13,14 @@ public class ServicePlanTest
     {
         var user = ServicePlans.Install(Target(ServiceOs.Linux, false));
         var file = Assert.Single(user.Files);
-        Assert.Equal("/home/me/.config/systemd/user/bosofad.service", file.Path);
+        Assert.Equal($"/home/me/.config/systemd/user/{Brand.SystemdUnit}", file.Path);
         Assert.Contains("ExecStart=\"/data dir/bosofad\" launcher --data-dir \"/data dir\"\n", file.Content);
         Assert.Contains("WantedBy=default.target", file.Content);
         Assert.Contains(user.Commands, command => command is ["loginctl", "enable-linger"]);
-        Assert.Contains(user.Commands, command => command is ["systemctl", "--user", "enable", "--now", "bosofad.service"]);
+        Assert.Contains(user.Commands, command => command is ["systemctl", "--user", "enable", "--now", Brand.SystemdUnit]);
 
         var system = ServicePlans.Install(Target(ServiceOs.Linux, true, "alice"));
-        Assert.Equal("/etc/systemd/system/bosofad.service", system.Files[0].Path);
+        Assert.Equal($"/etc/systemd/system/{Brand.SystemdUnit}", system.Files[0].Path);
         Assert.Contains("User=alice\n", system.Files[0].Content);
         Assert.Equal(["chown", "-R", "alice", "/data dir"], system.Commands[0]);
         Assert.DoesNotContain(system.Commands, command => command.Contains("--user") || command[0] == "loginctl");
@@ -30,7 +31,7 @@ public class ServicePlanTest
     public void LaunchdPlistsAreEscapedAndBootstrappedInTheRightDomain()
     {
         var agent = ServicePlans.Install(Target(ServiceOs.MacOs, false) with { DataDirectory = "/a&b" });
-        Assert.Equal("/home/me/Library/LaunchAgents/com.bosofa.daemon.plist", agent.Files[0].Path);
+        Assert.Equal($"/home/me/Library/LaunchAgents/{Brand.LaunchdLabel}.plist", agent.Files[0].Path);
         Assert.Contains("<string>/a&amp;b</string>", agent.Files[0].Content);
         System.Xml.Linq.XDocument.Parse(agent.Files[0].Content, System.Xml.Linq.LoadOptions.None); // well-formed
         Assert.Equal(["launchctl", "bootstrap", "gui/501", agent.Files[0].Path], agent.Commands.Single());

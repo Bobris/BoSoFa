@@ -2,10 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleExecutable</key><string>bosofa-desktop</string>
-  <key>CFBundleIdentifier</key><string>dev.bosofa.desktop</string>
-  <key>CFBundleName</key><string>BoSoFa</string>
-  <key>CFBundleDisplayName</key><string>BoSoFa</string>
+  <key>CFBundleExecutable</key><string>__EXECUTABLE__</string>
+  <key>CFBundleIdentifier</key><string>dev.__BRAND_ID__.desktop</string>
+  <key>CFBundleName</key><string>__BRAND_NAME__</string>
+  <key>CFBundleDisplayName</key><string>__BRAND_NAME__</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>__VERSION__</string>
   <key>CFBundleShortVersionString</key><string>__VERSION__</string>

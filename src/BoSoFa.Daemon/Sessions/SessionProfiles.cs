@@ -39,7 +39,7 @@ public sealed class SessionProfiles(string dataDirectory, IProfileSource? source
                 Directory.CreateDirectory(Path.Combine(staging, ".claude-plugin"));
                 await File.WriteAllTextAsync(Path.Combine(staging, ".claude-plugin", "plugin.json"), new JsonObject
                 {
-                    ["name"] = "bosofa-skills", ["version"] = "1.0.0", ["description"] = "Skills of this BoSoFa session's profile."
+                    ["name"] = Brand.Id + "-skills", ["version"] = "1.0.0", ["description"] = $"Skills of this {Brand.Name} session's profile."
                 }.ToJsonString());
                 Directory.Move(staging, folder);
             }

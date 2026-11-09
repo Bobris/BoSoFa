@@ -109,7 +109,7 @@ public class LocalDaemonTest
             (await browser.PostAsJsonAsync("/api/v1/daemon-releases", new PublishRelease(manifest, signature, "stable"))).EnsureSuccessStatusCode();
             // The real enroll would wait for this approval, so the app must have made it; there is no such code on this server.
             await Assert.ThrowsAnyAsync<HttpRequestException>(() => local.EnableAsync(default));
-            var fetched = Path.Combine(data, "daemon", "2.0", OperatingSystem.IsWindows() ? "bosofad.exe" : "bosofad");
+            var fetched = Path.Combine(data, "daemon", "2.0", OperatingSystem.IsWindows() ? Brand.Daemon + ".exe" : Brand.Daemon);
             Assert.Equal("daemon", await File.ReadAllTextAsync(fetched));
 
             var status = local.Status();

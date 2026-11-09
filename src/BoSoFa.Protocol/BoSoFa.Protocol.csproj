@@ -2,4 +2,24 @@
   <PropertyGroup>
     <Description>Wire contracts shared by the server, the daemon and the clients. References nothing else of BoSoFa.</Description>
   </PropertyGroup>
+
+  <!-- The brand (Directory.Build.props) as constants, so the server, the daemon and the desktop app agree on every name. -->
+  <Target Name="GenerateBrand" BeforeTargets="CoreCompile">
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(BrandName)', '^[A-Za-z][A-Za-z0-9]*$'))"
+           Text="BrandName '$(BrandName)' must be letters and digits, starting with a letter: it names folders, apps and a Windows service." />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(BrandId)', '^[a-z][a-z0-9]*$'))"
+           Text="BrandId '$(BrandId)' must be lowercase letters and digits, starting with a letter." />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(BrandDaemon)', '^[a-z][a-z0-9-]*$'))"
+           Text="BrandDaemon '$(BrandDaemon)' must be lowercase letters, digits and dashes." />
+    <Error Condition="'$(BrandFullName)' == '' or $(BrandFullName.Contains('&quot;')) or $(BrandFullName.Contains('\'))"
+           Text="BrandFullName must be set and contain no quotes or backslashes." />
+    <PropertyGroup>
+      <_BrandFile>$(IntermediateOutputPath)Brand.g.cs</_BrandFile>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_BrandFile)" Overwrite="true" WriteOnlyWhenDifferent="true" Lines="// Generated from the brand '$(Brand)'.;namespace BoSoFa.Protocol%3B;public static partial class Brand;{;    /// &lt;summary&gt;The short name people see: apps, folders, the UI.&lt;/summary&gt;;    public const string Name = &quot;$(BrandName)&quot;%3B;    /// &lt;summary&gt;The long name, the UI's tagline.&lt;/summary&gt;;    public const string FullName = &quot;$(BrandFullName)&quot;%3B;    /// &lt;summary&gt;Lowercase, for identifiers: Linux folders, service labels, git refs, MCP names.&lt;/summary&gt;;    public const string Id = &quot;$(BrandId)&quot;%3B;    /// &lt;summary&gt;The daemon's executable name, without .exe.&lt;/summary&gt;;    public const string Daemon = &quot;$(BrandDaemon)&quot;%3B;}" />
+    <ItemGroup>
+      <Compile Include="$(_BrandFile)" />
+      <FileWrites Include="$(_BrandFile)" />
+    </ItemGroup>
+  </Target>
 </Project>

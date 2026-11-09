@@ -1,6 +1,6 @@
-# Installs the BoSoFa desktop app from this server. It updates itself from the same server afterwards.
+# Installs the __BRAND_NAME__ desktop app from this server. It updates itself from the same server afterwards.
 #   irm <server>/install/desktop.ps1 | iex
-# Environment: BOSOFA_APP_DIR    where the app goes (default: %LOCALAPPDATA%\Programs\BoSoFa)
+# Environment: BOSOFA_APP_DIR    where the app goes (default: %LOCALAPPDATA%\Programs\__BRAND_NAME__)
 #              BOSOFA_NO_LAUNCH  set to anything to leave the app closed
 & {
     $ErrorActionPreference = 'Stop'
@@ -8,8 +8,8 @@
     $server = '__BOSOFA_SERVER__'
     $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
     $rid = "win-$arch"
-    $target = if ($env:BOSOFA_APP_DIR) { $env:BOSOFA_APP_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\BoSoFa' }
-    $work = Join-Path ([IO.Path]::GetTempPath()) ("bosofa-" + [guid]::NewGuid().ToString('N'))
+    $target = if ($env:BOSOFA_APP_DIR) { $env:BOSOFA_APP_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\__BRAND_NAME__' }
+    $work = Join-Path ([IO.Path]::GetTempPath()) ("__BRAND_ID__-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $work | Out-Null
     try {
         $file = Join-Path $work 'app.zip'
@@ -24,14 +24,14 @@
         Expand-Archive -Path $file -DestinationPath $work
         if (Test-Path $target) {
             try { Remove-Item -Recurse -Force -Path $target }
-            catch { throw "Close BoSoFa first: $target is in use." }
+            catch { throw "Close __BRAND_NAME__ first: $target is in use." }
         }
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
-        Move-Item -Path (Join-Path $work 'BoSoFa') -Destination $target
+        Move-Item -Path (Join-Path $work '__BRAND_NAME__') -Destination $target
         Write-Host "Installed in $target"
-        $executable = Join-Path $target 'bosofa-desktop.exe'
+        $executable = Join-Path $target '__BRAND_ID__-desktop.exe'
         if (-not $env:BOSOFA_APP_DIR) {
-            $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'BoSoFa.lnk'))
+            $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) '__BRAND_NAME__.lnk'))
             $shortcut.TargetPath = $executable
             $shortcut.Save()
         }

@@ -29,7 +29,7 @@ public sealed record InstalledApp(string Version, string Rid, string Root, strin
 {
     const string Marker = "release.json";
 
-    public static string ExecutableName => OperatingSystem.IsWindows() ? "bosofa-desktop.exe" : "bosofa-desktop";
+    public static string ExecutableName => OperatingSystem.IsWindows() ? Brand.Desktop + ".exe" : Brand.Desktop;
 
     /// <summary>The installed app a running build belongs to, from the folder of its executable.</summary>
     public static InstalledApp? FromBaseDirectory(string directory)

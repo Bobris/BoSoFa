@@ -2,6 +2,7 @@
 # whose install page and updaters hand them out (docs/releasing.md).
 #
 # Repository variable BOSOFA_RELEASE_PUBLIC_KEY: the public key that `bosofad release-keygen` printed; every build embeds it.
+# Repository variable BOSOFA_BRAND (optional): the brand to build, such as qsf (brands/<name>.props); bosofa when unset.
 # Environment "release" (add a required reviewer): secrets BOSOFA_RELEASE_KEY (the private key's PEM text) and BOSOFA_TOKEN
 # (an admin's API token with full control), variable BOSOFA_SERVER (the server's origin). Only the publish job sees them.
 name: release
@@ -26,6 +27,9 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  BRAND: ${{ vars.BOSOFA_BRAND || 'bosofa' }}
 
 jobs:
   prepare:
@@ -82,14 +86,22 @@ jobs:
           dotnet publish src/BoSoFa.Daemon -c Release -r ${{ matrix.rid }} -o out
           -p:Version=${{ needs.prepare.outputs.version }}
           -p:BoSoFaReleasePublicKey=${{ vars.BOSOFA_RELEASE_PUBLIC_KEY }}
-      - run: ./out/bosofad version
+          -p:Brand=${{ env.BRAND }}
+      # The daemon is the only executable in out/ besides debug symbols; its name comes from the brand.
+      - name: Collect the daemon
         shell: bash
+        run: |
+          mkdir daemon
+          for file in out/*; do
+            case "$file" in *.pdb | *.dbg | *.dSYM | *.json) continue ;; esac
+            [ -f "$file" ] && cp "$file" daemon/
+          done
+          ls daemon
+          ./daemon/* version
       - uses: actions/upload-artifact@v4
         with:
-          name: bosofad-${{ matrix.rid }}
-          path: |
-            out/bosofad
-            out/bosofad.exe
+          name: daemon-${{ matrix.rid }}
+          path: daemon/*
           if-no-files-found: error
 
   desktop:
@@ -123,10 +135,11 @@ jobs:
           dotnet publish src/BoSoFa.Desktop -c Release -r ${{ matrix.rid }} -p:BoSoFaPackage=true
           -p:Version=${{ needs.prepare.outputs.version }}
           -p:BoSoFaReleasePublicKey=${{ vars.BOSOFA_RELEASE_PUBLIC_KEY }}
+          -p:Brand=${{ env.BRAND }}
       - uses: actions/upload-artifact@v4
         with:
-          name: bosofa-desktop-${{ matrix.rid }}
-          path: artifacts/package/bosofa-desktop-*
+          name: desktop-${{ matrix.rid }}
+          path: artifacts/package/*-desktop-*
           if-no-files-found: error
 
   publish:
@@ -149,10 +162,17 @@ jobs:
             echo "::error::The release environment needs the secrets BOSOFA_RELEASE_KEY and BOSOFA_TOKEN and the variable BOSOFA_SERVER."
             exit 1
           fi
+          # Each artifact holds one file, named after the brand.
+          one() { set -- "$1"/*; if [ $# -ne 1 ] || [ ! -f "$1" ]; then echo "::error::Expected one file in ${1%/*}" >&2; return 1; fi; echo "$1"; }
+          list() {
+            out=""
+            for rid in linux-x64 win-x64 osx-arm64; do file=$(one "dist/$1-$rid") || return 1; out="$out${out:+,}$rid=$file"; done
+            echo "$out"
+          }
+          daemons=$(list daemon)
+          desktops=$(list desktop)
           # The Linux build signs; it refuses a key other than the public key it embeds.
-          bosofad=dist/bosofad-linux-x64/bosofad
-          chmod +x "$bosofad"
-          "$bosofad" release-publish --server "$SERVER" --product daemon --version "$VERSION" --channel "$CHANNEL" \
-            --artifacts "linux-x64=dist/bosofad-linux-x64/bosofad,win-x64=dist/bosofad-win-x64/bosofad.exe,osx-arm64=dist/bosofad-osx-arm64/bosofad"
-          "$bosofad" release-publish --server "$SERVER" --product desktop --version "$VERSION" --channel "$CHANNEL" \
-            --artifacts "linux-x64=dist/bosofa-desktop-linux-x64/bosofa-desktop-linux-x64.tar.gz,win-x64=dist/bosofa-desktop-win-x64/bosofa-desktop-win-x64.zip,osx-arm64=dist/bosofa-desktop-osx-arm64/bosofa-desktop-osx-arm64.tar.gz"
+          signer=$(one dist/daemon-linux-x64)
+          chmod +x "$signer"
+          "$signer" release-publish --server "$SERVER" --product daemon --version "$VERSION" --channel "$CHANNEL" --artifacts "$daemons"
+          "$signer" release-publish --server "$SERVER" --product desktop --version "$VERSION" --channel "$CHANNEL" --artifacts "$desktops"

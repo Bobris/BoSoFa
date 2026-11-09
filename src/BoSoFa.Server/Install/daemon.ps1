@@ -1,17 +1,17 @@
-# Installs the BoSoFa daemon from this server and makes this computer one of its machines.
+# Installs the __BRAND_NAME__ daemon from this server and makes this computer one of its machines.
 #   irm <server>/install/daemon.ps1 | iex
 # Environment: BOSOFA_DATA_DIR      the daemon's data folder
-#              BOSOFA_INSTALL_ARGS  more arguments for 'bosofad install', such as: --scope system
+#              BOSOFA_INSTALL_ARGS  more arguments for '__BRAND_DAEMON__ install', such as: --scope system
 & {
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
     $server = '__BOSOFA_SERVER__'
     $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
     $rid = "win-$arch"
-    $work = Join-Path ([IO.Path]::GetTempPath()) ("bosofa-" + [guid]::NewGuid().ToString('N'))
+    $work = Join-Path ([IO.Path]::GetTempPath()) ("__BRAND_ID__-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $work | Out-Null
     try {
-        $file = Join-Path $work 'bosofad.exe'
+        $file = Join-Path $work '__BRAND_DAEMON__.exe'
         Write-Host "Downloading the daemon for $rid from $server"
         try { $response = Invoke-WebRequest -UseBasicParsing -Uri "$server/api/v1/downloads/daemon/latest/$rid" -OutFile $file -PassThru }
         catch { throw "This server has no daemon release for $rid." }

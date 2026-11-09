@@ -65,7 +65,7 @@ public class WorktreeTest
                 .Content.ReadFromJsonAsync<SessionDto>())!;
             var requests = await Eventually(() => boris.GetFromJsonAsync<RuntimeRequestDto[]>($"/api/v1/sessions/{session.Id}/requests")!, r => r!.Length > 0);
             var running1 = await boris.GetFromJsonAsync<SessionDto>($"/api/v1/sessions/{session.Id}");
-            Assert.Equal($"bosofa/{session.Id}-fix-the-readme-please", running1!.Branch);
+            Assert.Equal($"{Brand.Id}/{session.Id}-fix-the-readme-please", running1!.Branch);
             var worktree = running1.WorkingDirectory;
             Assert.NotEqual(repository, worktree);
             Assert.Equal(running1.Branch, Git(worktree, "branch", "--show-current"));
@@ -89,8 +89,8 @@ public class WorktreeTest
             Assert.Equal(1, data.RootElement.GetProperty("removed").GetInt32());
 
             // Checkpoints live in hidden refs; the worktree's index and HEAD are untouched, the original repo too.
-            Assert.Contains($"refs/bosofa/{session.Id}/1-before", Git(repository, "for-each-ref", "refs/bosofa"));
-            Assert.Contains($"refs/bosofa/{session.Id}/1-after", Git(repository, "for-each-ref", "refs/bosofa"));
+            Assert.Contains($"refs/{Brand.Id}/{session.Id}/1-before", Git(repository, "for-each-ref", $"refs/{Brand.Id}"));
+            Assert.Contains($"refs/{Brand.Id}/{session.Id}/1-after", Git(repository, "for-each-ref", $"refs/{Brand.Id}"));
             Assert.Equal("first", Git(worktree, "log", "-1", "--format=%s"));
             Assert.Equal(" M README.md\n?? new.txt", Git(worktree, "status", "--porcelain").Replace("\r\n", "\n").Insert(0, " "));
             Assert.Equal("", Git(repository, "status", "--porcelain"));
@@ -110,7 +110,7 @@ public class WorktreeTest
     [Fact]
     public void AWorktreeBranchNameComesFromThePrompt()
     {
-        Assert.Equal("bosofa/7-fix-the-login-page-now", GitWorkspace.BranchName(7, "Fix the LOGIN page, now! And more words"));
-        Assert.Equal("bosofa/7", GitWorkspace.BranchName(7, "???"));
+        Assert.Equal($"{Brand.Id}/7-fix-the-login-page-now", GitWorkspace.BranchName(7, "Fix the LOGIN page, now! And more words"));
+        Assert.Equal($"{Brand.Id}/7", GitWorkspace.BranchName(7, "???"));
     }
 }

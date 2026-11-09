@@ -51,20 +51,13 @@ public sealed class ProcessCommandRunner : ICommandRunner
 public sealed partial class LocalDaemon(DesktopAccount account, string dataRoot, string daemonDirectory, ICommandRunner runner, HttpClient http, string? releaseKey,
     string? configuredExecutable = null, string[]? extraInstallArguments = null)
 {
-    static string ExecutableName => OperatingSystem.IsWindows() ? "bosofad.exe" : "bosofad";
+    static string ExecutableName => OperatingSystem.IsWindows() ? Brand.Daemon + ".exe" : Brand.Daemon;
 
     public static string? EmbeddedReleaseKey => typeof(LocalDaemon).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
         .FirstOrDefault(attribute => attribute.Key == "BoSoFaReleasePublicKey")?.Value;
 
     /// <summary>The per-user folder the daemon uses by default.</summary>
-    public static string DefaultDirectory()
-    {
-        if (OperatingSystem.IsWindows()) return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BoSoFa");
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (OperatingSystem.IsMacOS()) return Path.Combine(home, "Library", "Application Support", "BoSoFa");
-        var xdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-        return Path.Combine(string.IsNullOrEmpty(xdg) ? Path.Combine(home, ".local", "share") : xdg, "bosofa");
-    }
+    public static string DefaultDirectory() => Brand.DataFolder();
 
     static string CurrentRid() => Releases.RidOf(
         OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsWindows() ? "windows" : "linux",

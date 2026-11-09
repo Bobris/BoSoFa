@@ -426,7 +426,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         var workspace = new GitWorkspace(state.WorkingDirectory);
         // Marks the run as begun even outside a repository, so later statuses of this run skip the work.
         _runs[state.SessionId] = workspace.IsRepository
-            ? workspace.Checkpoint($"refs/bosofa/{state.SessionId}/{state.Runs}-before")
+            ? workspace.Checkpoint($"refs/{Brand.Id}/{state.SessionId}/{state.Runs}-before")
             : null;
     }
 
@@ -435,7 +435,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     {
         if (!_runs.TryRemove(state.SessionId, out var before) || before == null) return;
         var workspace = new GitWorkspace(state.WorkingDirectory);
-        if (workspace.Checkpoint($"refs/bosofa/{state.SessionId}/{state.Runs}-after") is not { } after ||
+        if (workspace.Checkpoint($"refs/{Brand.Id}/{state.SessionId}/{state.Runs}-after") is not { } after ||
             workspace.Diff(before, after) is not { } diff)
             return;
         _outbox.Append(state.SessionId, new ItemReport(SessionItemKind.Diff, DateTime.UtcNow, diff.Patch,

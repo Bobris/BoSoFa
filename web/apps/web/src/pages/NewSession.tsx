@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { paths } from "../router";
 import { fetchMe } from "../session";
+import { branding } from "../branding";
 
 const permissionModes = [
   { value: "default", label: "Ask before tools (default)" },
@@ -103,7 +104,7 @@ export default function NewSession() {
           when={machines().length > 0}
           fallback={
             <p class="text-sm text-muted">
-              You have no machines yet. Run <code class="font-mono">bosofad enroll --server {location.origin}</code> on
+              You have no machines yet. Run <code class="font-mono">{branding().daemon} enroll --server {location.origin}</code> on
               one and approve it.
             </p>
           }

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon.Service;
 
@@ -36,7 +37,7 @@ public sealed class Launcher(VersionStore versions, Func<string, ILauncherChild>
             var state = versions.Load();
             if (state.Current is not { } version)
             {
-                log.WriteLine("No version is installed; run 'bosofad install'.");
+                log.WriteLine($"No version is installed; run '{Brand.Daemon} install'.");
                 return 2;
             }
             var startedAt = DateTime.UtcNow;

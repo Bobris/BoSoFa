@@ -10,7 +10,7 @@ export default function App() {
       {(props) => (
         <div class="min-h-screen flex flex-col">
           <header class="border-b border-line bg-panel px-4 h-12 flex items-center gap-3">
-            <a href={paths()} class="font-semibold tracking-tight">
+            <a href={paths()} class="font-semibold tracking-tight min-w-4">
               {branding().name}
             </a>
             <Show when={branding().tagline}>

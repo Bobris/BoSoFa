@@ -1,0 +1,9 @@
+<Project>
+  <!-- The default brand. A brand names what people see: binaries, apps, folders, services (docs/branding.md). -->
+  <PropertyGroup>
+    <BrandName>BoSoFa</BrandName>
+    <BrandFullName>Bobris Software Factory</BrandFullName>
+    <BrandId>bosofa</BrandId>
+    <BrandDaemon>bosofad</BrandDaemon>
+  </PropertyGroup>
+</Project>

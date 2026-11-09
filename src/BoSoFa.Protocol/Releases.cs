@@ -59,8 +59,8 @@ public static partial class Releases
     {
         var windows = rid.StartsWith("win-", StringComparison.Ordinal);
         return product == Daemon
-            ? windows ? "bosofad.exe" : "bosofad"
-            : $"bosofa-desktop-{rid}{(windows ? ".zip" : ".tar.gz")}";
+            ? windows ? Brand.Daemon + ".exe" : Brand.Daemon
+            : $"{Brand.Desktop}-{rid}{(windows ? ".zip" : ".tar.gz")}";
     }
 
     /// <summary>A version names a folder on every machine, so it must be plain.</summary>

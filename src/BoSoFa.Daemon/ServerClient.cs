@@ -13,7 +13,7 @@ public sealed class ServerClient(Uri server, HttpMessageHandler? handler = null)
     readonly HttpClient _http = new(handler ?? new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) })
     {
         BaseAddress = server, Timeout = TimeSpan.FromSeconds(30),
-        DefaultRequestHeaders = { { "User-Agent", $"bosofad/{Cli.Version}" } }
+        DefaultRequestHeaders = { { "User-Agent", $"{Brand.Daemon}/{Cli.Version}" } }
     };
 
     public Uri Server => server;

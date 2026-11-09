@@ -34,10 +34,10 @@ namespace BoSoFa.Daemon
         public static string Version { get; } = Environment.GetEnvironmentVariable(Service.Launcher.VersionVariable) ??
             typeof(Cli).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
 
-        const string Usage = """
-            Usage: bosofad <command> [options]
+        const string Usage = $$"""
+            Usage: {{Protocol.Brand.Daemon}} <command> [options]
 
-              enroll --server <url> [--name <name>]   Join a BoSoFa server; a signed-in person approves the shown code.
+              enroll --server <url> [--name <name>]   Join a {{Protocol.Brand.Name}} server; a signed-in person approves the shown code.
               run [--claude <path>] [--codex <path>]  Stay connected to the server and run its sessions (foreground).
                   [--roots <dir[:dir…]>]              Folders people may browse, besides the sessions' working directories.
                   [--transport auto|websocket|longpoll]  How to reach the server (default auto: long-poll if WebSockets are refused).
@@ -89,7 +89,7 @@ namespace BoSoFa.Daemon
                 switch (args[0])
                 {
                     case "version" or "--version":
-                        output.WriteLine($"bosofad {Version} (protocol {Protocol.ProtocolVersion.Current})");
+                        output.WriteLine($"{Protocol.Brand.Daemon} {Version} (protocol {Protocol.ProtocolVersion.Current})");
                         return 0;
                     case "status":
                         var server = options.GetValueOrDefault("server") is { } url ? new Uri(url) : store.LoadState()?.Server;
@@ -187,7 +187,7 @@ namespace BoSoFa.Daemon
                 {
                     case Protocol.EnrollStatus.Approved:
                         store.SaveState(new(server, poll.MachineId!.Value));
-                        output.WriteLine($"Approved: this is machine {poll.MachineId} on {server}. Start it with 'bosofad run'.");
+                        output.WriteLine($"Approved: this is machine {poll.MachineId} on {server}. Start it with '{Protocol.Brand.Daemon} run'.");
                         return 0;
                     case Protocol.EnrollStatus.Expired:
                         error.WriteLine("The code expired before anyone approved it; run enroll again.");
@@ -201,7 +201,7 @@ namespace BoSoFa.Daemon
         {
             if (store.LoadState() is not { } state)
             {
-                error.WriteLine($"Not enrolled ({store.Directory}); run 'bosofad enroll --server <url>' first.");
+                error.WriteLine($"Not enrolled ({store.Directory}); run '{Protocol.Brand.Daemon} enroll --server <url>' first.");
                 return 2;
             }
             using var key = store.LoadOrCreateKey();

@@ -1,7 +1,7 @@
 #!/bin/sh
-# Installs the BoSoFa desktop app from this server. It updates itself from the same server afterwards.
+# Installs the __BRAND_NAME__ desktop app from this server. It updates itself from the same server afterwards.
 #   curl -fsSL <server>/install/desktop.sh | sh
-# Environment: BOSOFA_APP_DIR    where the app goes (default: ~/Applications/BoSoFa.app, or the per-user data folder on Linux)
+# Environment: BOSOFA_APP_DIR    where the app goes (default: ~/Applications/__BRAND_NAME__.app, or the per-user data folder on Linux)
 #              BOSOFA_NO_LAUNCH  set to anything to leave the app closed
 set -eu
 server='__BOSOFA_SERVER__'
@@ -19,13 +19,13 @@ esac
 rid="$os-$arch"
 data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 if [ "$os" = osx ]; then
-  root=BoSoFa.app
-  target="${BOSOFA_APP_DIR:-$HOME/Applications/BoSoFa.app}"
-  executable="$target/Contents/MacOS/bosofa-desktop"
+  root=__BRAND_NAME__.app
+  target="${BOSOFA_APP_DIR:-$HOME/Applications/__BRAND_NAME__.app}"
+  executable="$target/Contents/MacOS/__BRAND_ID__-desktop"
 else
-  root=bosofa-desktop
-  target="${BOSOFA_APP_DIR:-$data_home/BoSoFa/app}"
-  executable="$target/bosofa-desktop"
+  root=__BRAND_ID__-desktop
+  target="${BOSOFA_APP_DIR:-$data_home/__BRAND_NAME__/app}"
+  executable="$target/__BRAND_ID__-desktop"
 fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -53,15 +53,15 @@ echo "Installed in $target"
 
 if [ "$os" = linux ] && [ -z "${BOSOFA_APP_DIR:-}" ]; then
   mkdir -p "$data_home/applications" "$HOME/.local/bin"
-  cat >"$data_home/applications/bosofa.desktop" <<ENTRY
+  cat >"$data_home/applications/__BRAND_ID__.desktop" <<ENTRY
 [Desktop Entry]
 Type=Application
-Name=BoSoFa
+Name=__BRAND_NAME__
 Exec="$executable" %U
 Terminal=false
 Categories=Development;
 ENTRY
-  ln -sf "$executable" "$HOME/.local/bin/bosofa-desktop"
+  ln -sf "$executable" "$HOME/.local/bin/__BRAND_ID__-desktop"
 fi
 
 if [ -z "${BOSOFA_NO_LAUNCH:-}" ]; then

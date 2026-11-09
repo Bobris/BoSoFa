@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>BoSoFa.Desktop</RootNamespace>
-    <AssemblyName>bosofa-desktop</AssemblyName>
+    <AssemblyName>$(BrandId)-desktop</AssemblyName>
     <!-- Like CodeAlta: ReadyToRun on publish, no AOT. Framework-dependent while developing; a package (BoSoFaPackage) carries the
          runtime, because it is installed from a web page onto computers that may not have .NET. -->
     <SelfContained Condition="'$(BoSoFaPackage)' != 'true'">false</SelfContained>
@@ -21,20 +21,20 @@
     <PackageReference Include="NeoAstra" />
   </ItemGroup>
   <!-- dotnet publish src/BoSoFa.Desktop -c Release -r osx-arm64 -p:BoSoFaPackage=true -p:Version=1.2.3 -p:BoSoFaReleasePublicKey=...
-       writes artifacts/package/bosofa-desktop-osx-arm64.tar.gz (a .zip on Windows), ready for release-publish with product desktop. -->
+       writes artifacts/package/<brand id>-desktop-osx-arm64.tar.gz (a .zip on Windows), ready for release-publish with product desktop. -->
   <Target Name="PackageDesktop" AfterTargets="Publish" Condition="'$(BoSoFaPackage)' == 'true'">
     <PropertyGroup>
       <_PackageParent>$(MSBuildThisFileDirectory)../../artifacts/package/</_PackageParent>
       <_PackageStage>$(_PackageParent)$(RuntimeIdentifier)/</_PackageStage>
       <_PackageMac>$(RuntimeIdentifier.StartsWith('osx'))</_PackageMac>
       <_PackageWindows>$(RuntimeIdentifier.StartsWith('win'))</_PackageWindows>
-      <_PackageRoot Condition="'$(_PackageMac)' == 'True'">BoSoFa.app</_PackageRoot>
-      <_PackageRoot Condition="'$(_PackageWindows)' == 'True'">BoSoFa</_PackageRoot>
-      <_PackageRoot Condition="'$(_PackageRoot)' == ''">bosofa-desktop</_PackageRoot>
+      <_PackageRoot Condition="'$(_PackageMac)' == 'True'">$(BrandName).app</_PackageRoot>
+      <_PackageRoot Condition="'$(_PackageWindows)' == 'True'">$(BrandName)</_PackageRoot>
+      <_PackageRoot Condition="'$(_PackageRoot)' == ''">$(AssemblyName)</_PackageRoot>
       <_PackageCode>$(_PackageStage)$(_PackageRoot)/</_PackageCode>
       <_PackageCode Condition="'$(_PackageMac)' == 'True'">$(_PackageCode)Contents/MacOS/</_PackageCode>
-      <_PackageFile>$(_PackageParent)bosofa-desktop-$(RuntimeIdentifier).tar.gz</_PackageFile>
-      <_PackageFile Condition="'$(_PackageWindows)' == 'True'">$(_PackageParent)bosofa-desktop-$(RuntimeIdentifier).zip</_PackageFile>
+      <_PackageFile>$(_PackageParent)$(AssemblyName)-$(RuntimeIdentifier).tar.gz</_PackageFile>
+      <_PackageFile Condition="'$(_PackageWindows)' == 'True'">$(_PackageParent)$(AssemblyName)-$(RuntimeIdentifier).zip</_PackageFile>
     </PropertyGroup>
     <ItemGroup>
       <_PackageApp Include="$(PublishDir)**/*" />
@@ -46,7 +46,7 @@
     <Copy SourceFiles="@(_PackagePage)" DestinationFiles="@(_PackagePage->'$(_PackageCode)spa/%(RecursiveDir)%(Filename)%(Extension)')" />
     <WriteLinesToFile File="$(_PackageCode)release.json" Lines="{&quot;version&quot;:&quot;$(Version)&quot;,&quot;rid&quot;:&quot;$(RuntimeIdentifier)&quot;}" Overwrite="true" />
     <WriteLinesToFile Condition="'$(_PackageMac)' == 'True'" File="$(_PackageStage)$(_PackageRoot)/Contents/Info.plist"
-                      Lines="$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)Info.plist').Replace('__VERSION__','$(Version)'))" Overwrite="true" />
+                      Lines="$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)Info.plist').Replace('__VERSION__','$(Version)').Replace('__EXECUTABLE__','$(AssemblyName)').Replace('__BRAND_ID__','$(BrandId)').Replace('__BRAND_NAME__','$(BrandName)'))" Overwrite="true" />
     <!-- macOS tar would add extended attributes, which .NET's tar reader (the app's updater) refuses. They also hold codesign's
          signatures of non-code files, so the bundle gets no signature of its own: the SDK has signed the executable, and the native
          libraries come signed, which is what Apple silicon needs to run it. A Developer ID signature needs the managed files
@@ -56,7 +56,7 @@
     </PropertyGroup>
     <Delete Files="$(_PackageFile)" />
     <Exec Condition="'$(_PackageWindows)' != 'True'" WorkingDirectory="$(_PackageStage)" EnvironmentVariables="COPYFILE_DISABLE=1"
-          Command="tar $(_PackageTarFlags) -czf ../bosofa-desktop-$(RuntimeIdentifier).tar.gz $(_PackageRoot)" />
+          Command="tar $(_PackageTarFlags) -czf ../$(AssemblyName)-$(RuntimeIdentifier).tar.gz $(_PackageRoot)" />
     <ZipDirectory Condition="'$(_PackageWindows)' == 'True'" SourceDirectory="$(_PackageStage)" DestinationFile="$(_PackageFile)" />
     <Message Importance="high" Text="Packaged $(_PackageFile)" />
   </Target>

@@ -1,5 +1,6 @@
 using System.Security;
 using System.Text;
+using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon.Service;
 
@@ -21,9 +22,9 @@ public sealed record ServicePlan(ServiceFile[] Files, string[] RemovedFiles, str
 /// <summary>The service definitions of plan §5.7. They point at the stable launcher, so an update never rewrites them.</summary>
 public static class ServicePlans
 {
-    public const string SystemdUnit = "bosofad.service";
-    public const string LaunchdLabel = "com.bosofa.daemon";
-    public const string WindowsName = "BoSoFaDaemon";
+    public const string SystemdUnit = Brand.SystemdUnit;
+    public const string LaunchdLabel = Brand.LaunchdLabel;
+    public const string WindowsName = Brand.WindowsService;
 
     public static ServicePlan Install(ServiceTarget target) => target.Os switch
     {
@@ -58,7 +59,7 @@ public static class ServicePlans
     static ServicePlan InstallSystemd(ServiceTarget target)
     {
         var unit = new StringBuilder();
-        unit.Append("[Unit]\nDescription=BoSoFa daemon\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\n");
+        unit.Append($"[Unit]\nDescription={Brand.Name} daemon\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\n");
         unit.Append($"ExecStart={SystemdQuote(target.Launcher)} launcher --data-dir {SystemdQuote(target.DataDirectory)}\n");
         if (target.System && target.ServiceUser != null) unit.Append($"User={target.ServiceUser}\n");
         unit.Append("Restart=always\nRestartSec=5\nKillMode=mixed\nTimeoutStopSec=30\n\n[Install]\n");
@@ -78,7 +79,7 @@ public static class ServicePlans
     static ServicePlan InstallLaunchd(ServiceTarget target)
     {
         static string Xml(string value) => SecurityElement.Escape(value);
-        var log = Xml($"{target.DataDirectory}/logs/bosofad.log");
+        var log = Xml($"{target.DataDirectory}/logs/{Brand.Daemon}.log");
         var plist = new StringBuilder();
         plist.Append("""
             <?xml version="1.0" encoding="UTF-8"?>
@@ -107,7 +108,7 @@ public static class ServicePlans
                 ["schtasks.exe", "/Create", "/TN", WindowsName, "/TR", command, "/SC", "ONLOGON", "/RL", "LIMITED", "/F"],
                 ["schtasks.exe", "/Run", "/TN", WindowsName]
             ]);
-        List<string> create = ["sc.exe", "create", WindowsName, "binPath=", command + " --windows-service true", "start=", "auto", "DisplayName=", "BoSoFa daemon"];
+        List<string> create = ["sc.exe", "create", WindowsName, "binPath=", command + " --windows-service true", "start=", "auto", "DisplayName=", Brand.Name + " daemon"];
         if (target.ServiceUser != null) create.AddRange(["obj=", target.ServiceUser]);
         return new([], [],
         [

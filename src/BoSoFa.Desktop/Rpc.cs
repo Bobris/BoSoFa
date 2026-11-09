@@ -8,7 +8,10 @@ namespace BoSoFa.Desktop;
 
 public sealed record EmptyRequest;
 
-public sealed record AuthState(string? Server, bool SignedIn);
+/// <param name="Branding">The names this app was built with (its brand), shown until a server tells its own.</param>
+public sealed record AuthState(string? Server, bool SignedIn, DesktopBranding Branding);
+
+public sealed record DesktopBranding(string Name, string Tagline, string Daemon);
 
 public sealed record AccessTokenResponse(string? AccessToken, string? ExpiresAt);
 
@@ -32,7 +35,8 @@ public sealed class AuthService
 
     [NeoRpcMethod("state")]
     public async ValueTask<AuthState> StateAsync(EmptyRequest request, CancellationToken cancellationToken) =>
-        new(_account.Server, await _account.IsSignedInAsync(cancellationToken));
+        new(_account.Server, await _account.IsSignedInAsync(cancellationToken),
+            new(BoSoFa.Protocol.Brand.Name, BoSoFa.Protocol.Brand.FullName, BoSoFa.Protocol.Brand.Daemon));
 
     [NeoRpcMethod("accessToken")]
     public async ValueTask<AccessTokenResponse> AccessTokenAsync(EmptyRequest request, CancellationToken cancellationToken)

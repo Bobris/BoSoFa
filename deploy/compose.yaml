@@ -1,0 +1,44 @@
+# One BoSoFa server on one machine, with no Azure: the database, files and keys live in the "data" volume, and Caddy
+# serves it over HTTPS with a certificate from Let's Encrypt. See docs/deploy-single-node.md.
+#
+#   BOSOFA_HOST=bosofa.example.com docker compose -f deploy/compose.yaml up -d --build
+#
+# Sign-in: set BOSOFA_OIDC_AUTHORITY, BOSOFA_OIDC_CLIENT_ID and BOSOFA_OIDC_CLIENT_SECRET (an .env file next to this one works).
+name: bosofa
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        BRAND: ${BOSOFA_BRAND:-bosofa}
+    image: bosofa-server:local
+    restart: unless-stopped
+    # Only Caddy reaches it: the server trusts the X-Forwarded-* headers that Caddy sets.
+    expose: ["8080"]
+    environment:
+      BoSoFa__TrustForwardedHeaders: "true"
+      BoSoFa__Oidc__Authority: ${BOSOFA_OIDC_AUTHORITY:-}
+      BoSoFa__Oidc__ClientId: ${BOSOFA_OIDC_CLIENT_ID:-}
+      BoSoFa__Oidc__ClientSecret: ${BOSOFA_OIDC_CLIENT_SECRET:-}
+      BoSoFa__Oidc__DisplayName: ${BOSOFA_OIDC_DISPLAY_NAME:-Single sign-on}
+    volumes:
+      - data:/data
+    # Writes stop cleanly and the leader lease is released.
+    stop_grace_period: 60s
+
+  caddy:
+    image: caddy:2.10
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      BOSOFA_HOST: ${BOSOFA_HOST:?Set BOSOFA_HOST to the server's DNS name}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on: [server]
+
+volumes:
+  data:
+  caddy:

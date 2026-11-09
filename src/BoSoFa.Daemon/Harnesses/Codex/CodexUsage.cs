@@ -17,7 +17,7 @@ public static class CodexUsage
     {
         await rpc.RequestAsync("initialize", new JsonObject
         {
-            ["clientInfo"] = new JsonObject { ["name"] = "bosofa", ["title"] = "BoSoFa", ["version"] = Cli.Version },
+            ["clientInfo"] = new JsonObject { ["name"] = Brand.Id, ["title"] = Brand.Name, ["version"] = Cli.Version },
             ["capabilities"] = new JsonObject { ["experimentalApi"] = false }
         }, RequestTimeout);
         await rpc.NotifyAsync("initialized");

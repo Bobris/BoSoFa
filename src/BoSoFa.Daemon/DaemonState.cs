@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon;
 
@@ -19,17 +20,9 @@ public sealed class DaemonStore(string directory)
     string StatePath => Path.Combine(Directory, "daemon.json");
     string KeyPath => Path.Combine(Directory, "machine-key.pem");
 
-    /// <summary>Per-user data directory: ~/Library/Application Support/BoSoFa (macOS), $XDG_DATA_HOME/bosofa or
-    /// ~/.local/share/bosofa (Linux), %LOCALAPPDATA%\BoSoFa (Windows).</summary>
-    public static string DefaultDirectory()
-    {
-        if (OperatingSystem.IsWindows())
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BoSoFa");
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (OperatingSystem.IsMacOS()) return Path.Combine(home, "Library", "Application Support", "BoSoFa");
-        var xdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-        return Path.Combine(string.IsNullOrEmpty(xdg) ? Path.Combine(home, ".local", "share") : xdg, "bosofa");
-    }
+    /// <summary>Per-user data directory (<see cref="Brand.DataFolder"/>): ~/Library/Application Support/BoSoFa (macOS),
+    /// $XDG_DATA_HOME/bosofa or ~/.local/share/bosofa (Linux), %LOCALAPPDATA%\BoSoFa (Windows).</summary>
+    public static string DefaultDirectory() => Brand.DataFolder();
 
     public DaemonState? LoadState() => File.Exists(StatePath)
         ? JsonSerializer.Deserialize(File.ReadAllText(StatePath), DaemonJsonContext.Default.DaemonState)

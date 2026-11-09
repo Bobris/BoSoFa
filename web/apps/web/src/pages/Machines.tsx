@@ -3,6 +3,7 @@ import { createMemo, For, onSettled, refresh, Show } from "solid-js";
 import ThisMachine from "../components/ThisMachine";
 import { paths } from "../router";
 import { shortVersion } from "../version";
+import { branding } from "../branding";
 
 /** Machines of the whole team, refreshed every few seconds until the live hub (M1) pushes presence. */
 export default function Machines() {
@@ -57,7 +58,7 @@ export default function Machines() {
                       </span>
                     )}
                   </For>
-                  {machine().ownerName} · bosofad {shortVersion(machine().daemonVersion)}
+                  {machine().ownerName} · {branding().daemon} {shortVersion(machine().daemonVersion)}
                 </span>
               </li>
             )}

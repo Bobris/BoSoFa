@@ -4,6 +4,7 @@ import { createEffect, createMemo, createSignal, Match, Show, Switch } from "sol
 import { paths } from "../router";
 import { fetchMe } from "../session";
 import { shortVersion } from "../version";
+import { branding } from "../branding";
 
 /** Approve a machine that runs `bosofad enroll`: the daemon shows a code and a link to this page. */
 export default function Enroll() {
@@ -39,7 +40,7 @@ export default function Enroll() {
     <div class="max-w-md space-y-5">
       <h1 class="text-xl font-semibold">Add a machine</h1>
       <label class="block space-y-1">
-        <span class="text-sm text-muted">Code shown by bosofad enroll</span>
+        <span class="text-sm text-muted">Code shown by {branding().daemon} enroll</span>
         <input
           class="w-full rounded-md border border-line bg-transparent px-3 py-2 font-mono uppercase tracking-widest"
           value={current()}
@@ -62,7 +63,7 @@ export default function Enroll() {
                   {found().os} {found().arch}
                 </dd>
                 <dt class="text-muted">Daemon</dt>
-                <dd>bosofad {shortVersion(found().daemonVersion)}</dd>
+                <dd>{branding().daemon} {shortVersion(found().daemonVersion)}</dd>
               </dl>
               <Show
                 when={found().status === "Pending"}

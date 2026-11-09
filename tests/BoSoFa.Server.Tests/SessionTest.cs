@@ -155,12 +155,29 @@ public class SessionTest(ITestOutputHelper output)
         Assert.Equal("Again", final![6].Text);
 
         Step("second turn done");
-        // Someone else sees the session but cannot control it.
-        using var alice = server.Client();
+        // Only its creator sees a session: to anyone else it does not exist.
+        var aliceCookies = new CookieContainer();
+        using var alice = server.Client(aliceCookies);
         (await alice.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("alice@example.com", null))).EnsureSuccessStatusCode();
-        Assert.False((await alice.GetFromJsonAsync<SessionDto>($"/api/v1/sessions/{session.Id}"))!.CanControl);
-        Assert.Equal(HttpStatusCode.Forbidden,
+        var aliceLive = new ConcurrentQueue<LiveServerMessage>();
+        using var aliceSocket = new ClientWebSocket();
+        aliceSocket.Options.Cookies = aliceCookies;
+        await aliceSocket.ConnectAsync(new UriBuilder(server.BaseAddress) { Scheme = "ws", Path = LiveSocket.Path }.Uri, default);
+        await aliceSocket.SendAsync(JsonSerializer.SerializeToUtf8Bytes<LiveClientMessage>(new LiveSubscribe(session.Id, 0),
+            ProtocolJsonContext.Default.LiveClientMessage), WebSocketMessageType.Text, true, default);
+        var aliceListening = ListenAsync(aliceSocket, aliceLive);
+        await Eventually(() => Task.FromResult(aliceLive.Count), count => count > 0);
+        Assert.IsType<LiveError>(Assert.Single(aliceLive));
+        aliceSocket.Abort();
+        try { await aliceListening; }
+        catch (Exception) { /* aborted */ }
+        Assert.Empty((await alice.GetFromJsonAsync<SessionDto[]>("/api/v1/sessions"))!);
+        Assert.Single((await boris.GetFromJsonAsync<SessionDto[]>("/api/v1/sessions"))!);
+        foreach (var path in new[] { "", "/items", "/requests" })
+            Assert.Equal(HttpStatusCode.NotFound, (await alice.GetAsync($"/api/v1/sessions/{session.Id}{path}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
             (await alice.PostAsJsonAsync($"/api/v1/sessions/{session.Id}/messages", new SendMessageRequest("hi"))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await alice.PostAsync($"/api/v1/sessions/{session.Id}/stop", null)).StatusCode);
 
         await stop.CancelAsync();
         await running.WaitAsync(Timeout);

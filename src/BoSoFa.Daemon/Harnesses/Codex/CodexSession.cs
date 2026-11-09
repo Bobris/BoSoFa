@@ -169,7 +169,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         _pump = Task.Run(() => PumpAsync(rpc));
         await rpc.RequestAsync("initialize", new JsonObject
         {
-            ["clientInfo"] = new JsonObject { ["name"] = "bosofa", ["title"] = "BoSoFa", ["version"] = Cli.Version },
+            ["clientInfo"] = new JsonObject { ["name"] = Brand.Id, ["title"] = Brand.Name, ["version"] = Cli.Version },
             ["capabilities"] = new JsonObject { ["experimentalApi"] = false }
         }, RequestTimeout);
         await rpc.NotifyAsync("initialized");
@@ -233,7 +233,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
                     $"The previous Codex conversation could not be resumed ({exception.Message}); starting a new one."));
             }
         }
-        settings["serviceName"] = "bosofa";
+        settings["serviceName"] = Brand.Id;
         result = await rpc.RequestAsync("thread/start", settings, RequestTimeout);
         var thread = ClaudeJson.Obj(result, "thread") ?? throw new InvalidOperationException("thread/start returned no thread.");
         sink.Report(state.SessionId, new StatusReport(SessionStatus.Running, HarnessSessionId: ClaudeJson.Str(thread, "id"),
@@ -265,7 +265,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
             case "mcpServer/elicitation/request":
                 return new JsonObject { ["action"] = "decline" };
             default:
-                throw new NotSupportedException($"BoSoFa does not support {request.Method} yet.");
+                throw new NotSupportedException($"{Brand.Name} does not support {request.Method} yet.");
         }
     }
 

@@ -29,10 +29,11 @@ public interface IBlobDownloader
 /// </summary>
 public sealed class McpEndpoint : IAsyncDisposable
 {
-    public const string ServerName = "bosofa";
+    public const string ServerName = Brand.Id;
 
     /// <summary>Harmless tools that need no approval of their own; <c>bosofa_upload_file</c> shares a file, so it asks.</summary>
-    public static readonly string[] PreApprovedClaudeTools = ["mcp__bosofa__bosofa_notify_user", "mcp__bosofa__bosofa_ask_user"];
+    public const string NotifyTool = Brand.Id + "_notify_user", AskTool = Brand.Id + "_ask_user", UploadTool = Brand.Id + "_upload_file";
+    public static readonly string[] PreApprovedClaudeTools = [$"mcp__{ServerName}__{NotifyTool}", $"mcp__{ServerName}__{AskTool}"];
 
     readonly HttpListener _listener = new();
     readonly Func<ulong, SessionState?> _sessions;
@@ -163,9 +164,9 @@ public sealed class McpEndpoint : IAsyncDisposable
                 return new JsonObject
                 {
                     ["tools"] = new JsonArray(
-                        Tool("bosofa_notify_user", "Show a short note to the people following this session, without waiting for them.", "message", "The note."),
-                        Tool("bosofa_ask_user", "Ask the people following this session a yes-or-no question and wait for the answer.", "question", "The question."),
-                        Tool("bosofa_upload_file", "Upload a file from the session's working directory so people can download it.", "path", "The file's path."))
+                        Tool(NotifyTool, "Show a short note to the people following this session, without waiting for them.", "message", "The note."),
+                        Tool(AskTool, "Ask the people following this session a yes-or-no question and wait for the answer.", "question", "The question."),
+                        Tool(UploadTool, "Upload a file from the session's working directory so people can download it.", "path", "The file's path."))
                 };
             case "tools/call":
                 var arguments = ClaudeJson.Obj(parameters, "arguments") ?? default;
@@ -197,19 +198,19 @@ public sealed class McpEndpoint : IAsyncDisposable
     {
         switch (tool)
         {
-            case "bosofa_notify_user" when ClaudeJson.Str(arguments, "message") is { Length: > 0 } message:
+            case NotifyTool when ClaudeJson.Str(arguments, "message") is { Length: > 0 } message:
                 _sink.Report(sessionId, new ItemReport(SessionItemKind.Notice, DateTime.UtcNow, message));
                 return ToolResult("Shown.");
-            case "bosofa_ask_user" when ClaudeJson.Str(arguments, "question") is { Length: > 0 } question:
+            case AskTool when ClaudeJson.Str(arguments, "question") is { Length: > 0 } question:
                 var key = "ask-" + Guid.NewGuid().ToString("N");
                 var answer = new TaskCompletionSource<(bool, string?)>(TaskCreationOptions.RunContinuationsAsynchronously);
                 _questions[key] = (sessionId, answer);
-                _sink.Report(sessionId, new ApprovalRequestedReport(key, DateTime.UtcNow, "bosofa_ask_user", null,
+                _sink.Report(sessionId, new ApprovalRequestedReport(key, DateTime.UtcNow, AskTool, null,
                     new JsonObject { ["question"] = question }.ToJsonString(), question));
                 var (allow, comment) = await answer.Task;
                 return ToolResult((allow ? "The person answered yes." : "The person answered no.") +
                                   (string.IsNullOrWhiteSpace(comment) ? "" : " They added: " + comment));
-            case "bosofa_upload_file" when ClaudeJson.Str(arguments, "path") is { Length: > 0 } path:
+            case UploadTool when ClaudeJson.Str(arguments, "path") is { Length: > 0 } path:
                 return await UploadAsync(sessionId, path);
             default:
                 return ToolResult($"Unknown tool or missing argument: {tool}.", isError: true);

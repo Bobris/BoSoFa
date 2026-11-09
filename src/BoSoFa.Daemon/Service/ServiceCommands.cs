@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using BoSoFa.Daemon.Harnesses;
+using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon.Service;
 
@@ -92,7 +93,7 @@ public static class ServiceCommands
         File.Move(temporary, launcher, true);
         if (!Apply(plan, output, error, stopOnFailure: true)) return 1;
         output.WriteLine(store.LoadState() == null
-            ? $"Installed. It waits to be enrolled: bosofad enroll --server <url> --data-dir \"{target.DataDirectory}\""
+            ? $"Installed. It waits to be enrolled: {Brand.Daemon} enroll --server <url> --data-dir \"{target.DataDirectory}\""
             : "Installed and started.");
         return 0;
     }
@@ -122,11 +123,11 @@ public static class ServiceCommands
     public static int Doctor(DaemonStore store, Dictionary<string, string> options, TextWriter output)
     {
         void Line(bool ok, string text) => output.WriteLine($"{(ok ? "ok  " : "warn")}  {text}");
-        Line(true, $"bosofad {Cli.Version}, data in {store.Directory}, running as {Environment.UserName}");
+        Line(true, $"{Brand.Daemon} {Cli.Version}, data in {store.Directory}, running as {Environment.UserName}");
         var enrolled = store.LoadState();
-        Line(enrolled != null, enrolled != null ? $"enrolled as machine {enrolled.MachineId} on {enrolled.Server}" : "not enrolled: bosofad enroll --server <url>");
+        Line(enrolled != null, enrolled != null ? $"enrolled as machine {enrolled.MachineId} on {enrolled.Server}" : $"not enrolled: {Brand.Daemon} enroll --server <url>");
         var versions = new VersionStore(Path.GetFullPath(store.Directory)).Load();
-        Line(versions.Current != null, versions.Current != null ? $"launcher runs version {versions.Current}" : "not installed as a service: bosofad install");
+        Line(versions.Current != null, versions.Current != null ? $"launcher runs version {versions.Current}" : $"not installed as a service: {Brand.Daemon} install");
         if (versions.Failed.Length > 0) Line(false, $"versions rolled back: {string.Join(", ", versions.Failed)}");
         Line(HarnessEnvironment.FindExecutable(null, ["git", "git.exe"]) != null, "git is on the PATH");
         foreach (var (name, executables) in new[] { ("Claude Code", new[] { "claude", "claude.exe", "claude.cmd" }), ("Codex", new[] { "codex", "codex.exe", "codex.cmd" }) })

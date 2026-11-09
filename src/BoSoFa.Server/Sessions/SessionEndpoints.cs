@@ -39,7 +39,7 @@ public static class SessionEndpoints
         return new(session.Id, session.MachineId, machine?.Name ?? "", session.Harness, session.WorkingDirectory,
             session.Title, session.Status, session.CreatedById, creator?.Name ?? "", session.CreatedAt, session.UpdatedAt,
             session.LastSeq, session.Model, session.PermissionMode, session.CostUsd,
-            machine != null && machine.OwnerId == userId, session.AccountId == 0 ? null : session.AccountId,
+            machine != null && MachineAccess.CanControl(userId, machine), session.AccountId == 0 ? null : session.AccountId,
             session.AccountId == 0 ? null : Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId)?.Label,
             session.Branch, session.ProfileName);
     }
@@ -62,32 +62,34 @@ public static class SessionEndpoints
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using var query = publisher.StartQuery();
         var userId = http.User.UserId() ?? 0;
-        return Ambient.Relation<ISessionTable>().OrderByDescending(session => session.UpdatedAt).Take(200)
-            .Select(session => ToDto(session, userId)).ToArray();
+        return Ambient.Relation<ISessionTable>().Where(session => SessionAccess.CanSee(userId, session))
+            .OrderByDescending(session => session.UpdatedAt).Take(200).Select(session => ToDto(session, userId)).ToArray();
     }
 
     static async Task<Results<Ok<SessionDto>, NotFound>> GetSessionAsync(ulong id, BtdbNode node, HttpContext http)
     {
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using var query = publisher.StartQuery();
-        return Ambient.Relation<ISessionTable>().FindByIdOrDefault(id) is { } session
-            ? TypedResults.Ok(ToDto(session, http.User.UserId() ?? 0))
-            : TypedResults.NotFound();
+        return Visible(id, http) is { } session ? TypedResults.Ok(ToDto(session, http.User.UserId() ?? 0)) : TypedResults.NotFound();
     }
+
+    /// <summary>The session if this user may see it. Must run inside a query.</summary>
+    static Session? Visible(ulong id, HttpContext http) =>
+        Ambient.Relation<ISessionTable>().FindByIdOrDefault(id) is { } session && SessionAccess.CanSee(http.User.UserId() ?? 0, session) ? session : null;
 
     /// <summary>A page of transcript items after <paramref name="after"/>, oldest first.</summary>
-    static async Task<SessionItemDto[]> ListItemsAsync(ulong id, long? after, BtdbNode node, HttpContext http)
+    static async Task<Results<Ok<SessionItemDto[]>, NotFound>> ListItemsAsync(ulong id, long? after, BtdbNode node, HttpContext http)
     {
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using var query = publisher.StartQuery();
-        return Items(id, after ?? 0, PageSize);
+        return Visible(id, http) != null ? TypedResults.Ok(Items(id, after ?? 0, PageSize)) : TypedResults.NotFound();
     }
 
-    static async Task<RuntimeRequestDto[]> ListRequestsAsync(ulong id, BtdbNode node, HttpContext http)
+    static async Task<Results<Ok<RuntimeRequestDto[]>, NotFound>> ListRequestsAsync(ulong id, BtdbNode node, HttpContext http)
     {
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         using var query = publisher.StartQuery();
-        return PendingRequests(id);
+        return Visible(id, http) != null ? TypedResults.Ok(PendingRequests(id)) : TypedResults.NotFound();
     }
 
     /// <summary>Checks the prompt's images from their content, not from what the client says they are.</summary>
@@ -210,13 +212,15 @@ public static class SessionEndpoints
                 switch (message)
                 {
                     case LiveSubscribe subscribe:
-                        if (!relays.ContainsKey(subscribe.SessionId))
+                        ulong? machineId;
+                        using (publisher.StartQuery())
+                            machineId = Visible(subscribe.SessionId, http)?.MachineId;
+                        if (machineId is not { } machine)
                         {
-                            ulong? machineId;
-                            using (publisher.StartQuery())
-                                machineId = Ambient.Relation<ISessionTable>().FindByIdOrDefault(subscribe.SessionId)?.MachineId;
-                            if (machineId is { } machine) relays[subscribe.SessionId] = relay.Follow(machine);
+                            subscriber.Enqueue(new LiveError(subscribe.SessionId, "Session not found."));
+                            break;
                         }
+                        if (!relays.ContainsKey(subscribe.SessionId)) relays[subscribe.SessionId] = relay.Follow(machine);
                         subscriber.Subscribe(subscribe.SessionId, subscribe.AfterSeq);
                         break;
                     case LiveUnsubscribe unsubscribe:
@@ -290,7 +294,7 @@ public static class SessionEndpoints
                 bool more;
                 using (publisher.StartQuery())
                 {
-                    if (Ambient.Relation<ISessionTable>().FindByIdOrDefault(sessionId) is not { } session)
+                    if (Ambient.Relation<ISessionTable>().FindByIdOrDefault(sessionId) is not { } session || !SessionAccess.CanSee(subscriber.UserId, session))
                     {
                         await SendAsync(socket, new LiveError(sessionId, "Session not found."), cancellation);
                         subscriber.Unsubscribe(sessionId);

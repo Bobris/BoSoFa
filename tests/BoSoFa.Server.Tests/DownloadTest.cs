@@ -82,15 +82,15 @@ public class DownloadTest
         var downloads = (await anonymous.GetFromJsonAsync<ProductDownload[]>("/api/v1/downloads"))!;
         var daemon = Assert.Single(downloads, download => download.Product == Releases.Daemon);
         Assert.Equal("2.0", daemon.Version); // the newest stable one, not the beta
-        Assert.Equal(("linux-x64", "bosofad", "/api/v1/downloads/daemon/2.0/linux-x64"), (daemon.Files.Single().Rid, daemon.Files.Single().FileName, daemon.Files.Single().Url));
+        Assert.Equal(("linux-x64", Brand.Daemon, "/api/v1/downloads/daemon/2.0/linux-x64"), (daemon.Files.Single().Rid, daemon.Files.Single().FileName, daemon.Files.Single().Url));
         var desktop = Assert.Single(downloads, download => download.Product == Releases.Desktop);
-        Assert.Equal(("1.5", "bosofa-desktop-osx-arm64.tar.gz"), (desktop.Version, desktop.Files.Single().FileName));
+        Assert.Equal(("1.5", $"{Brand.Desktop}-osx-arm64.tar.gz"), (desktop.Version, desktop.Files.Single().FileName));
 
         using var latest = await anonymous.GetAsync("/api/v1/downloads/daemon/latest/linux-x64");
         Assert.Equal("linux two", await latest.Content.ReadAsStringAsync());
         Assert.Equal("2.0", latest.Headers.GetValues("X-BoSoFa-Version").Single());
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData("linux two"u8)), latest.Headers.GetValues("X-BoSoFa-Sha256").Single());
-        Assert.Equal("bosofad", latest.Content.Headers.ContentDisposition?.FileName);
+        Assert.Equal(Brand.Daemon, latest.Content.Headers.ContentDisposition?.FileName);
         // The newest stable build for a platform, even when a later release left that platform out.
         Assert.Equal("windows one", await anonymous.GetStringAsync("/api/v1/downloads/daemon/latest/win-x64"));
         Assert.Equal("linux beta", await anonymous.GetStringAsync("/api/v1/downloads/daemon/3.0-beta/linux-x64"));
@@ -177,7 +177,7 @@ public class DownloadTest
         if (OperatingSystem.IsWindows()) return;
         await using var server = await TestServer.StartAsync();
         using var admin = await ReleaseFixture.AdminAsync(server);
-        var root = OperatingSystem.IsMacOS() ? "BoSoFa.app" : "bosofa-desktop";
+        var root = OperatingSystem.IsMacOS() ? Brand.Name + ".app" : Brand.Desktop;
         (await ReleaseFixture.PublishAsync(admin, Releases.Desktop, "1.0", [(Rid, ReleaseFixture.AppArchive("1.0", Rid, root, zip: false))])).EnsureSuccessStatusCode();
         var work = Directory.CreateTempSubdirectory("bosofa-script-").FullName;
         var target = Path.Combine(work, "Apps", root);
@@ -211,8 +211,8 @@ public class DownloadTest
         Assert.True(parsed == 0, parseOutput);
 
         var rid = OperatingSystem.IsWindows() ? Rid : "win-x64"; // what the script asks for off Windows
-        (await ReleaseFixture.PublishAsync(admin, Releases.Desktop, "1.0", [(rid, ReleaseFixture.AppArchive("1.0", rid, "BoSoFa", zip: true))])).EnsureSuccessStatusCode();
-        var target = Path.Combine(work, "Programs", "BoSoFa");
+        (await ReleaseFixture.PublishAsync(admin, Releases.Desktop, "1.0", [(rid, ReleaseFixture.AppArchive("1.0", rid, Brand.Name, zip: true))])).EnsureSuccessStatusCode();
+        var target = Path.Combine(work, "Programs", Brand.Name);
         var (code, output) = await RunAsync(shell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $"irm {origin}/install/desktop.ps1 | iex"],
             new() { ["BOSOFA_APP_DIR"] = target, ["BOSOFA_NO_LAUNCH"] = "1" });
         Assert.True(code == 0, output);

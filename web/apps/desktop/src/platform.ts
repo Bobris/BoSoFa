@@ -24,6 +24,7 @@ export async function createDesktopPlatform(): Promise<Platform> {
     kind: "desktop",
     baseUrl: state.signedIn ? state.server!.replace(/\/$/, "") : "",
     server: state.server ?? undefined,
+    branding: state.branding,
     async authorization() {
       if (!state.signedIn) return undefined;
       let value = token && token.expiresAt - Date.now() > expiryMarginMs ? token.value : undefined;

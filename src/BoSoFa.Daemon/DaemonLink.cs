@@ -89,7 +89,7 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
         else
         {
             socket.Options.SetRequestHeader("Authorization", "Bearer " + token.AccessToken);
-            socket.Options.SetRequestHeader("User-Agent", $"bosofad/{Cli.Version}");
+            socket.Options.SetRequestHeader("User-Agent", $"{Brand.Daemon}/{Cli.Version}");
             try { await socket.ConnectAsync(DaemonSocket.ConnectUri(state.Server), cancellation); }
             catch (WebSocketException)
             {

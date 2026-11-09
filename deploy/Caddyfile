@@ -1,0 +1,7 @@
+# TLS in front of the single-node server (compose.yaml). Caddy passes Host and adds X-Forwarded-For and -Proto.
+{$BOSOFA_HOST} {
+	reverse_proxy server:8080 {
+		# Sessions stream over WebSockets and long polls; nothing may be buffered.
+		flush_interval -1
+	}
+}

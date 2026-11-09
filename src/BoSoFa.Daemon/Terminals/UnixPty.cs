@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
 using System.Text;
 using BoSoFa.Daemon.Harnesses;
+using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon.Terminals;
 
@@ -56,7 +57,7 @@ public sealed partial class UnixPty : IPty
     static string HelperPath()
     {
         // In a test host the current process is not the daemon, but the daemon's apphost sits next to it.
-        var sibling = Path.Combine(AppContext.BaseDirectory, "bosofad");
+        var sibling = Path.Combine(AppContext.BaseDirectory, Brand.Daemon);
         return File.Exists(sibling) ? sibling : Environment.ProcessPath!;
     }
 

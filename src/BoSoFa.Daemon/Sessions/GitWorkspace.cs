@@ -33,7 +33,7 @@ public sealed class GitWorkspace(string directory)
         var words = new string(prompt.ToLowerInvariant().Select(c => char.IsAsciiLetterOrDigit(c) ? c : ' ').ToArray())
             .Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(5);
         var slug = string.Join('-', words);
-        return slug.Length == 0 ? $"bosofa/{sessionId}" : $"bosofa/{sessionId}-{slug}";
+        return slug.Length == 0 ? $"{Brand.Id}/{sessionId}" : $"{Brand.Id}/{sessionId}-{slug}";
     }
 
     /// <summary>Commits the working tree as it is under the hidden ref <paramref name="name"/>; null when that fails
@@ -49,8 +49,8 @@ public sealed class GitWorkspace(string directory)
             var tree = Run(index, "write-tree");
             if (tree.Code != 0) return null;
             var commit = head != null
-                ? Run(null, "commit-tree", tree.Output.Trim(), "-p", head, "-m", "BoSoFa checkpoint")
-                : Run(null, "commit-tree", tree.Output.Trim(), "-m", "BoSoFa checkpoint");
+                ? Run(null, "commit-tree", tree.Output.Trim(), "-p", head, "-m", $"{Brand.Name} checkpoint")
+                : Run(null, "commit-tree", tree.Output.Trim(), "-m", $"{Brand.Name} checkpoint");
             if (commit.Code != 0) return null;
             var sha = commit.Output.Trim();
             return Run(null, "update-ref", name, sha).Code == 0 ? sha : null;
@@ -101,8 +101,8 @@ public sealed class GitWorkspace(string directory)
         start.Environment.Clear();
         foreach (var (name, value) in HarnessEnvironment.Clean()) start.Environment[name] = value;
         // commit-tree needs an identity, and a checkpoint must not depend on the user's git config having one.
-        foreach (var variable in new[] { "GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME" }) start.Environment[variable] = "BoSoFa";
-        foreach (var variable in new[] { "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL" }) start.Environment[variable] = "bosofa@localhost";
+        foreach (var variable in new[] { "GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME" }) start.Environment[variable] = Brand.Name;
+        foreach (var variable in new[] { "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL" }) start.Environment[variable] = Brand.Id + "@localhost";
         if (indexFile != null) start.Environment["GIT_INDEX_FILE"] = indexFile;
         try
         {

@@ -36,7 +36,7 @@ public sealed class LongPollClient : IDaemonChannel, IDisposable
         CancellationToken cancellation)
     {
         var http = new HttpClient { BaseAddress = server, Timeout = DaemonPoll.Wait + TimeSpan.FromSeconds(30) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd($"bosofad/{Cli.Version.Split('+')[0]}");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd($"{Brand.Daemon}/{Cli.Version.Split('+')[0]}");
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, DaemonPoll.Path) { Content = JsonContent.Create(hello, ProtocolJsonContext.Default.HelloMessage) };

@@ -97,7 +97,8 @@ public static partial class DownloadEndpoints
         var origin = $"{http.Request.Scheme}://{http.Request.Host}";
         if (!PlainOrigin().IsMatch(origin)) return TypedResults.BadRequest("That is not a plain host name.");
         using var reader = new StreamReader(resource);
-        return TypedResults.Text(reader.ReadToEnd().Replace("\r\n", "\n").Replace("__BOSOFA_SERVER__", origin), "text/plain; charset=utf-8");
+        return TypedResults.Text(reader.ReadToEnd().Replace("\r\n", "\n").Replace("__BOSOFA_SERVER__", origin)
+            .Replace("__BRAND_NAME__", Brand.Name).Replace("__BRAND_ID__", Brand.Id).Replace("__BRAND_DAEMON__", Brand.Daemon), "text/plain; charset=utf-8");
     }
 
     [GeneratedRegex(@"^https?://[A-Za-z0-9.\-]+(:[0-9]+)?$|^https?://\[[0-9A-Fa-f:]+\](:[0-9]+)?$")]

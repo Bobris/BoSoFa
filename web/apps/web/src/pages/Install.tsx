@@ -1,6 +1,8 @@
 import { api, getPlatform, type ProductDownload } from "@bosofa/api";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
+import Command from "../components/Command";
 import { paths } from "../router";
+import { branding } from "../branding";
 
 const platformNames: Record<string, string> = {
   "osx-arm64": "macOS, Apple silicon",
@@ -10,28 +12,6 @@ const platformNames: Record<string, string> = {
   "win-x64": "Windows x64",
   "win-arm64": "Windows Arm64",
 };
-
-function Command(props: { label: string; text: string }) {
-  const [copied, setCopied] = createSignal(false);
-  return (
-    <div class="space-y-1">
-      <span class="text-xs text-muted">{props.label}</span>
-      <div class="flex items-center gap-2">
-        <code class="flex-1 min-w-0 truncate rounded-md border border-line bg-canvas px-2 py-1 font-mono text-xs">{props.text}</code>
-        <button
-          class="text-xs text-accent hover:underline shrink-0"
-          onClick={async () => {
-            await navigator.clipboard.writeText(props.text);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          }}
-        >
-          {copied() ? "Copied" : "Copy"}
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function Product(props: { title: string; script: string; release: ProductDownload | undefined; origin: string; children: unknown }) {
   return (
@@ -46,7 +26,7 @@ function Product(props: { title: string; script: string; release: ProductDownloa
           when={props.release}
           fallback={
             <p class="text-muted">
-              An admin publishes it with <code class="font-mono text-xs">bosofad release-publish</code>.
+              An admin publishes it with <code class="font-mono text-xs">{branding().daemon} release-publish</code>.
             </p>
           }
         >

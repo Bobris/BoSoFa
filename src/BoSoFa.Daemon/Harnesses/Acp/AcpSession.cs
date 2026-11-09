@@ -122,7 +122,7 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
             {
                 ["fs"] = new JsonObject { ["readTextFile"] = false, ["writeTextFile"] = false }, ["terminal"] = false
             },
-            ["clientInfo"] = new JsonObject { ["name"] = "bosofa", ["version"] = Cli.Version }
+            ["clientInfo"] = new JsonObject { ["name"] = Brand.Id, ["version"] = Cli.Version }
         }, RequestTimeout);
         var capabilities = ClaudeJson.Obj(initialized, "agentCapabilities") ?? ClaudeJson.Empty;
         var canLoad = ClaudeJson.Bool(capabilities, "loadSession");
@@ -249,7 +249,7 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
 
     Task<JsonNode?> HandleRequestAsync(JsonRpcIncoming request) => request.Method == "session/request_permission"
         ? AskPermissionAsync(request)
-        : throw new NotSupportedException($"BoSoFa does not support {request.Method}.");
+        : throw new NotSupportedException($"{Brand.Name} does not support {request.Method}.");
 
     async Task<JsonNode?> AskPermissionAsync(JsonRpcIncoming request)
     {

@@ -1,0 +1,9 @@
+<Project>
+  <!-- dotnet build -p:Brand=qsf -->
+  <PropertyGroup>
+    <BrandName>QSF</BrandName>
+    <BrandFullName>Quadient Software Factory</BrandFullName>
+    <BrandId>qsf</BrandId>
+    <BrandDaemon>qsfd</BrandDaemon>
+  </PropertyGroup>
+</Project>

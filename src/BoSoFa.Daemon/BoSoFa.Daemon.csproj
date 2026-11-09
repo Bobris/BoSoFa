@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>bosofad: the per-machine daemon that runs agent harnesses for the BoSoFa server.</Description>
+    <Description>The per-machine daemon (bosofad, or the brand's name) that runs agent harnesses for the server.</Description>
     <OutputType>Exe</OutputType>
-    <AssemblyName>bosofad</AssemblyName>
+    <AssemblyName>$(BrandDaemon)</AssemblyName>
     <RootNamespace>BoSoFa.Daemon</RootNamespace>
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>

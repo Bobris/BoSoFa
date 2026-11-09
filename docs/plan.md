@@ -50,7 +50,11 @@ flowchart LR
 | Distribution | The server is the only source of both the daemon and the desktop app (decided 2026-11-09): a computer installs them from the server's install page, and every update comes from the same server, signed with the release key. No package registry or store is involved. |
 | Release key | A PEM file kept as a GitHub secret of a protected `release` environment (decided 2026-11-09). The release workflow signs with it; nothing else holds it ([releasing.md](releasing.md)). |
 | AKS deployment | A Pulumi project in the operations repositories, like SkillShare's (decided 2026-11-09). This repository ships the image and the contract in [deploy-aks.md](deploy-aks.md), not a Helm chart. |
-| White labeling | The server's configuration (`BoSoFa:Branding`) names the product in the UI (decided 2026-11-09). |
+| White labeling | A build brand (`-p:Brand=qsf`: QSF, Quadient Software Factory, `qsfd`) names binaries, apps, folders and services; the server's configuration (`BoSoFa:Branding`) can rename the UI on top (decided 2026-11-09, [branding.md](branding.md)). |
+| Hosting | Both a cluster on AKS over Azure Blob storage and a single node on its own disk with no Azure ([deploy-single-node.md](deploy-single-node.md)) (decided 2026-11-09). |
+| Session visibility | Only a session's creator sees it: list, transcript, requests, live updates. To anyone else it does not exist (decided 2026-11-09). |
+| Machines | Any user runs the daemon on their own computers; the approver owns the machine. Cloud machines wait until the existing features are finished (decided 2026-11-09). |
+| Out of v1 | Git forge integration, an offline view of local sessions in the desktop app, code signing of downloads (decided 2026-11-09). |
 
 ## 2. Lessons taken from the reference projects
 
@@ -156,9 +160,10 @@ Boundary rules, enforced by an architecture test:
 - Users come from OIDC (`sub` + issuer). The first user becomes admin. Roles: `admin` and `member`.
 - Data Protection keys are stored in Blob and protected with Key Vault, shared by all pods.
 - The server's own token signing keys are kept the same way.
-- Every member can see sessions, transcripts and the machine list: it is a team factory.
+- Every member can see the machine list. A session, its transcript and its requests are visible only to its creator (decided 2026-11-09).
 - **Controlling** a machine (starting sessions, files, terminals, answering approvals) needs the owner or an explicit grant: a user, `everyone`, or the per-machine flag `shared`.
 - Admins manage catalogs, rollouts and cloud machines.
+- Any member may enroll a machine; it belongs to whoever approves its code.
 - API tokens let users script the API. They are hashed in the DB and scoped.
 - Audit: each command event already records its actor. An `AuditEntry` relation projects them for the UI.
 
@@ -624,13 +629,13 @@ Done when: 3 replicas run on a real AKS cluster over workload identity, and a ro
 | Windows service versus user credentials | A per-user mode by default on dev machines, a service account on cloud machines, and `doctor` checks. |
 | Cross-pod fan-out of ephemeral deltas | Owner-pod streaming with a fallback: the UI tolerates gaps because it resyncs to persisted items. |
 
-## 11. Open questions
+## 11. Decisions on the former open questions (2026-11-09)
 
-1. Hosting the server: AKS only, or also a plain VM or container with single-node file storage for small installs? File storages are single-process, so that would be a "one pod forever" mode.
-2. Should session transcripts be visible to every member, or only to the creator + machine owner + people explicitly shared?
-3. Who may enroll a machine? Any member (it becomes their own machine), or admins only?
-4. Harness credentials: proposed in §5.4.1 (personal subscription accounts plus admin API keys). Codex uses the CLI's device-code sign-in per machine (decided 2026-11-08). Still open: whether a web-only install needs the `setup-token` paste fallback before M6.
-5. Does the desktop need to show the local daemon's sessions while the server is unreachable (read-only from the outbox), or is "server required" acceptable?
-6. Do we need a git forge integration (PR per session, auto-settle on merge) in v1, and for which forge (GitHub, Azure DevOps)?
-7. Names: `bosofad` for the daemon binary and `BoSoFa.*` for the projects. Keep them?
-8. Code signing of downloads: Apple Developer ID with notarization, and Authenticode for Windows. Both need certificates only the owner can get; until then, the install scripts are the way in (curl adds no quarantine), and a browser download must be allowed by hand.
+1. **Hosting:** both AKS (a cluster over Azure Blob) and a single node on its own disk with no Azure. A single node stays one process; growing it into a cluster means moving its data.
+2. **Session visibility:** only the creator, for now.
+3. **Enrolling machines:** any user, on their own computers; the machine belongs to them. Cloud machines (M8) wait until the existing features are finished.
+4. **Web-only Claude sign-in:** the Accounts page explains how to run `claude setup-token` anywhere and where to paste the token; no relay through a daemon's terminal.
+5. **Desktop without the server:** not needed; the desktop app needs its server.
+6. **Git forge integration:** not in the first version.
+7. **Names:** the build brand white-labels them; `qsf` (QSF, Quadient Software Factory, daemon `qsfd`) is the second brand. Projects and namespaces stay `BoSoFa.*`.
+8. **Code signing:** not for now; the install scripts are the way in.

@@ -1,6 +1,7 @@
 import { api, getPlatform, type AccountKind, type AccountUsage, type HarnessAccount } from "@bosofa/api";
 import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, refresh, Show } from "solid-js";
+import Command from "../components/Command";
 import Limit from "../components/Limit";
 import { paths } from "../router";
 import { fetchMe } from "../session";
@@ -50,6 +51,7 @@ export default function Accounts() {
   const [secret, setSecret] = createSignal("");
   const [error, setError] = createSignal<string>();
   const [busy, setBusy] = createSignal(false);
+  let secretInput: HTMLInputElement | undefined;
 
   async function add(event: SubmitEvent) {
     event.preventDefault();
@@ -140,6 +142,32 @@ export default function Accounts() {
             </section>
           )}
         </Show>
+        <Show when={!getPlatform().localDaemon}>
+          <section class="space-y-3 rounded-lg border border-line bg-panel p-4 text-sm">
+            <h2 class="font-medium">Add your Claude subscription</h2>
+            <ol class="list-decimal space-y-3 pl-5 text-xs text-muted">
+              <li class="space-y-1">
+                <p>On any computer with Claude Code installed, run this in a terminal:</p>
+                <Command text="claude setup-token" />
+              </li>
+              <li>Sign in to Claude in the browser it opens. The terminal then prints a token that starts with sk-ant-oat01-.</li>
+              <li>
+                Copy the whole token and{" "}
+                <button
+                  class="text-accent hover:underline"
+                  onClick={() => {
+                    setKind("ClaudeOAuthToken");
+                    if (!label().trim()) setLabel(`Claude (${user().name})`);
+                    secretInput?.focus();
+                  }}
+                >
+                  paste it below
+                </button>
+                . It is valid for a year and is shown only once, so you need not keep it.
+              </li>
+            </ol>
+          </section>
+        </Show>
         <form class="space-y-3 rounded-lg border border-line bg-panel p-4" onSubmit={add}>
           <h2 class="text-sm font-medium">Add an account</h2>
           <select class={field} value={kind()} onChange={(event) => setKind(event.currentTarget.value as AccountKind)}>
@@ -154,6 +182,7 @@ export default function Accounts() {
             onInput={(event) => setLabel(event.currentTarget.value)}
           />
           <input
+            ref={secretInput}
             class={[field, "font-mono"]}
             type="password"
             autocomplete="off"
