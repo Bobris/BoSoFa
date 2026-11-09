@@ -30,6 +30,8 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 - Desktop: `pnpm --dir web build`, then `dotnet run --project src/BoSoFa.Desktop`. RPC changed: build it and commit `web/apps/desktop/neoastra/neoastra.ts`.
 - Service and updates: `bosofad install --dry-run` prints the service definition; `bosofad doctor` checks a machine. Releases are signed with
   `bosofad release-keygen` / `release-publish [--product desktop]`; a build needs `-p:BoSoFaReleasePublicKey=<key>` to accept them.
+  The release workflow publishes both products with the key from a GitHub secret: [docs/releasing.md](docs/releasing.md).
+- White labeling: `BoSoFa:Branding:Name` / `Tagline` in the server's configuration; the SPA reads `/api/v1/branding` (`branding.ts`).
 - Distribution: computers install both products from the server's `/install` page and update from it. A desktop package:
   `pnpm --dir web build`, then `dotnet publish src/BoSoFa.Desktop -c Release -r osx-arm64 -p:BoSoFaPackage=true -p:Version=<v>`
   writes `artifacts/package/bosofa-desktop-<rid>.tar.gz` (`.zip` on Windows).

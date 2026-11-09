@@ -90,6 +90,14 @@ spec:
                   name: {{ .Values.secretName }}
                   key: oidc-client-secret
             {{- end }}
+            {{- with .Values.branding.name }}
+            - name: BoSoFa__Branding__Name
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.branding.tagline) }}
+            - name: BoSoFa__Branding__Tagline
+              value: {{ .Values.branding.tagline | quote }}
+            {{- end }}
             {{- if .Values.otel.endpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.otel.endpoint | quote }}

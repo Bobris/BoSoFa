@@ -31,6 +31,9 @@ public sealed class ServerOptions
 
     public OidcOptions? Oidc { get; set; }
 
+    /// <summary>The names the web page and the desktop app show for this server (white labeling).</summary>
+    public BrandingOptions Branding { get; set; } = new();
+
     /// <summary>Set to run this server as one node of a cluster; null is single-node mode.</summary>
     public ClusterOptions? Cluster { get; set; }
 }
@@ -67,6 +70,15 @@ public sealed class AzureStorageOptions
     /// <summary>A Key Vault key that wraps the Data Protection key ring at rest, reached through workload identity;
     /// empty leaves the ring unwrapped in the container.</summary>
     public string KeyVaultKey { get; set; } = "";
+}
+
+public sealed class BrandingOptions
+{
+    /// <summary>The short name: the header, the window and tab titles, and sentences such as "Sign in to BoSoFa Desktop".</summary>
+    public string Name { get; set; } = "BoSoFa";
+
+    /// <summary>The text beside the name in the header; empty shows none.</summary>
+    public string Tagline { get; set; } = "Bobris Software Factory";
 }
 
 public sealed class OidcOptions

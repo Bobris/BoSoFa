@@ -1,5 +1,6 @@
 import { getPlatform } from "@bosofa/api";
 import { Errored, Loading, Show } from "solid-js";
+import { branding } from "./branding";
 import UpdateBanner from "./components/UpdateBanner";
 import { paths, Router } from "./router";
 
@@ -10,9 +11,11 @@ export default function App() {
         <div class="min-h-screen flex flex-col">
           <header class="border-b border-line bg-panel px-4 h-12 flex items-center gap-3">
             <a href={paths()} class="font-semibold tracking-tight">
-              BoSoFa
+              {branding().name}
             </a>
-            <span class="text-muted text-sm">Bobris Software Factory</span>
+            <Show when={branding().tagline}>
+              <span class="text-muted text-sm">{branding().tagline}</span>
+            </Show>
             <Show when={getPlatform().updates}>
               <Loading fallback={null}>
                 <UpdateBanner />

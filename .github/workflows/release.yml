@@ -1,0 +1,158 @@
+# Builds the daemon and the desktop app for every RID, signs their manifests and publishes them to one BoSoFa server,
+# whose install page and updaters hand them out (docs/releasing.md).
+#
+# Repository variable BOSOFA_RELEASE_PUBLIC_KEY: the public key that `bosofad release-keygen` printed; every build embeds it.
+# Environment "release" (add a required reviewer): secrets BOSOFA_RELEASE_KEY (the private key's PEM text) and BOSOFA_TOKEN
+# (an admin's API token with full control), variable BOSOFA_SERVER (the server's origin). Only the publish job sees them.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, such as 1.2.0 or 1.3.0-beta.1
+        required: true
+      channel:
+        description: Daemon channel; desktop apps take only stable releases
+        type: choice
+        options: [stable, beta]
+        default: stable
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.version.outputs.channel }}
+    steps:
+      - id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          PUBLIC_KEY: ${{ vars.BOSOFA_RELEASE_PUBLIC_KEY }}
+        run: |
+          if [ -z "$PUBLIC_KEY" ]; then
+            echo "::error::Set the repository variable BOSOFA_RELEASE_PUBLIC_KEY; builds without it refuse every update."
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            version="${GITHUB_REF_NAME#v}"
+            case "$version" in *-*) channel=beta ;; *) channel=stable ;; esac
+          else
+            version="$INPUT_VERSION"
+            channel="$INPUT_CHANNEL"
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$version' is not a version such as 1.2.0 or 1.3.0-beta.1."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+  daemon:
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Install Native AOT prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+      - run: >-
+          dotnet publish src/BoSoFa.Daemon -c Release -r ${{ matrix.rid }} -o out
+          -p:Version=${{ needs.prepare.outputs.version }}
+          -p:BoSoFaReleasePublicKey=${{ vars.BOSOFA_RELEASE_PUBLIC_KEY }}
+      - run: ./out/bosofad version
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bosofad-${{ matrix.rid }}
+          path: |
+            out/bosofad
+            out/bosofad.exe
+          if-no-files-found: error
+
+  desktop:
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm --dir web install --frozen-lockfile
+      - run: pnpm --dir web build
+      - run: >-
+          dotnet publish src/BoSoFa.Desktop -c Release -r ${{ matrix.rid }} -p:BoSoFaPackage=true
+          -p:Version=${{ needs.prepare.outputs.version }}
+          -p:BoSoFaReleasePublicKey=${{ vars.BOSOFA_RELEASE_PUBLIC_KEY }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bosofa-desktop-${{ matrix.rid }}
+          path: artifacts/package/bosofa-desktop-*
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, daemon, desktop]
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+      - name: Publish
+        env:
+          BOSOFA_RELEASE_KEY: ${{ secrets.BOSOFA_RELEASE_KEY }}
+          BOSOFA_TOKEN: ${{ secrets.BOSOFA_TOKEN }}
+          SERVER: ${{ vars.BOSOFA_SERVER }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+        run: |
+          if [ -z "$BOSOFA_RELEASE_KEY" ] || [ -z "$BOSOFA_TOKEN" ] || [ -z "$SERVER" ]; then
+            echo "::error::The release environment needs the secrets BOSOFA_RELEASE_KEY and BOSOFA_TOKEN and the variable BOSOFA_SERVER."
+            exit 1
+          fi
+          # The Linux build signs; it refuses a key other than the public key it embeds.
+          bosofad=dist/bosofad-linux-x64/bosofad
+          chmod +x "$bosofad"
+          "$bosofad" release-publish --server "$SERVER" --product daemon --version "$VERSION" --channel "$CHANNEL" \
+            --artifacts "linux-x64=dist/bosofad-linux-x64/bosofad,win-x64=dist/bosofad-win-x64/bosofad.exe,osx-arm64=dist/bosofad-osx-arm64/bosofad"
+          "$bosofad" release-publish --server "$SERVER" --product desktop --version "$VERSION" --channel "$CHANNEL" \
+            --artifacts "linux-x64=dist/bosofa-desktop-linux-x64/bosofa-desktop-linux-x64.tar.gz,win-x64=dist/bosofa-desktop-win-x64/bosofa-desktop-win-x64.zip,osx-arm64=dist/bosofa-desktop-osx-arm64/bosofa-desktop-osx-arm64.tar.gz"

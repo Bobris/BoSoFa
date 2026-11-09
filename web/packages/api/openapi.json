@@ -395,6 +395,25 @@
         }
       }
     },
+    "/api/v1/branding": {
+      "get": {
+        "tags": [
+          "testhost"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Branding"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me": {
       "get": {
         "tags": [
@@ -2774,6 +2793,21 @@
               "string"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "Branding": {
+        "required": [
+          "name",
+          "tagline"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "tagline": {
+            "type": "string"
           }
         }
       },

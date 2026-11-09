@@ -5,6 +5,7 @@ export type { components, paths };
 export type User = components["schemas"]["UserDto"];
 export type VersionInfo = components["schemas"]["VersionInfo"];
 export type AuthProviders = components["schemas"]["AuthProviders"];
+export type Branding = components["schemas"]["Branding"];
 export type Machine = components["schemas"]["MachineDto"];
 export type Enrollment = components["schemas"]["EnrollmentDto"];
 export type Session = components["schemas"]["SessionDto"];

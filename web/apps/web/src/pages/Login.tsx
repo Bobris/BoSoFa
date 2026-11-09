@@ -1,6 +1,7 @@
 import { api, getPlatform } from "@bosofa/api";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createMemo, createSignal, Show } from "solid-js";
+import { branding } from "../branding";
 import { paths } from "../router";
 
 /** The desktop app signs in through the system browser; afterwards the page reloads, because its CSP names the server. */
@@ -22,7 +23,7 @@ function DesktopLogin() {
 
   return (
     <form class="max-w-sm mx-auto mt-16 rounded-lg border border-line bg-panel p-6 space-y-4" onSubmit={signIn}>
-      <h1 class="text-xl font-semibold">Sign in to BoSoFa</h1>
+      <h1 class="text-xl font-semibold">Sign in to {branding().name}</h1>
       <input
         class="w-full rounded-md border border-line bg-transparent px-3 py-2"
         placeholder="https://bosofa.example.com"

@@ -21,6 +21,12 @@ oidc:
   clientId: ""
   displayName: Single sign-on
 
+# White labeling: what the web page and the desktop app call this server. Empty name keeps "BoSoFa"; a null tagline keeps
+# "Bobris Software Factory", and "" shows none.
+branding:
+  name: ""
+  tagline: null
+
 # Pods serve plain HTTP on one port, for clients and for each other. A reverse proxy (Caddy, an ingress controller)
 # terminates TLS and must add X-Forwarded-For and X-Forwarded-Proto. Either enable this Ingress or point your proxy at
 # the Service on port 80.

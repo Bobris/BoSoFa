@@ -47,7 +47,9 @@ flowchart LR
 | Daemon transport | A WebSocket over 443, falling back to HTTP long-poll plus batched POST. |
 | Sign-in | Any OIDC provider. Development has a fake local login. |
 | Desktop | NeoAstra (the CodeAlta UI technology) hosting the same SolidJS SPA. It is a client of the server and can also manage the local daemon. |
-| Distribution | The server is the only source of both the daemon and the desktop app (decided 2026-11-09): a computer installs them from the server's install page, and every update comes from the same server, signed with the offline release key. No package registry or store is involved. |
+| Distribution | The server is the only source of both the daemon and the desktop app (decided 2026-11-09): a computer installs them from the server's install page, and every update comes from the same server, signed with the release key. No package registry or store is involved. |
+| Release key | A PEM file kept as a GitHub secret of a protected `release` environment (decided 2026-11-09). The release workflow signs with it; nothing else holds it ([releasing.md](releasing.md)). |
+| White labeling | The server's configuration (`BoSoFa:Branding`) names the product in the UI (decided 2026-11-09). |
 
 ## 2. Lessons taken from the reference projects
 
@@ -139,7 +141,7 @@ Boundary rules, enforced by an architecture test:
   - `/auth/login`, `/auth/callback`, `/auth/logout`: the server is the OIDC confidential client (BFF pattern). The SPA gets an HttpOnly, SameSite=strict cookie and never holds tokens.
   - `/auth/desktop/start` → system browser → loopback redirect (RFC 8252) → one-time code → BoSoFa access and refresh tokens for the desktop app.
 - REST `/api/v1/...`: users, machines, enrollments, projects, sessions, runs, runtime-requests (answer), harnesses, mcp-servers, skills, profiles, files, daemon-releases, desktop-releases, settings. Each mutation is a command that returns `{ eventId }`, which serves as the client's cursor.
-- Without a sign-in (§5.7): `/api/v1/downloads` (the newest stable release of each product and its files), `/api/v1/downloads/{product}/{version|latest}/{rid}`, and the install scripts `/install/{daemon,desktop}.{sh,ps1}`.
+- Without a sign-in: `/api/v1/branding` (the names the UI shows, from `BoSoFa:Branding`), and (§5.7) `/api/v1/downloads` (the newest stable release of each product and its files), `/api/v1/downloads/{product}/{version|latest}/{rid}`, and the install scripts `/install/{daemon,desktop}.{sh,ps1}`.
 - WebSocket `/api/v1/live` for UI clients: messages `subscribe{shell}`, `subscribe{session,id,afterSeq}`, `subscribe{terminal,id}`, `unsubscribe`, `terminal.input`, `ping`. The server sends `snapshot`, `event`, `delta`, `resync`.
 - Daemon endpoints `/api/daemon/v1/...` are described in §5.3.
 - Contracts:
@@ -337,8 +339,8 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - A new version is on trial and must reach the server and confirm within 2 minutes, or the launcher rolls back.
   - The service definition is never rewritten.
 - **Releases:**
-  - Two products, the daemon and the desktop app. CI publishes per-RID builds to the server (`bosofad release-publish [--product desktop]`, then `POST /api/v1/{daemon,desktop}-releases`); the files go to the blob store.
-  - Each manifest is signed with an offline release key (ECDSA P-256), and its public key is compiled into the daemon and the app. Both refuse unsigned or mismatching manifests. A desktop manifest says `"product": "desktop"`, so a release of one product cannot pass for the other; a manifest without a product is a daemon release.
+  - Two products, the daemon and the desktop app. The release workflow (`.github/workflows/release.yml`, [releasing.md](releasing.md)) builds every RID and publishes them to one server (`bosofad release-publish [--product desktop]`, then `POST /api/v1/{daemon,desktop}-releases`); the files go to the blob store.
+  - Each manifest is signed with the release key (ECDSA P-256), a PEM file that only the workflow's protected environment holds, and its public key is compiled into the daemon and the app. `release-publish` refuses a key other than the one its own build trusts. Both refuse unsigned or mismatching manifests. A desktop manifest says `"product": "desktop"`, so a release of one product cannot pass for the other; a manifest without a product is a daemon release.
   - Daemon channels are `stable` and `beta`, with a per-machine pin. The leader rolls out in waves. Desktop apps take the newest stable release by themselves.
 - **First install, from the server's page:**
   - `/install` lists both products with a one-line command per OS and direct downloads. The commands fetch `/install/daemon.sh` (`curl -fsSL <server>/install/daemon.sh | sh`) or `daemon.ps1` (`irm <server>/install/daemon.ps1 | iex`), which name the server they came from.
@@ -385,6 +387,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - `packages/client` holds the WebSocket connection with cursor resync.
   - Normalized stores per subscription: the shell summary is always on, and a session's full stream is on only while visible.
   - Mutations are `action(function*…)` with `createOptimisticStore`.
+- **White labeling:** the header, the tab title and the sign-in texts show `BoSoFa:Branding:Name` and `Tagline`, read from `/api/v1/branding` and remembered for the next start. The desktop app shows the names of the server it signed in to; its own bundle and window names stay BoSoFa.
 - **Screens:** sessions board/sidebar, session view (transcript, composer with steer/queue, approvals inline, plan, diff, files changed), machines (status, inventory, harnesses, terminals), projects/workspaces, catalogs (harnesses, MCP, skills, profiles), people, settings and rollouts, audit.
 - **Rules for agents** (go into `AGENTS.md`):
   - Solid 2 docs: `https://v2.solidjs.com/llms-small.txt` (the primer), `/llms.txt`, and `/llms-full.txt`.
@@ -594,6 +597,7 @@ Done when: on a fresh machine, install the desktop, click "enable this machine",
 5. **Packaging and desktop touches.**
    - *Done for packaging, run on macOS (2026-11-09):* the install page, scripts, desktop releases and self-update above replace the planned `dotnet tool`. On a local server, the desktop script installed a signed 0.9.1 build, which found 0.9.3, checked its signature, staged it, and after "Restart to update" swapped itself and confirmed. The daemon script downloaded, enrolled for real, and planned the service (`--dry-run`); CI covers real service installs.
    - Not run yet: the Windows and Linux packages (CI only builds them) and the PowerShell daemon script (CI only parses it). macOS packages carry no bundle signature of their own: `codesign` keeps the signatures of non-code files in extended attributes, which .NET's tar reader refuses. A Developer ID signature, needed for downloads through a browser, first needs the managed files moved out of `Contents/MacOS`; Windows needs Authenticode for SmartScreen.
+   - *Done (2026-11-09), not yet run on GitHub:* the release workflow builds both products for every RID and publishes them with the key from the `release` environment's secret; `release-publish` takes the key's PEM text from `BOSOFA_RELEASE_KEY` and refuses one that its build does not trust. White labeling: `BoSoFa:Branding` names the product in the header, the tab title and the sign-in texts.
    - Not started: notifications and deep links, which need the bundle's identity, and open in editor.
 
 ### M7 steps

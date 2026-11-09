@@ -1,6 +1,7 @@
 import { api } from "@bosofa/api";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { branding } from "../branding";
 import { paths } from "../router";
 import { fetchMe } from "../session";
 
@@ -31,13 +32,13 @@ export default function DesktopAuthorize() {
     <Show when={me()}>
       {(user) => (
         <section class="mx-auto max-w-md rounded-lg border border-line bg-panel p-6 space-y-4 text-sm">
-          <h1 class="text-lg font-medium">Sign in to BoSoFa Desktop</h1>
+          <h1 class="text-lg font-medium">Sign in to {branding().name} Desktop</h1>
           <Show
             when={!done()}
             fallback={<p class="text-muted">Done. You can close this tab and go back to the app.</p>}
           >
             <p>
-              Let the BoSoFa Desktop app on this computer act as <strong>{user().name}</strong>?
+              Let the {branding().name} Desktop app on this computer act as <strong>{user().name}</strong>?
             </p>
             <p class="text-muted">Only continue if you just asked the app to sign in.</p>
             <button class="rounded-md bg-accent px-3 py-1.5 font-medium text-white" onClick={approve}>

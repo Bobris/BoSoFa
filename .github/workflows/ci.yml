@@ -37,6 +37,14 @@ jobs:
           helm lint deploy/helm/bosofa --strict \
             --set image.repository=r,secretName=s,azure.serviceUri=https://a.blob.core.windows.net,azure.clientId=c \
             --set ingress.enabled=true,ingress.host=h
+      - name: Helm chart passes the branding
+        run: |
+          base="--set image.repository=r,secretName=s,azure.serviceUri=https://a.blob.core.windows.net,azure.clientId=c"
+          rendered=$(helm template x deploy/helm/bosofa $base)
+          if grep -q BoSoFa__Branding <<< "$rendered"; then exit 1; fi
+          rendered=$(helm template x deploy/helm/bosofa $base --set branding.name=Acme --set-string branding.tagline=)
+          grep -A1 BoSoFa__Branding__Name <<< "$rendered" | grep -q '"Acme"'
+          grep -A1 BoSoFa__Branding__Tagline <<< "$rendered" | grep -q 'value: ""'
       - name: Server image builds
         run: docker build -f deploy/Dockerfile -t bosofa-server:ci .
 
