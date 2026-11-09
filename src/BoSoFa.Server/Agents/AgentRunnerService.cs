@@ -183,9 +183,11 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
                 options.Agent.OpenAIEndpoint is { Length: > 0 } endpoint ? new Uri(endpoint) : null),
             AccountKind.AnthropicApiKey => AnthropicMessagesExecutor.WithApiKey(Http, secret,
                 options.Agent.AnthropicEndpoint is { Length: > 0 } endpoint ? new Uri(endpoint) : null),
+            AccountKind.OpenCodeGoApiKey => OpenCodeGo.ExecutorFor(Http, secret, session.Model!, options.Agent.OpenCodeGoBaseUrl),
             _ => throw new AgentSetupException($"The server agent cannot use a {kind} account yet.")
         };
-        var (tools, problems) = await AgentToolbox.LoadAsync(Http, servers, MachineOf(session), offersPatch: kind == AccountKind.OpenAIApiKey, cancellation);
+        var (tools, problems) = await AgentToolbox.LoadAsync(Http, servers, MachineOf(session), 
+            offersPatch: kind == AccountKind.OpenAIApiKey || (kind == AccountKind.OpenCodeGoApiKey && OpenCodeGo.OffersPatch(session.Model!)), cancellation);
         return (new AgentEnvironment(new RetryingTurnExecutor(executor, time), tools, AgentInstructions.For(os, session.WorkingDirectory)), problems);
     }
 }

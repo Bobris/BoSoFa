@@ -1,6 +1,6 @@
 # Server agent: a harness that runs in the server
 
-Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only), 3 (machine tools) and 4 (Anthropic) are done, step 4 not yet against the real API, the rest is planned.
+Status: milestone M9 in [plan.md](plan.md); steps 1 (the providers), 2 (the loop, MCP only), 3 (machine tools) 4 (Anthropic) and 6 (OpenCode Go) are done, 4 and 6 not yet against the real services; 5 (ChatGPT sign-in) is not built, see §5.2, the rest is planned.
 
 ## 1. What and why
 
@@ -183,6 +183,12 @@ interface IModelTurnExecutor
 
 ### 5.2 OpenAI subscription (ChatGPT sign-in), as in CodeAlta
 
+**Not built (decided 2026-11-09).** OpenAI's [Sign in with ChatGPT docs](https://developers.openai.com/siwc/token-sharing-open-source/)
+cover open-source and locally hosted apps and send paid or remotely hosted ones to an interest form, while this design runs the
+loop and keeps the tokens on the server. ChatGPT plans keep working through the Codex harness on a person's machine. Should OpenAI
+approve hosted use, the design below needs one correction: `dynamic_agent_client` is only the first registration, after which each
+account uses the client id issued to it. ChatGPT Business workspaces refuse this sign-in.
+
 **Sign-in:** authorization code with PKCE S256.
 
 - Authorize at `https://auth.openai.com/api/accounts/authorize`, exchange the code at
@@ -236,7 +242,9 @@ This uses a person's own subscription for their own sessions only. An account is
   - models: `https://opencode.ai/inference/go/v1/models`
 
   Every text model works through either API, because OpenCode translates. We call each model on its native one, and
-  Responses otherwise.
+  Responses otherwise: Messages for Claude, Qwen and MiniMax M3, from the table in the docs, since the model list does not
+  say. Encrypted reasoning is asked for only from models that speak Responses themselves.
+- The new-session form lists the chat models with tools from `/v1/models`.
 - Requirements OpenCode states:
   - a stable `x-opencode-session` header for each conversation (the session id);
   - our own User-Agent, not a library's;
@@ -482,9 +490,14 @@ so the transcript shows what the model was told.
    - `AgentAnthropicTest` runs whole sessions against a fake Messages API written from the documented events.
    - No Anthropic key was available, so nothing has called the real API. `LiveAnthropicKeepsThinkingAcrossAToolCall` does
      once `BOSOFA_TEST_ANTHROPIC_KEY_FILE` names a file with a key (`BOSOFA_TEST_ANTHROPIC_MODEL` is optional).
-5. **OpenAI subscription.** PKCE sign-in from the desktop app and the web paste fallback, token refresh as one event,
+5. **OpenAI subscription.** Not built; see §5.2. PKCE sign-in from the desktop app and the web paste fallback, token refresh as one event,
    the ChatGPT request rules. *Done when* a person signs in and runs a session on their plan.
 6. **OpenCode Go.** The account kind, the model list, its headers, native API per model.
+   *Done (2026-11-09), except for a run against the real service:*
+   - `OpenCodeGo` chooses the API per model; `AccountKind.OpenCodeGoApiKey` serves only the agent.
+   - Approvals are now tied to the call's place in the transcript, because open models reuse ids like `call_0`.
+   - `AgentOpenCodeGoTest` runs against a fake service. No Go key was available, so `LiveOpenCodeGoRunsAToolCall` waits for
+     `BOSOFA_TEST_OPENCODE_KEY_FILE` (`BOSOFA_TEST_OPENCODE_MODEL` is optional).
 7. **System prompt and profiles.** The layers of §7, the profile and new-session fields, `AGENTS.md`.
 8. **Context, cost and web.** Compaction, the models.dev snapshot, costs, `web_fetch` with its address checks, and the
    providers' hosted search.

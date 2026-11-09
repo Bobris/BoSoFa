@@ -55,13 +55,18 @@ public class AgentItemsRecorded : EventWithResult<SessionCommandResult>
     public long ReasoningTokens { get; set; }
 }
 
-/// <summary>A tool call waits for a person. <see cref="Key"/> is the call's id, so a resumed loop finds the same request.</summary>
+/// <summary>A tool call waits for a person. <see cref="Key"/> comes from the call's place in the transcript, so a resumed loop finds the same
+/// request, and a provider that reuses its call ids cannot answer a new call with an old approval.</summary>
 public class AgentApprovalRaised : EventWithResult<SessionCommandResult>
 {
     public ulong SessionId { get; set; }
     public string NodeId { get; set; } = "";
     public long Version { get; set; }
     public string Key { get; set; } = "";
+
+    /// <summary>The provider's id of the call, for showing.</summary>
+    public string? ToolUseId { get; set; }
+
     public string ToolName { get; set; } = "";
     public string Input { get; set; } = "";
     public string? Description { get; set; }
@@ -184,7 +189,7 @@ public sealed class AgentApprovalRaisedHandler(IDomainSignals signals) : IEventH
         if (requests.FindByKeyOrDefault(session.Id, ev.Key) == null)
             requests.Insert(new()
             {
-                SessionId = session.Id, Id = Ambient.AllocateId(), Key = ev.Key, ToolName = ev.ToolName, ToolUseId = ev.Key,
+                SessionId = session.Id, Id = Ambient.AllocateId(), Key = ev.Key, ToolName = ev.ToolName, ToolUseId = ev.ToolUseId ?? ev.Key,
                 Input = ev.Input, Description = ev.Description, Status = RuntimeRequestStatus.Pending, RaisedAt = ev.When
             });
         session.Status = SessionStatus.WaitingForApproval;

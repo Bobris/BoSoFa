@@ -23,12 +23,12 @@ public sealed class OpenAIResponsesExecutor(HttpClient http, Uri endpoint, Actio
         new(http, endpoint ?? OpenAIEndpoint, (message, _) => message.Headers.Authorization = new("Bearer", apiKey));
 
     /// <summary>OpenCode Go: its key, and the stable session id it asks for in <c>x-opencode-session</c>.</summary>
-    public static OpenAIResponsesExecutor ForOpenCodeGo(HttpClient http, string apiKey, Uri? endpoint = null) =>
+    public static OpenAIResponsesExecutor ForOpenCodeGo(HttpClient http, string apiKey, Uri? endpoint = null, bool includeEncryptedReasoning = true) =>
         new(http, endpoint ?? OpenCodeGoEndpoint, (message, request) =>
         {
             message.Headers.Authorization = new("Bearer", apiKey);
             message.Headers.TryAddWithoutValidation("x-opencode-session", request.SessionId);
-        }, "OpenCode Go");
+        }, "OpenCode Go", includeEncryptedReasoning);
 
     public string Api => ApiName;
     public string Endpoint { get; } = endpoint.ToString();

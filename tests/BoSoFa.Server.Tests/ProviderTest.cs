@@ -315,6 +315,57 @@ public class ProviderTest
         Assert.Fail("The model did not finish.");
     }
 
+    internal sealed class LiveOpenCodeGoFactAttribute : FactAttribute
+    {
+        public LiveOpenCodeGoFactAttribute()
+        {
+            if (Environment.GetEnvironmentVariable("BOSOFA_TEST_OPENCODE_KEY_FILE") is not { Length: > 0 } file || !File.Exists(file))
+                Skip = "Set BOSOFA_TEST_OPENCODE_KEY_FILE to a file with an OpenCode Go API key to call the real service.";
+        }
+    }
+
+    [LiveOpenCodeGoFact]
+    public async Task LiveOpenCodeGoRunsAToolCall()
+    {
+        var key = File.ReadAllText(Environment.GetEnvironmentVariable("BOSOFA_TEST_OPENCODE_KEY_FILE")!).Trim();
+        var model = Environment.GetEnvironmentVariable("BOSOFA_TEST_OPENCODE_MODEL") is { Length: > 0 } chosen ? chosen : "glm-5.3";
+        using var http = new HttpClient();
+        var executor = new RetryingTurnExecutor(OpenCodeGo.ExecutorFor(http, key, model, null), TimeProvider.System);
+        List<ConversationItem> conversation = [new UserMessage("Use the add tool to add 1234 and 4321, then answer with the sum only.")];
+        for (var step = 0; step < 6; step++)
+        {
+            var response = await executor.ExecuteAsync(Request(model, conversation), _ => ValueTask.CompletedTask, default);
+            conversation.AddRange(response.Output);
+            if (response.Stop != StopReason.ToolCalls)
+            {
+                Assert.Contains(conversation, item => item is ToolCall);
+                Assert.Contains("5555", conversation.OfType<AssistantMessage>().Last().Text);
+                return;
+            }
+            foreach (var call in response.Output.OfType<ToolCall>())
+            {
+                var arguments = JsonNode.Parse(call.Arguments)!;
+                conversation.Add(new ToolResult(call.Id, ((int)arguments["a"]! + (int)arguments["b"]!).ToString()));
+            }
+        }
+        Assert.Fail("The model did not finish.");
+    }
+
+    [Theory]
+    [InlineData("glm-5.3", false, false)]
+    [InlineData("kimi-k3", false, false)]
+    [InlineData("minimax-m3.1-flash", false, false)]
+    [InlineData("minimax-m3", true, false)]
+    [InlineData("qwen3.8-max", true, false)]
+    [InlineData("claude-haiku-5-5", true, false)]
+    [InlineData("gpt-6-luna", false, true)]
+    [InlineData("grok-4.7", false, true)]
+    public void OpenCodeGoCallsEachModelOnItsOwnApi(string model, bool messages, bool nativeResponses)
+    {
+        Assert.Equal(messages, OpenCodeGo.UsesMessages(model));
+        Assert.Equal(nativeResponses, OpenCodeGo.IsNativeResponses(model));
+    }
+
     [Theory]
     [InlineData("claude-opus-5-5", true)]
     [InlineData("claude-sonnet-4-6", true)]

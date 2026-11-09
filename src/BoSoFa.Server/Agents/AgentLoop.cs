@@ -12,7 +12,14 @@ namespace BoSoFa.Server.Agents;
 /// <summary>What one pass of the loop reads.</summary>
 sealed record AgentView(Session Session, AgentRunner Runner, List<SessionItem> Items, List<RuntimeRequest> Requests)
 {
-    public RuntimeRequest? RequestOf(string callId) => Requests.FirstOrDefault(request => request.Key == callId);
+    /// <summary>The call's place in the transcript. Providers' ids are not enough: some models use <c>call_0</c> at every step.</summary>
+    public long SeqOf(ToolCall call) => Items.Last(item => item.Kind == SessionItemKind.ToolUse && item.ToolUseId == call.Id).Seq;
+
+    public RuntimeRequest? RequestOf(ToolCall call)
+    {
+        var key = AgentLoop.ApprovalKey(SeqOf(call));
+        return Requests.FirstOrDefault(request => request.Key == key);
+    }
 }
 
 /// <summary>Credentials and tools of one loop instance, which end with it.</summary>
@@ -28,6 +35,8 @@ sealed class AgentSetupException(string message) : Exception(message);
 /// </summary>
 sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
 {
+    public static string ApprovalKey(long seq) => $"item-{seq}";
+
     const string UnknownOutcome = "The server restarted while this ran; whether it took effect is unknown.";
     const string InterruptedResult = "The person interrupted this before it finished.";
     static readonly TimeSpan PendingRecheck = TimeSpan.FromSeconds(30);
@@ -58,7 +67,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             {
                 // Whatever is open when a loop starts belongs to a loop that ended: its first open call may have been running.
                 firstPass = false;
-                if (state.OpenCalls.Count > 0 && view.RequestOf(state.OpenCalls[0].Id)?.Status != RuntimeRequestStatus.Pending)
+                if (state.OpenCalls.Count > 0 && view.RequestOf(state.OpenCalls[0])?.Status != RuntimeRequestStatus.Pending)
                     suspectCall = state.OpenCalls[0].Id;
             }
             if (view.Runner.InterruptRequested)
@@ -275,7 +284,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             return;
         }
 
-        var request = view.RequestOf(call.Id);
+        var request = view.RequestOf(call);
         var needsApproval = AgentToolbox.NeedsApproval(kind, mode);
         if (needsApproval)
         {
@@ -283,7 +292,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             {
                 await Publisher.PublishAndWaitAsync(new AgentApprovalRaised
                 {
-                    SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, Key = call.Id, ToolName = call.Name,
+                    SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, Key = ApprovalKey(view.SeqOf(call)), ToolUseId = call.Id, ToolName = call.Name,
                     Input = call.Arguments, Description = kind switch
                     {
                         AgentToolKind.Ask => Str(arguments["question"]),
@@ -328,7 +337,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             return;
         }
 
-        var seq = view.Items.Last(item => item.Kind == SessionItemKind.ToolUse && item.ToolUseId == call.Id).Seq;
+        var seq = view.SeqOf(call);
         var toolCall = new AgentToolCall($"{sessionId}:{seq}", $"tool-{seq}", RunNumberOf(view));
         McpToolResult result;
         try

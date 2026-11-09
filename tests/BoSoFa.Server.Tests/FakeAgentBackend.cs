@@ -30,6 +30,10 @@ sealed class FakeAgentBackend : IAsyncDisposable
 
     public string ResponsesUrl => Address + "/v1/responses";
     public string MessagesUrl => Address + "/v1/messages";
+    public string GoBaseUrl => Address + "/go";
+    public ConcurrentQueue<string> ModelPaths { get; } = new();
+    public ConcurrentQueue<string> GoSessions { get; } = new();
+    public ConcurrentQueue<string> GoModelListAuthorizations { get; } = new();
     public string McpUrl => Address + "/mcp";
     string Address => _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
 
@@ -40,6 +44,9 @@ sealed class FakeAgentBackend : IAsyncDisposable
         var backend = new FakeAgentBackend(app);
         app.MapPost("/v1/responses", backend.ModelAsync);
         app.MapPost("/v1/messages", backend.ModelAsync);
+        app.MapPost("/go/openai/v1/responses", backend.ModelAsync);
+        app.MapPost("/go/anthropic/v1/messages", backend.ModelAsync);
+        app.MapGet("/go/v1/models", backend.GoModelsAsync);
         app.MapPost("/mcp", backend.McpAsync);
         await app.StartAsync();
         return backend;
@@ -176,10 +183,28 @@ sealed class FakeAgentBackend : IAsyncDisposable
     {
         using var reader = new StreamReader(http.Request.Body, Encoding.UTF8);
         ModelRequests.Enqueue((JsonNode.Parse(await reader.ReadToEndAsync()) as JsonObject)!);
+        ModelPaths.Enqueue(http.Request.Path);
+        if (http.Request.Headers.TryGetValue("x-opencode-session", out var goSession)) GoSessions.Enqueue(goSession.ToString());
         ModelAuthorizations.Enqueue(http.Request.Headers.TryGetValue("x-api-key", out var apiKey) ? apiKey.ToString() : http.Request.Headers.Authorization.ToString());
         _modelCalled.Release();
         if (_script.TryDequeue(out var step)) await step(http);
         else await Completed(http, [Message("The script ended.")]);
+    }
+
+    Task GoModelsAsync(HttpContext http)
+    {
+        GoModelListAuthorizations.Enqueue(http.Request.Headers.Authorization.ToString());
+        static JsonObject Model(string id, string name, string type, bool tools) => new()
+        {
+            ["id"] = id, ["name"] = name, ["type"] = type, ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["supported"] = tools } },
+            ["limit"] = new JsonObject { ["context"] = 1000000, ["output"] = 384000 }
+        };
+        http.Response.ContentType = "application/json";
+        return http.Response.WriteAsync(new JsonObject
+        {
+            ["object"] = "list",
+            ["data"] = new JsonArray(Model("glm-5.3", "GLM-5.3", "chat", true), Model("qwen3.8-max", "Qwen3.8 Max", "chat", true), Model("no-tools", "No Tools", "chat", false), Model("draw", "Draw", "image", true))
+        }.ToJsonString());
     }
 
     async Task McpAsync(HttpContext http)

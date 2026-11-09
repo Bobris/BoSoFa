@@ -35,7 +35,7 @@ public class AgentSessionTest
         public static async Task<Harness> StartAsync(string? liveKey = null)
         {
             var harness = new Harness { Backend = await FakeAgentBackend.StartAsync() };
-            harness.Server = await TestServer.StartAsync(extraArgs: liveKey != null ? [] : ["--BoSoFa:Agent:OpenAIEndpoint", harness.Backend.ResponsesUrl, "--BoSoFa:Agent:AnthropicEndpoint", harness.Backend.MessagesUrl]);
+            harness.Server = await TestServer.StartAsync(extraArgs: liveKey != null ? [] : ["--BoSoFa:Agent:OpenAIEndpoint", harness.Backend.ResponsesUrl, "--BoSoFa:Agent:AnthropicEndpoint", harness.Backend.MessagesUrl, "--BoSoFa:Agent:OpenCodeGoBaseUrl", harness.Backend.GoBaseUrl]);
             harness.Boris = harness.Server.Client();
             (await harness.Boris.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("boris@example.com", "Boris"))).EnsureSuccessStatusCode();
             await harness.Boris.PostAsJsonAsync("/api/v1/mcp-servers", new PublishMcpServer("facts", McpTransport.Http, null, null, harness.Backend.McpUrl,

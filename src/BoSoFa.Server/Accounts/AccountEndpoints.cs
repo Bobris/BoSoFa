@@ -1,4 +1,5 @@
 using BoSoFa.Protocol;
+using BoSoFa.Server.Agents;
 using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Machines;
@@ -21,6 +22,7 @@ public static class AccountEndpoints
         api.MapGet("", ListAsync);
         api.MapPost("", AddAsync);
         api.MapDelete("/{id}", RemoveAsync);
+        api.MapGet("/{id}/models", ModelsAsync);
         app.MapPost("/api/daemon/v1/accounts/{id}/lease", LeaseAsync).RequireAuthorization(DaemonTokens.Scheme);
     }
 
@@ -63,6 +65,26 @@ public static class AccountEndpoints
         if (result.Outcome != CommandOutcome.Ok) return TypedResults.BadRequest("The account could not be added.");
         using var query = publisher.StartQuery();
         return TypedResults.Ok(ToDto(Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(result.AccountId)!));
+    }
+
+    static readonly HttpClient ModelLists = new() { Timeout = TimeSpan.FromSeconds(15) };
+
+    /// <summary>The models this account can run; empty when the provider cannot say right now, as the model's name can still be typed.</summary>
+    static async Task<Results<Ok<AgentModelDto[]>, NotFound>> ModelsAsync(ulong id, BtdbNode node, ServerOptions options, HttpContext http)
+    {
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        AccountKind kind;
+        using (publisher.StartQuery())
+        {
+            if (Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(id) is not { } account || account.OwnerId != (http.User.UserId() ?? 0)) return TypedResults.NotFound();
+            kind = account.Kind;
+        }
+        if (kind != AccountKind.OpenCodeGoApiKey) return TypedResults.Ok(Array.Empty<AgentModelDto>());
+        try { return TypedResults.Ok(await OpenCodeGo.ListModelsAsync(ModelLists, options.Agent.OpenCodeGoBaseUrl, http.RequestAborted)); }
+        catch (Exception problem) when (problem is HttpRequestException or System.Text.Json.JsonException or TaskCanceledException && !http.RequestAborted.IsCancellationRequested)
+        {
+            return TypedResults.Ok(Array.Empty<AgentModelDto>());
+        }
     }
 
     static async Task<Results<NoContent, NotFound, ForbidHttpResult>> RemoveAsync(ulong id, BtdbNode node, HttpContext http)

@@ -50,6 +50,9 @@ public sealed class AgentOptions
 
     /// <summary>Another address for Anthropic's Messages API; empty uses Anthropic's own.</summary>
     public string AnthropicEndpoint { get; set; } = "";
+
+    /// <summary>Another address for OpenCode Go, up to and including <c>/inference/go</c>; empty uses OpenCode's own.</summary>
+    public string OpenCodeGoBaseUrl { get; set; } = "";
 }
 
 public sealed class ClusterOptions

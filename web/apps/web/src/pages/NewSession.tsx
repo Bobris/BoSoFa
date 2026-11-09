@@ -1,5 +1,5 @@
 import { AttachmentStrip, createAttachments } from "../components/PromptImages";
-import { api, type HarnessAccount, type Machine, type Profile } from "@bosofa/api";
+import { api, type HarnessAccount, type AgentModel, type Machine, type Profile } from "@bosofa/api";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { paths } from "../router";
@@ -57,8 +57,15 @@ export default function NewSession() {
   const [harness, setHarness] = createSignal("claude");
   const agentAccounts = () => accounts().filter((a) => a.servesAgent);
   const agentAccount = () => (harness().startsWith("agent:") ? harness().slice("agent:".length) : undefined);
+  const accountKind = () => agentAccounts().find((a) => String(a.id) === agentAccount())?.kind;
   const modelExample = () =>
-    agentAccounts().find((a) => String(a.id) === agentAccount())?.kind === "AnthropicApiKey" ? "claude-opus-5-5" : "gpt-5.4-mini";
+    accountKind() === "AnthropicApiKey" ? "claude-opus-5-5" : accountKind() === "OpenCodeGoApiKey" ? "glm-5.3" : "gpt-5.4-mini";
+  // Only OpenCode Go says what it serves so far; other accounts still take a typed name.
+  const agentModels = createMemo(async (): Promise<AgentModel[]> => {
+    const id = accountKind() === "OpenCodeGoApiKey" ? agentAccount() : undefined;
+    if (!id) return [];
+    return (await api.GET("/api/v1/accounts/{id}/models", { params: { path: { id: Number(id) } } })).data ?? [];
+  });
   const [directory, setDirectory] = createSignal(remembered(lastDirectoryKey));
   const [mode, setMode] = createSignal("default");
   const [model, setModel] = createSignal("");
@@ -203,9 +210,13 @@ export default function NewSession() {
                 class={field}
                 required={agentAccount() !== undefined}
                 placeholder={agentAccount() ? modelExample() : "sonnet, opus, haiku…"}
+                list="agent-models"
                 value={model()}
                 onInput={(event) => setModel(event.currentTarget.value)}
               />
+              <datalist id="agent-models">
+                <For each={agentModels()}>{(option) => <option value={option.id}>{option.name}</option>}</For>
+              </datalist>
             </label>
           </div>
           <label class="block space-y-1">
