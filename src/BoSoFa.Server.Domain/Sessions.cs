@@ -137,6 +137,7 @@ public interface IMachineCommandTable : IRelation<MachineCommandEntry>
 {
     void Insert(MachineCommandEntry entry);
     bool RemoveById(ulong machineId, ulong id);
+    int RemoveById(ulong machineId);
     IEnumerable<MachineCommandEntry> ListById(ulong machineId, AdvancedEnumeratorParam<ulong> param);
 }
 
@@ -494,13 +495,7 @@ public sealed class SessionStopRequestedHandler(IDomainSignals signals, BTDB.Bac
         if (session == null) return new() { Outcome = outcome };
         if (session.Harness == Harnesses.Agent)
         {
-            var runners = Ambient.Relation<IAgentRunnerTable>();
-            if (runners.FindByIdOrDefault(session.Id) is { } runner)
-            {
-                if (runner.ActionId != 0) actions.Cancel(AgentRunners.ActionOf(session, runner)); // a running loop sees the row gone and stops
-                runners.RemoveById(session.Id);
-                AgentRunners.RunnerChanged(signals, session.Id);
-            }
+            AgentRunners.Release(signals, actions, session);
             Sessions.CancelPending(session, ev.When);
             session.Status = SessionStatus.Stopped;
             Sessions.Changed(signals, session, ev.When);

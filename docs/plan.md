@@ -645,6 +645,8 @@ Planned in [server-agent.md](server-agent.md) §11 (2026-11-09): providers alone
 1. **Hosting:** both AKS (a cluster over Azure Blob) and a single node on its own disk with no Azure. A single node stays one process; growing it into a cluster means moving its data.
 2. **Session visibility:** only the creator, for now.
 3. **Enrolling machines:** any user, on their own computers; the machine belongs to them. Cloud machines (M8) wait until the existing features are finished.
+   Its owner or an admin can remove a machine (2026-11-10): its daemon is disconnected and refused from then on, so it exits
+   asking to be enrolled again, which makes a new machine. Its sessions stop with a notice and stay readable.
 4. **Web-only Claude sign-in:** the Accounts page explains how to run `claude setup-token` anywhere and where to paste the token; no relay through a daemon's terminal.
 5. **Desktop without the server:** not needed; the desktop app needs its server.
 6. **Git forge integration:** not in the first version.

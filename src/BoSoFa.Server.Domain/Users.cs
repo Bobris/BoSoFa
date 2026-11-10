@@ -107,6 +107,7 @@ public static class Domain
         .Register(new EnrollmentStartedHandler())
         .Register(new EnrollmentApprovedHandler())
         .Register(new MachineRenamedHandler())
+        .Register(new MachineRemovedHandler(signals, actions))
         .Register(new SessionCreatedHandler(signals, actions))
         .Register(new SessionMessageSentHandler(signals, actions))
         .Register(new SessionInterruptRequestedHandler(signals, actions))

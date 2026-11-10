@@ -259,6 +259,16 @@ public static class AgentRunners
     public static void RunnerChanged(IDomainSignals signals, ulong sessionId) =>
         Ambient.RegisterPostCommit(() => signals.AgentRunnerChanged(sessionId));
 
+    /// <summary>The session stops: its run and any action of it go; a running loop sees the row gone and stops.</summary>
+    public static void Release(IDomainSignals signals, BackendActions actions, Session session)
+    {
+        var runners = Ambient.Relation<IAgentRunnerTable>();
+        if (runners.FindByIdOrDefault(session.Id) is not { } runner) return;
+        if (runner.ActionId != 0) actions.Cancel(ActionOf(session, runner));
+        runners.RemoveById(session.Id);
+        RunnerChanged(signals, session.Id);
+    }
+
     /// <summary>The session and its runner when this write comes from the attempt that holds it and is the next one.</summary>
     public static (Session? Session, AgentRunner? Runner) Held(ulong sessionId, ulong actionId, ulong attempt, long version)
     {

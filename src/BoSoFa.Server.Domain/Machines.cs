@@ -69,6 +69,7 @@ public interface IMachineTable : IRelation<Machine>
     void Insert(Machine machine);
     void Update(Machine machine);
     Machine? FindByIdOrDefault(ulong id);
+    bool RemoveById(ulong id);
 }
 
 /// <summary>A daemon asked to join. Key and user code are random values chosen by the server before publishing, so
@@ -310,8 +311,51 @@ public sealed class MachineRenamedHandler : IEventHandler<MachineRenamed, Sessio
     }
 }
 
+/// <summary>The owner or an admin removed a machine. Its daemon can no longer sign in, and is disconnected; enrolling it again
+/// makes a new machine. Its sessions stay readable and stop, as nothing can run them any more.</summary>
+public class MachineRemoved : EventWithResult<SessionCommandResult>
+{
+    public ulong MachineId { get; set; }
+    public ulong UserId { get; set; }
+}
+
+public sealed class MachineRemovedHandler(IDomainSignals signals, BTDB.BackendActions.BackendActions actions)
+    : IEventHandler<MachineRemoved, SessionCommandResult>
+{
+    public SessionCommandResult? Validate(MachineRemoved ev) => null;
+
+    public SessionCommandResult Consume(MachineRemoved ev)
+    {
+        var machines = Ambient.Relation<IMachineTable>();
+        if (machines.FindByIdOrDefault(ev.MachineId) is not { } machine) return new() { Outcome = CommandOutcome.NotFound };
+        if (!MachineAccess.CanRemove(ev.UserId, machine)) return new() { Outcome = CommandOutcome.Forbidden };
+        foreach (var session in Ambient.Relation<ISessionTable>()
+                     .Where(session => session.MachineId == machine.Id && session.Status is not (SessionStatus.Stopped or SessionStatus.Failed))
+                     .ToList())
+        {
+            if (session.Harness == Harnesses.Agent) AgentRunners.Release(signals, actions, session);
+            Sessions.CancelPending(session, ev.When);
+            session.Status = SessionStatus.Stopped;
+            Sessions.AppendItem(session, SessionItemKind.Notice, ev.When, $"The machine {machine.Name} was removed, so this session stopped.");
+            Sessions.Changed(signals, session, ev.When);
+        }
+        Ambient.Relation<IMachineCommandTable>().RemoveById(machine.Id);
+        Ambient.Relation<IMachineHarnessTable>().RemoveById(machine.Id);
+        Ambient.Relation<IMachineUpdatePolicyTable>().RemoveById(machine.Id);
+        Ambient.Relation<IMachinePresenceTable>().RemoveById(machine.Id);
+        machines.RemoveById(machine.Id);
+        Audit.Record(ev.When, ev.UserId, "machine.removed", machine.Name, $"machine {machine.Id}");
+        var machineId = machine.Id;
+        Ambient.RegisterPostCommit(() => signals.MachinePresenceChanged(machineId, null)); // the node holding its daemon closes it
+        return new() { Outcome = CommandOutcome.Ok };
+    }
+}
+
 public static class MachineAccess
 {
+    /// <summary>Its owner, or an admin cleaning up.</summary>
+    public static bool CanRemove(ulong userId, Machine machine) => userId != 0 && (machine.OwnerId == userId || Catalog.IsAdmin(userId));
+
     /// <summary>Who may start sessions, answer approvals, and reach the machine's files and terminals.</summary>
     public static bool CanControl(ulong userId, Machine machine) => userId != 0 && machine.OwnerId == userId;
 }

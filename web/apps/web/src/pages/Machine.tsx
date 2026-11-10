@@ -212,10 +212,11 @@ function Files(props: { machineId: number; onTerminalHere: (directory: string) =
 }
 
 /** Name, identity and what the computer has: measured now while it is online, as last known otherwise. */
-function Details(props: { machine: Machine; onRenamed: () => void }) {
+function Details(props: { machine: Machine; canRemove: boolean; onRenamed: () => void; onRemoved: () => void }) {
   const [editing, setEditing] = createSignal(false);
   const [name, setName] = createSignal("");
   const [problem, setProblem] = createSignal<string>();
+  const [removeProblem, setRemoveProblem] = createSignal<string>();
   const live = createMemo(async () => {
     if (!props.machine.online) return undefined;
     const { data } = await api.GET("/api/v1/machines/{id}/resources", { params: { path: { id: Number(props.machine.id) } } });
@@ -234,6 +235,16 @@ function Details(props: { machine: Machine; onRenamed: () => void }) {
     props.onRenamed();
   }
 
+  async function remove() {
+    const question =
+      `Remove ${props.machine.name}? Its daemon is refused from now on and its running sessions stop; ` +
+      `they stay readable. To use the computer again, enroll it again.`;
+    if (!confirm(question)) return;
+    const { response, error } = await api.DELETE("/api/v1/machines/{id}", { params: { path: { id: Number(props.machine.id) } } });
+    if (!response.ok) return setRemoveProblem(typeof error === "string" ? error : `Removing failed (${response.status}).`);
+    props.onRemoved();
+  }
+
   return (
     <section class="space-y-3 rounded-lg border border-line bg-panel p-4">
       <Show
@@ -250,6 +261,11 @@ function Details(props: { machine: Machine; onRenamed: () => void }) {
             >
               Rename
             </button>
+            <Show when={props.canRemove}>
+              <button class="text-xs text-muted hover:text-red-600 hover:underline" onClick={remove}>
+                Remove
+              </button>
+            </Show>
             <span class="ml-auto flex items-center gap-2 text-xs text-muted">
               <span class={["inline-block size-2 rounded-full", props.machine.online ? "bg-green-500" : "bg-line"]} />
               {props.machine.online ? "Online" : "Offline"}
@@ -278,6 +294,7 @@ function Details(props: { machine: Machine; onRenamed: () => void }) {
         </form>
         <Show when={problem()}>{(message) => <p class="text-sm text-red-600">{message()}</p>}</Show>
       </Show>
+      <Show when={removeProblem()}>{(message) => <p class="text-sm text-red-600">{message()}</p>}</Show>
       <Show
         when={live() ?? props.machine.resources}
         fallback={<p class="text-sm text-muted">This machine's daemon does not report what it has yet.</p>}
@@ -310,7 +327,12 @@ export default function MachinePage() {
       <Show when={machine()} fallback={<h1 class="text-lg font-medium">Machine</h1>}>
         {(found) => (
           <Loading fallback={<h1 class="text-lg font-medium">{found().name}</h1>}>
-            <Details machine={found()} onRenamed={() => refresh(machine)} />
+            <Details
+              machine={found()}
+              canRemove={found().canControl || me()?.role === "Admin"}
+              onRenamed={() => refresh(machine)}
+              onRemoved={() => navigate("/", { replace: true })}
+            />
           </Loading>
         )}
       </Show>

@@ -46,6 +46,7 @@ public class MachineUpdatePolicy
 public interface IMachineUpdatePolicyTable : IRelation<MachineUpdatePolicy>
 {
     MachineUpdatePolicy? FindByIdOrDefault(ulong machineId);
+    bool RemoveById(ulong machineId);
 }
 
 public class DaemonRollout

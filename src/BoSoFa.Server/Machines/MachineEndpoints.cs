@@ -35,6 +35,7 @@ public static class MachineEndpoints
         api.MapPost("/enrollments/{userCode}/approve", ApproveEnrollmentAsync);
         api.MapGet("/machines", ListMachinesAsync);
         api.MapPut("/machines/{id}/name", RenameMachineAsync);
+        api.MapDelete("/machines/{id}", RemoveMachineAsync);
         api.MapGet("/machines/{id}/resources", MeasureMachineAsync);
         api.MapPost("/machines/{id}/harnesses", InstallHarnessAsync);
         api.MapGet("/harness-releases", ListReleasesAsync);
@@ -162,6 +163,15 @@ public static class MachineEndpoints
         {
             MachineId = id, UserId = http.User.UserId() ?? 0, Name = request.Name
         }, http.RequestAborted));
+    }
+
+    /// <summary>Removes the machine, by its owner or an admin: its daemon is refused from now on and its sessions stop.</summary>
+    static async Task<Results<NoContent, NotFound, ForbidHttpResult, BadRequest<string>>> RemoveMachineAsync(ulong id, BtdbNode node,
+        HttpContext http)
+    {
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        return CommandResult(await publisher.PublishAndWaitAsync(new MachineRemoved { MachineId = id, UserId = http.User.UserId() ?? 0 },
+            http.RequestAborted));
     }
 
     /// <summary>Measures the machine now; its owner only. Nothing is stored: the figures change all the time.</summary>

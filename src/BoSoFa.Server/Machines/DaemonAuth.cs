@@ -4,6 +4,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using BoSoFa.Protocol;
+using BoSoFa.Server.Btdb;
+using BoSoFa.Server.Domain;
+using BTDB.Replication.EventSourcing;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
@@ -68,16 +71,24 @@ public sealed class DaemonTokens(IDataProtectionProvider protection, TimeProvide
 }
 
 public sealed class DaemonAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger,
-    UrlEncoder encoder, DaemonTokens tokens) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    UrlEncoder encoder, DaemonTokens tokens, BtdbNode node) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         var header = Request.Headers.Authorization.ToString();
-        if (!header.StartsWith("Bearer ", StringComparison.Ordinal)) return Task.FromResult(AuthenticateResult.NoResult());
+        if (!header.StartsWith("Bearer ", StringComparison.Ordinal)) return AuthenticateResult.NoResult();
         if (tokens.Validate(header["Bearer ".Length..].Trim()) is not { } machineId)
-            return Task.FromResult(AuthenticateResult.Fail("Invalid or expired daemon token."));
+            return AuthenticateResult.Fail("Invalid or expired daemon token.");
+        // A token outlives its machine by up to its lifetime; a removed machine is refused at once.
+        if (!Exists(await node.Ready.WaitAsync(Context.RequestAborted), machineId)) return AuthenticateResult.Fail("This machine was removed.");
         var identity = new ClaimsIdentity([new Claim(DaemonTokens.MachineIdClaim, machineId.ToString())], Scheme.Name);
-        return Task.FromResult(AuthenticateResult.Success(new(new ClaimsPrincipal(identity), Scheme.Name)));
+        return AuthenticateResult.Success(new(new ClaimsPrincipal(identity), Scheme.Name));
+    }
+
+    internal static bool Exists(EventPublisher publisher, ulong machineId)
+    {
+        using var query = publisher.StartQuery();
+        return Ambient.Relation<IMachineTable>().FindByIdOrDefault(machineId) != null;
     }
 }
 

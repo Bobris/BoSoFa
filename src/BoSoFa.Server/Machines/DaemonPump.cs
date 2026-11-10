@@ -35,6 +35,13 @@ public sealed class DaemonPump(DaemonConnections connections, BtdbNode node, Liv
             ResourcesJson = MachineEndpoints.ResourcesJson(hello.Resources)
         }, cancellation);
         connection.Registered = true;
+        // Removed while connecting: its presence change found nothing registered to close, so this connection ends here.
+        if (!DaemonAuthenticationHandler.Exists(publisher, machineId))
+        {
+            connections.Remove(connection);
+            connection.Close();
+            return;
+        }
         logger.LogInformation("Machine {MachineId} connected ({HostName}, daemon {Version})", machineId, hello.HostName,
             hello.DaemonVersion);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
