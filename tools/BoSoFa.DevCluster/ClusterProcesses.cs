@@ -48,7 +48,16 @@ public sealed class NodeProcess : IAsyncDisposable
     {
         get { lock (_lock) return !_stopped; }
     }
-    public string Log => File.Exists(_log) ? File.ReadAllText(_log) : "";
+    /// <summary>What the node wrote so far; readable while it still writes, which Windows allows only when the reader shares writing.</summary>
+    public string Log
+    {
+        get
+        {
+            if (!File.Exists(_log)) return "";
+            using var reader = new StreamReader(new FileStream(_log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
+            return reader.ReadToEnd();
+        }
+    }
 
     public static int FreePort()
     {
