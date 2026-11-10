@@ -131,6 +131,7 @@ public static class ServerApp
         app.MapReleaseEndpoints();
         app.MapDownloadEndpoints();
         app.MapSessionEndpoints();
+        app.MapDraftEndpoints();
         app.MapAccountEndpoints();
         app.MapApiTokenEndpoints();
         BoSoFa.Server.Desktop.DesktopEndpoints.MapDesktopEndpoints(app);

@@ -15,7 +15,7 @@ function toBase64(text: string): string {
 }
 
 /** One terminal on screen. Output is identified by its byte offset, so a reconnect shows every byte exactly once. */
-function TerminalView(props: { machineId: number; terminalId: string; onExit: () => void }) {
+export function TerminalView(props: { machineId: number; terminalId: string; onExit: () => void; class?: string }) {
   let element!: HTMLDivElement;
 
   onSettled(() => {
@@ -118,7 +118,7 @@ function TerminalView(props: { machineId: number; terminalId: string; onExit: ()
     };
   });
 
-  return <div class="h-96 bg-black p-1" ref={(value) => (element = value)} />;
+  return <div class={[props.class ?? "h-96", "bg-black p-1"]} ref={(value) => (element = value)} />;
 }
 
 /** The machine's terminals: open, watch together, close. */

@@ -195,6 +195,9 @@ public class SessionCreated : EventWithResult<SessionCommandResult>
     public string? ReasoningEffort { get; set; }
     public string? ToolGroup { get; set; }
 
+    /// <summary>The creator's draft this session was written in, removed once it starts; zero without one.</summary>
+    public ulong DraftId { get; set; }
+
     /// <summary>No longer used: a backend action runs an agent session wherever the leader starts it. Kept for stored events.</summary>
     public string RunnerNodeId { get; set; } = "";
 
@@ -395,7 +398,14 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
 
     public SessionCommandResult Consume(SessionCreated ev)
     {
-        if (ev.Harness == Harnesses.Agent) return ConsumeAgent(ev);
+        var result = ev.Harness == Harnesses.Agent ? ConsumeAgent(ev) : ConsumeOnMachine(ev);
+        // The draft it was written in has become this session.
+        if (result.Outcome == CommandOutcome.Ok && ev.DraftId != 0) Ambient.Relation<ISessionDraftTable>().RemoveById(ev.UserId, ev.DraftId);
+        return result;
+    }
+
+    SessionCommandResult ConsumeOnMachine(SessionCreated ev)
+    {
         var machine = Ambient.Relation<IMachineTable>().FindByIdOrDefault(ev.MachineId);
         if (machine == null) return new() { Outcome = CommandOutcome.NotFound };
         if (!MachineAccess.CanControl(ev.UserId, machine)) return new() { Outcome = CommandOutcome.Forbidden };

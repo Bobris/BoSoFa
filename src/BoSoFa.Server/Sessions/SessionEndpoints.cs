@@ -173,7 +173,8 @@ public static class SessionEndpoints
             WorkingDirectory = request.WorkingDirectory, Prompt = request.Prompt,
             PermissionMode = permissionMode ?? "default", Model = model, AccountId = request.AccountId ?? 0,
             UseWorktree = request.UseWorktree, ProfileName = request.ProfileName, ImagesJson = imagesJson,
-            SystemPrompt = request.SystemPrompt, ReasoningEffort = request.ReasoningEffort, ToolGroup = request.ToolGroup
+            SystemPrompt = request.SystemPrompt, ReasoningEffort = request.ReasoningEffort, ToolGroup = request.ToolGroup,
+            DraftId = request.DraftId ?? 0
         });
     }
 

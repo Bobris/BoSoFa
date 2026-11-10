@@ -108,6 +108,7 @@ public sealed class TerminalHost : IAsyncDisposable
         readonly TaskCompletionSource _readDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
         long _total;
         int? _exitCode;
+        DateTime _lastActivityAt = DateTime.UtcNow;
 
         public string Id { get; } = Guid.NewGuid().ToString("N");
         public DateTime StartedAt { get; } = DateTime.UtcNow;
@@ -123,7 +124,7 @@ public sealed class TerminalHost : IAsyncDisposable
 
         public TerminalDto ToDto()
         {
-            lock (_lock) return new(Id, shell, directory, StartedAt, Exited, _exitCode);
+            lock (_lock) return new(Id, shell, directory, StartedAt, Exited, _exitCode, _lastActivityAt);
         }
 
         public void Send(byte[] data) => _input.Writer.TryWrite(data);
@@ -168,6 +169,7 @@ public sealed class TerminalHost : IAsyncDisposable
                         Array.Copy(buffer, 0, _history, position, first);
                         Array.Copy(buffer, first, _history, 0, count - first);
                         _total += count;
+                        _lastActivityAt = DateTime.UtcNow;
                     }
                     host.PublishAsync(new TerminalOutputMessage(Id, offset, Convert.ToBase64String(buffer, 0, count))).GetAwaiter().GetResult();
                 }

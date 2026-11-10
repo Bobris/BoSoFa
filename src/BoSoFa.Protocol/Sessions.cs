@@ -121,7 +121,13 @@ public sealed record CreateSessionRequest(
     string[]? Images = null,
     string? SystemPrompt = null,
     string? ReasoningEffort = null,
-    string? ToolGroup = null);
+    string? ToolGroup = null,
+    ulong? DraftId = null);
+
+/// <summary>A session being written: its prompt and the client's own settings JSON for how to start it.</summary>
+public sealed record SessionDraftDto(ulong Id, string Title, string Prompt, string Settings, DateTime CreatedAt, DateTime UpdatedAt);
+
+public sealed record SaveSessionDraftRequest(string Prompt, string Settings);
 
 /// <summary>How a message reaches a session whose turn is still running.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<DispatchMode>))]

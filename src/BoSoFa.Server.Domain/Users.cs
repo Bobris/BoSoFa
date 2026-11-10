@@ -80,7 +80,7 @@ public static class Domain
 {
     /// <summary>Raise this with every change to persisted relations: a node of a higher generation takes over from older
     /// nodes and publishes its schema, and older builds can never lead again (BTDB <c>Doc/ReplicationHosting.md</c>).</summary>
-    public const ulong ApplicationGeneration = 9;
+    public const ulong ApplicationGeneration = 10;
 
     /// <summary>Every relation of the server database; InitializeRelations registers them under leader authority.</summary>
     public static readonly Type[] Relations =
@@ -91,7 +91,7 @@ public static class Domain
         typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable), typeof(IMcpServerTable),
         typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable), typeof(IAuditEntryTable),
         typeof(IDaemonReleaseTable), typeof(IDesktopReleaseTable), typeof(IMachineUpdatePolicyTable), typeof(IDaemonRolloutTable), typeof(IDaemonRolloutMachineTable), typeof(IDesktopSessionTable),
-        typeof(IAgentRunnerTable), .. BTDB.BackendActions.BackendActions.RelationTypes
+        typeof(IAgentRunnerTable), typeof(ISessionDraftTable), .. BTDB.BackendActions.BackendActions.RelationTypes
     ];
 
     /// <summary>The domain's handlers and those of <paramref name="actions"/>, whose action types must all be registered.</summary>
@@ -108,6 +108,8 @@ public static class Domain
         .Register(new EnrollmentApprovedHandler())
         .Register(new MachineRenamedHandler())
         .Register(new MachineRemovedHandler(signals, actions))
+        .Register(new SessionDraftSavedHandler())
+        .Register(new SessionDraftDiscardedHandler())
         .Register(new SessionCreatedHandler(signals, actions))
         .Register(new SessionMessageSentHandler(signals, actions))
         .Register(new SessionInterruptRequestedHandler(signals, actions))

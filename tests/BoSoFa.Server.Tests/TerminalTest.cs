@@ -59,6 +59,11 @@ public class TerminalTest
         Assert.True(opened.IsSuccessStatusCode, await opened.Content.ReadAsStringAsync());
         var terminal = (await opened.Content.ReadFromJsonAsync<TerminalOpenResult>())!.Terminal;
         Assert.False(terminal.Exited);
+        // Listed across machines too, with when it last printed; only to the person who controls the machine.
+        var everywhere = Assert.Single((await boris.GetFromJsonAsync<MachineTerminalDto[]>("/api/v1/terminals"))!);
+        Assert.Equal((state.MachineId, terminal.Id), (everywhere.MachineId, everywhere.Terminal.Id));
+        Assert.NotNull(everywhere.Terminal.LastActivityAt);
+        Assert.Empty((await anna.GetFromJsonAsync<MachineTerminalDto[]>("/api/v1/terminals"))!);
 
         async Task<(ClientWebSocket Socket, ConcurrentQueue<LiveServerMessage> Live, Task Listening)> WatchAsync(CookieContainer jar)
         {

@@ -2,12 +2,32 @@
 @source "./"; /* also when the desktop app builds this source from its own folder */
 
 @theme {
-  --color-canvas: light-dark(#f7f7f8, #111214);
-  --color-panel: light-dark(#ffffff, #1b1c1f);
-  --color-ink: light-dark(#1d1e22, #e8e8ea);
+  --color-canvas: light-dark(#fbfbfa, #16171a);
+  --color-sidebar: light-dark(#f3f3f1, #111214);
+  --color-panel: light-dark(#ffffff, #1f2024);
+  --color-ink: light-dark(#1d1e22, #ececee);
   --color-muted: light-dark(#6b6d76, #9a9ca5);
-  --color-line: light-dark(#e3e3e7, #2c2d32);
+  --color-line: light-dark(#e5e5e2, #2c2d32);
+  --color-hover: light-dark(rgb(0 0 0 / 0.045), rgb(255 255 255 / 0.06));
+  --color-selected: light-dark(rgb(0 0 0 / 0.08), rgb(255 255 255 / 0.1));
   --color-accent: light-dark(#3b5bdb, #8ea2ff);
+
+  --font-serif: ui-serif, "Iowan Old Style", "Charter", Georgia, serif;
+
+  --animate-pop: pop 120ms ease-out;
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: translateY(2px) scale(0.98);
+    }
+  }
+  --animate-rise: rise 240ms ease-out;
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
 }
 
 :root {
@@ -17,4 +37,8 @@
 body {
   @apply bg-canvas text-ink antialiased;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 25%, transparent);
 }

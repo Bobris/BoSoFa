@@ -3,6 +3,7 @@ import { api, getPlatform, type RuntimeRequest, type Session, type SessionItem }
 import { useNavigate, useParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Match, onSettled, Show, Switch, untrack } from "solid-js";
 import { StatusBadge } from "../components/StatusBadge";
+import { ArrowUpIcon, StopIcon } from "../components/icons";
 import { createLiveSession, isThinking, isToolOutput, type Draft } from "../live";
 import { paths } from "../router";
 import { fetchMe } from "../session";
@@ -497,7 +498,7 @@ function Approval(props: { request: RuntimeRequest; canControl: boolean; session
   );
 }
 
-function Composer(props: { sessionId: number; disabled: boolean; running: boolean; session?: Session }) {
+function Composer(props: { sessionId: number; disabled: boolean; stopped: boolean; running: boolean; session?: Session }) {
   const [text, setText] = createSignal("");
   const [error, setError] = createSignal<string>();
   const attachments = createAttachments();
@@ -521,51 +522,80 @@ function Composer(props: { sessionId: number; disabled: boolean; running: boolea
     await api.POST("/api/v1/sessions/{id}/interrupt", { params: { path: { id: props.sessionId } } });
   }
 
+  let textarea: HTMLTextAreaElement | undefined;
+  const grow = () => {
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, window.innerHeight * 0.4)}px`;
+  };
+  const placeholder = () =>
+    props.stopped
+      ? "This session has stopped."
+      : props.disabled
+        ? "Only the machine's owner can write here."
+        : props.running
+          ? "Queue a message, or steer this turn"
+          : "Reply…";
+
   return (
-    <div class="sticky bottom-0 -mx-4 sm:-mx-6 border-t border-line bg-canvas/95 px-4 sm:px-6 py-3 backdrop-blur">
+    <div class="sticky bottom-0 -mx-4 bg-gradient-to-t from-canvas from-70% to-transparent px-4 pb-4 pt-6 sm:-mx-6 sm:px-6">
       <Show when={props.session}>{(session) => <SessionBar session={session()} />}</Show>
-      <AttachmentStrip attachments={attachments} />
-      <div class="flex items-end gap-2">
+      <div class="rounded-2xl border border-line bg-panel shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.05)] transition-shadow focus-within:border-accent/40">
+        <div class="px-3 pt-2 empty:hidden">
+          <AttachmentStrip attachments={attachments} />
+        </div>
         <textarea
-          class="min-h-11 flex-1 resize-y rounded-md border border-line bg-panel px-3 py-2 text-sm"
+          ref={(element) => (textarea = element)}
+          class="block max-h-[40vh] min-h-11 w-full resize-none bg-transparent px-4 pt-3 text-[15px] leading-relaxed outline-none placeholder:text-muted disabled:cursor-not-allowed"
           onPaste={attachments.onPaste}
           onDragOver={attachments.onDragOver}
           onDrop={attachments.onDrop}
-          rows={2}
-          placeholder={props.disabled ? "Only the machine's owner can write here." : "Message (⌘/Ctrl+Enter to send or queue)"}
+          rows={1}
+          placeholder={placeholder()}
           disabled={props.disabled}
           value={text()}
-          onInput={(event) => setText(event.currentTarget.value)}
+          onInput={(event) => {
+            setText(event.currentTarget.value);
+            grow();
+          }}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
               event.preventDefault();
-              void send();
+              void send().then(grow);
             }
           }}
         />
-        <Show when={props.running && !props.disabled}>
-          <button class="rounded-md border border-line px-3 py-2 text-sm" onClick={interrupt}>
-            Interrupt
-          </button>
-        </Show>
-        <Show when={props.running && !props.disabled}>
+        <div class="flex items-center justify-end gap-1.5 px-2 pb-2">
+          <Show when={props.running && !props.disabled}>
+            <button
+              type="button"
+              class="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted hover:bg-hover hover:text-ink"
+              title="Stop the running turn"
+              onClick={interrupt}
+            >
+              <StopIcon class="size-4" />
+              Interrupt
+            </button>
+            <button
+              type="button"
+              class="h-8 rounded-lg px-2.5 text-sm text-accent hover:bg-accent/10 disabled:opacity-40 disabled:hover:bg-transparent"
+              title="Send now and redirect the running turn"
+              disabled={text().trim() === "" || attachments.uploading()}
+              onClick={() => send("Steer")}
+            >
+              Steer
+            </button>
+          </Show>
           <button
-            class="rounded-md border border-accent px-3 py-2 text-sm text-accent disabled:opacity-50"
-            title="Send now and redirect the running turn"
-            disabled={text().trim() === "" || attachments.uploading()}
-            onClick={() => send("Steer")}
+            type="button"
+            class="flex size-8 items-center justify-center rounded-full bg-accent text-white shadow-sm transition-opacity disabled:opacity-30"
+            title={props.running ? "Queue: send after the running turn ends" : "Send (↵)"}
+            disabled={props.disabled || text().trim() === "" || attachments.uploading()}
+            onClick={() => send("Queue")}
           >
-            Steer
+            <ArrowUpIcon class="size-4" />
           </button>
-        </Show>
-        <button
-          class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          title={props.running ? "Send after the running turn ends" : undefined}
-          disabled={props.disabled || text().trim() === "" || attachments.uploading()}
-          onClick={() => send("Queue")}
-        >
-          {props.running ? "Queue" : "Send"}
-        </button>
+        </div>
       </div>
       <Show when={error()}>{(message) => <p class="mt-1 text-sm text-red-600">{message()}</p>}</Show>
     </div>
@@ -628,7 +658,7 @@ function SessionView(props: { id: number }) {
   );
 
   return (
-    <div class="mx-auto max-w-3xl">
+    <div class="mx-auto flex min-h-[calc(100dvh-var(--bar)-2rem)] max-w-3xl flex-col sm:min-h-[calc(100dvh-var(--bar)-3rem)]">
       <Show
         when={live.session}
         fallback={<p class="text-muted">{live.error ?? "Connecting…"}</p>}
@@ -648,13 +678,13 @@ function SessionView(props: { id: number }) {
               <Show when={session().accountLabel}>{(account) => <> · {account()}</>}</Show>
               <Show when={session().profileName}>{(profile) => <> · {profile()}</>}</Show>
               <Show when={session().branch}>{(branch) => <> · <span class="font-mono">{branch()}</span></>}</Show> ·{" "}
-              <Show when={session().workingDirectory}>{(directory) => <><span class="font-mono">{directory()}</span> · </>}</Show>
+              <Show when={session().workingDirectory}>{(directory) => <><span class="break-all font-mono">{directory()}</span> · </>}</Show>
               {session().permissionMode}
             </p>
           </header>
         )}
       </Show>
-      <div class="space-y-4 pb-4">
+      <div class="flex-1 space-y-4 pb-4">
         <For each={live.items}>{(item) => <Item item={item} tools={tools} />}</For>
         <For each={loneDrafts()}>
           {(draft) => (
@@ -689,6 +719,7 @@ function SessionView(props: { id: number }) {
       <Composer
         sessionId={sessionId}
         disabled={!(live.session?.canControl ?? false) || live.session?.status === "Stopped"}
+        stopped={live.session?.status === "Stopped"}
         running={running()}
         session={live.session}
       />

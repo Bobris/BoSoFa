@@ -15,12 +15,13 @@ export default function Machines() {
   });
 
   return (
-    <div class="space-y-4">
+    <div class="mx-auto max-w-3xl space-y-4">
+    <h1 class="text-xl font-semibold">Machines</h1>
     <Show when={getPlatform().localDaemon}>
       <ThisMachine />
     </Show>
     <section class="rounded-lg border border-line bg-panel">
-      <h2 class="px-4 py-3 border-b border-line text-sm font-medium">Machines</h2>
+      <h2 class="px-4 py-3 border-b border-line text-sm font-medium">All machines</h2>
       <Show
         when={machines().length > 0}
         fallback={

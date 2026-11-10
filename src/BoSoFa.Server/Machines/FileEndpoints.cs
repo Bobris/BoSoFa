@@ -19,6 +19,7 @@ public static class FileEndpoints
         files.MapGet("/text", ReadAsync);
         files.MapPost("/fetch", FetchAsync);
         files.MapPost("/store", StoreAsync);
+        app.MapGet("/api/v1/terminals", AllTerminalsAsync).RequireAuthorization();
         var terminals = app.MapGroup("/api/v1/machines/{id}/terminals").RequireAuthorization();
         terminals.MapGet("", ListTerminalsAsync);
         terminals.MapPost("", OpenTerminalAsync);
@@ -27,6 +28,40 @@ public static class FileEndpoints
 
     static Task<Results<Ok<TerminalListResult>, NotFound, ForbidHttpResult, BadRequest<string>>> ListTerminalsAsync(ulong id, BtdbNode node,
         MachineRpcClient rpc, HttpContext http) => CallAsync<TerminalListResult>(id, new TerminalListRequest(), node, rpc, http);
+
+    /// <summary>The terminals on every online machine the person controls, asked of their daemons at once; a machine slow to answer
+    /// is left out rather than holding up the list.</summary>
+    static async Task<Results<Ok<MachineTerminalDto[]>, ForbidHttpResult>> AllTerminalsAsync(BtdbNode node, MachineRpcClient rpc, HttpContext http)
+    {
+        if (http.User.IsReadOnly()) return TypedResults.Forbid();
+        var userId = http.User.UserId() ?? 0;
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        List<(ulong Id, string Name)> machines;
+        using (publisher.StartQuery())
+        {
+            var presence = Ambient.Relation<IMachinePresenceTable>();
+            machines = Ambient.Relation<IMachineTable>()
+                .Where(machine => MachineAccess.CanControl(userId, machine) && presence.FindByIdOrDefault(machine.Id) != null)
+                .Select(machine => (machine.Id, machine.Name)).ToList();
+        }
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
+        timeout.CancelAfter(TimeSpan.FromSeconds(3));
+        var answers = await Task.WhenAll(machines.Select(async machine =>
+        {
+            try
+            {
+                return await rpc.CallAsync(machine.Id, new TerminalListRequest(), timeout.Token) is TerminalListResult list
+                    ? list.Terminals.Select(terminal => new MachineTerminalDto(machine.Id, machine.Name, terminal))
+                    : [];
+            }
+            catch (OperationCanceledException) when (!http.RequestAborted.IsCancellationRequested)
+            {
+                return [];
+            }
+        }));
+        return TypedResults.Ok(answers.SelectMany(terminals => terminals)
+            .OrderByDescending(entry => entry.Terminal.LastActivityAt ?? entry.Terminal.StartedAt).ToArray());
+    }
 
     static Task<Results<Ok<TerminalOpenResult>, NotFound, ForbidHttpResult, BadRequest<string>>> OpenTerminalAsync(ulong id,
         TerminalOpenRequest request, BtdbNode node, MachineRpcClient rpc, HttpContext http) =>

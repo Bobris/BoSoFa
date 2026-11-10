@@ -398,6 +398,13 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - Mutations are `action(function*…)` with `createOptimisticStore`.
 - **White labeling:** the header, the tab title and the sign-in texts show `BoSoFa:Branding:Name` and `Tagline`, read from `/api/v1/branding` and remembered for the next start. The desktop app shows the names of the server it signed in to; its own bundle and window names stay BoSoFa.
 - **Screens:** sessions board/sidebar, session view (transcript, composer with steer/queue, approvals inline, plan, diff, files changed), machines (status, inventory, harnesses, terminals), projects/workspaces, catalogs (harnesses, MCP, skills, profiles), people, settings and rollouts, audit.
+- **Layout (2026-11-10):** a sidebar beside one content area, which the desktop app will later hold as tabs.
+  - The sidebar has New session and New terminal at the top (⌘⇧O, ⌘\ hides it) and a search box.
+  - Below them is one list of my sessions, drafts and running terminals by last activity, grouped by day. A session shows a dot while it works and an amber one when it waits for me.
+  - At the bottom are the person and a menu: machines, accounts, catalog, tokens, install, and for admins people, releases and audit.
+  - The start page is the composer. The harness, machine, folder (with the machine's recent folders) and model sit in it, and permissions, worktree, profile, account and the agent's options sit below. Enter starts, Shift+Enter adds a line.
+  - The first word written creates a draft on the server (`/api/v1/drafts`, the settings as the client's own JSON), saved as it is typed. Starting the session turns the draft into it (`CreateSessionRequest.DraftId`). Clearing the prompt discards it.
+  - The sidebar lists terminals from `/api/v1/terminals`, which asks every online machine of mine, with a 3 s limit.
 - **Rules for agents** (go into `AGENTS.md`):
   - Solid 2 docs: `https://v2.solidjs.com/llms-small.txt` (the primer), `/llms.txt`, and `/llms-full.txt`.
   - Read `node_modules/solid-js/CHEATSHEET.md`, `solid-js/skills/solid-2.0/SKILL.md` and `@solidjs/diagnostics/skills/agent-loops/SKILL.md`.

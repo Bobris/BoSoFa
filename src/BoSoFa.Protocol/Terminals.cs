@@ -18,7 +18,12 @@ public sealed record TerminalResizeRequest(string TerminalId, int Cols, int Rows
 
 public sealed record TerminalCloseRequest(string TerminalId) : TerminalRpc;
 
-public sealed record TerminalDto(string Id, string Shell, string WorkingDirectory, DateTime StartedAt, bool Exited, int? ExitCode);
+/// <param name="LastActivityAt">When it last printed; absent from daemons before it.</param>
+public sealed record TerminalDto(string Id, string Shell, string WorkingDirectory, DateTime StartedAt, bool Exited, int? ExitCode,
+    DateTime? LastActivityAt = null);
+
+/// <summary>A terminal of one of the person's machines, for a list across machines.</summary>
+public sealed record MachineTerminalDto(ulong MachineId, string MachineName, TerminalDto Terminal);
 
 public sealed record RpcDone : MachineRpcResult;
 
