@@ -5,5 +5,7 @@
     <BrandFullName>Bobris Software Factory</BrandFullName>
     <BrandId>bosofa</BrandId>
     <BrandDaemon>bosofad</BrandDaemon>
+    <!-- The app and web icons (brands/icons/README.md); a brand may bring its own folder. -->
+    <BrandIcons Condition="'$(BrandIcons)' == ''">$(MSBuildThisFileDirectory)icons/</BrandIcons>
   </PropertyGroup>
 </Project>

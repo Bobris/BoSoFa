@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- The app's mark, without letters so every brand can use it: a prompt that an agent answers (the spark). -->
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b7cfa"/>
+      <stop offset="0.55" stop-color="#5a4ee6"/>
+      <stop offset="1" stop-color="#7a3fd6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.22" cy="0.12" r="0.85">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.32"/>
+      <stop offset="0.6" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="spark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff6d6"/>
+      <stop offset="1" stop-color="#ffd27a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#base)"/>
+  <rect width="1024" height="1024" rx="228" fill="url(#glow)"/>
+  <rect x="6" y="6" width="1012" height="1012" rx="222" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="12"/>
+  <path d="M286 318 L506 512 L286 706" fill="none" stroke="#ffffff" stroke-width="116" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="566" y="648" width="210" height="96" rx="48" fill="#ffffff" fill-opacity="0.9"/>
+  <path d="M742 196 C752 268 784 300 856 310 C784 320 752 352 742 424 C732 352 700 320 628 310 C700 300 732 268 742 196 Z" fill="url(#spark)"/>
+</svg>

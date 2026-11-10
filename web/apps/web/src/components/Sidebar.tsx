@@ -282,8 +282,9 @@ export default function Sidebar(props: { onNavigate: () => void; onCollapse: () 
         onPointerDown={startWindowDrag}
         onDblClick={zoomWindow}
       >
-        <a href="/" class="min-w-0 truncate text-[15px] font-semibold tracking-tight" onClick={() => workspace.newSession()}>
-          {branding().name}
+        <a href="/" class="flex min-w-0 items-center gap-2 text-[15px] font-semibold tracking-tight" onClick={() => workspace.newSession()}>
+          <img src="/icon.svg" alt="" class="size-5 shrink-0 rounded-[5px]" draggable={false} />
+          <span class="truncate">{branding().name}</span>
         </a>
         <button
           type="button"

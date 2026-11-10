@@ -5,5 +5,7 @@
     <BrandFullName>Quadient Software Factory</BrandFullName>
     <BrandId>qsf</BrandId>
     <BrandDaemon>qsfd</BrandDaemon>
+    <!-- The app and web icons (brands/icons/README.md); a brand may bring its own folder. -->
+    <BrandIcons Condition="'$(BrandIcons)' == ''">$(MSBuildThisFileDirectory)icons/</BrandIcons>
   </PropertyGroup>
 </Project>

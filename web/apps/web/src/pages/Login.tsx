@@ -29,6 +29,7 @@ function DesktopLogin() {
   return (
     <form class="mx-auto mt-[18vh] max-w-sm space-y-4 rounded-2xl border border-line bg-panel p-6 shadow-sm" onSubmit={signIn}>
       <div>
+        <img src="/icon.svg" alt="" class="mb-4 size-12 rounded-xl shadow-sm" />
         <h1 class="font-serif text-2xl tracking-tight">Sign in to {branding().name}</h1>
         <p class="mt-1 text-sm text-muted">The address of your team's server. You approve the sign-in in your browser.</p>
       </div>
@@ -74,8 +75,11 @@ function WebLogin() {
   }
 
   return (
-    <div class="max-w-sm mx-auto mt-16 rounded-lg border border-line bg-panel p-6 space-y-5">
-      <h1 class="text-xl font-semibold">Sign in</h1>
+    <div class="mx-auto mt-[18vh] max-w-sm space-y-5 rounded-2xl border border-line bg-panel p-6 shadow-sm">
+      <div>
+        <img src="/icon.svg" alt="" class="mb-4 size-12 rounded-xl shadow-sm" />
+        <h1 class="font-serif text-2xl tracking-tight">Sign in to {branding().name}</h1>
+      </div>
       <Show when={providers().oidc}>
         {(name) => (
           <a

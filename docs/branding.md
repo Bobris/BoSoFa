@@ -30,6 +30,9 @@ From these the build derives:
 | MCP server and tools | `bosofa`, `bosofa_notify_user`, … | `qsf`, `qsf_notify_user`, … |
 | Downloads | `bosofad`, `bosofa-desktop-<rid>.tar.gz` | `qsfd`, `qsf-desktop-<rid>.tar.gz` |
 
+The icons come from `brands/icons` (`BrandIcons`), drawn without letters so every brand can use them; a brand may point
+`BrandIcons` at its own folder ([brands/icons/README.md](../brands/icons/README.md)).
+
 Internal names stay the same in every brand: the projects and namespaces (`BoSoFa.*`), the configuration section
 `BoSoFa`, environment variables (`BOSOFA_*`), HTTP headers (`X-BoSoFa-*`), the desktop page's origin `app://bosofa`, and
 the server's own assembly (`bosofa-server.dll`).

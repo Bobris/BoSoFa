@@ -11,6 +11,8 @@
     <!-- The page comes from the pnpm workspace (pnpm -C web build): it is served as files, so the CSP can name the server
          chosen at run time, and NeoAstra's npm-only frontend build is off. -->
     <NeoAstraBuildFrontend>false</NeoAstraBuildFrontend>
+    <!-- The executable's icon on Windows, which its windows and the taskbar show. -->
+    <ApplicationIcon>$(BrandIcons)icon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup Condition="'$(BoSoFaReleasePublicKey)' != ''">
     <!-- The key that signs releases of the daemon and of this app, as in the daemon itself. -->
@@ -19,6 +21,8 @@
   <ItemGroup>
     <ProjectReference Include="../BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
     <PackageReference Include="NeoAstra" />
+    <!-- The Dock icon of an app run outside its bundle (dotnet run); a bundle has it in Contents/Resources. -->
+    <None Include="$(BrandIcons)AppIcon.icns" Link="AppIcon.icns" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- dotnet publish src/BoSoFa.Desktop -c Release -r osx-arm64 -p:BoSoFaPackage=true -p:Version=1.2.3 -p:BoSoFaReleasePublicKey=...
        writes artifacts/package/<brand id>-desktop-osx-arm64.tar.gz (a .zip on Windows), ready for release-publish with product desktop. -->
@@ -45,6 +49,7 @@
     <Copy SourceFiles="@(_PackageApp)" DestinationFiles="@(_PackageApp->'$(_PackageCode)%(RecursiveDir)%(Filename)%(Extension)')" />
     <Copy SourceFiles="@(_PackagePage)" DestinationFiles="@(_PackagePage->'$(_PackageCode)spa/%(RecursiveDir)%(Filename)%(Extension)')" />
     <WriteLinesToFile File="$(_PackageCode)release.json" Lines="{&quot;version&quot;:&quot;$(Version)&quot;,&quot;rid&quot;:&quot;$(RuntimeIdentifier)&quot;}" Overwrite="true" />
+    <Copy Condition="'$(_PackageMac)' == 'True'" SourceFiles="$(BrandIcons)AppIcon.icns" DestinationFolder="$(_PackageStage)$(_PackageRoot)/Contents/Resources/" />
     <WriteLinesToFile Condition="'$(_PackageMac)' == 'True'" File="$(_PackageStage)$(_PackageRoot)/Contents/Info.plist"
                       Lines="$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)Info.plist').Replace('__VERSION__','$(Version)').Replace('__EXECUTABLE__','$(AssemblyName)').Replace('__BRAND_ID__','$(BrandId)').Replace('__BRAND_NAME__','$(BrandName)'))" Overwrite="true" />
     <!-- macOS tar would add extended attributes, which .NET's tar reader (the app's updater) refuses. They also hold codesign's

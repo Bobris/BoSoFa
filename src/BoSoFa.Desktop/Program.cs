@@ -64,6 +64,10 @@ return NeoApplication.Run(new NeoApplicationOptions { ApplicationName = Brand.Na
         builder.AddFrameService(new FrameService(window, application.Dispatcher));
         await using var rpc = builder.Build();
         window.Show();
+        // Run outside its bundle, the app would show the Dock's generic icon.
+        await using var polish = new NeoAstra.Desktop.WindowState.NeoWindowPolishService();
+        if (OperatingSystem.IsMacOS() && File.Exists(Path.Combine(AppContext.BaseDirectory, "AppIcon.icns")))
+            await polish.SetIconAsync(window, Path.Combine(AppContext.BaseDirectory, "AppIcon.icns"), CancellationToken.None);
         await using var view = await environment.CreateWebViewAsync(NeoAstraHost.FillWindow(window), new NeoAstraOptions
         {
             ViewLabel = "main",

@@ -10,6 +10,7 @@ export default defineConfig({
     alias: { "#neoastra": fileURLToPath(new URL("./neoastra/neoastra.ts", import.meta.url)) },
     dedupe: ["@neoastra/client"],
   },
+  publicDir: fileURLToPath(new URL("../web/public", import.meta.url)), // the icons
   server: { fs: { allow: [".."] } },
   build: { target: "es2022" },
 });
