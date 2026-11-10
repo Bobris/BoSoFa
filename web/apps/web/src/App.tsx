@@ -108,7 +108,7 @@ function Shell(props: { children: JSX.Element }) {
       <div class="flex min-w-0 flex-1 flex-col">
         <div
           class={[
-            "sticky top-0 z-20 flex h-[var(--titlebar-height,3rem)] items-center gap-1 bg-canvas/90 pr-2 backdrop-blur pl-[max(0.5rem,calc(var(--titlebar-inset,0px)+0.25rem))]",
+            "sticky top-0 z-20 flex h-[var(--titlebar-height,3rem)] select-none items-center gap-1 bg-canvas/90 pr-2 backdrop-blur pl-[max(0.5rem,calc(var(--titlebar-inset,0px)+0.25rem))]",
             { "md:hidden": !collapsed() },
           ]}
           onPointerDown={startWindowDrag}

@@ -30,7 +30,7 @@ export function Popover(props: { open: boolean; onClose: () => void; class?: str
       <div
         ref={(element) => (panel = element)}
         class={[
-          "absolute z-30 min-w-56 overflow-hidden rounded-xl border border-line bg-panel p-1 text-sm shadow-lg shadow-black/10 animate-pop",
+          "absolute z-30 min-w-56 select-none overflow-hidden rounded-xl border border-line bg-panel p-1 text-sm shadow-lg shadow-black/10 animate-pop",
           props.class,
         ]}
       >

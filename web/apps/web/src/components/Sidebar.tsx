@@ -276,7 +276,7 @@ export default function Sidebar(props: { onNavigate: () => void; onCollapse: () 
   const [filter, setFilter] = createSignal("");
   const action = "flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-sm font-medium text-ink/90 transition-colors hover:bg-hover hover:text-ink";
   return (
-    <nav class="flex h-full flex-col bg-sidebar">
+    <nav class="flex h-full select-none flex-col bg-sidebar">
       <div
         class="flex h-[var(--titlebar-height,3rem)] shrink-0 items-center justify-between gap-2 pl-[max(0.75rem,calc(var(--titlebar-inset,0px)+0.25rem))] pr-3"
         onPointerDown={startWindowDrag}
@@ -327,7 +327,7 @@ export default function Sidebar(props: { onNavigate: () => void; onCollapse: () 
         <label class="flex h-8 items-center gap-2 rounded-lg bg-hover/70 px-2 text-sm text-muted focus-within:bg-hover focus-within:text-ink">
           <SearchIcon class="size-4" />
           <input
-            class="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted"
+            class="min-w-0 flex-1 select-text bg-transparent text-ink outline-none placeholder:text-muted"
             placeholder="Search"
             value={filter()}
             onInput={(event) => setFilter(event.currentTarget.value)}
