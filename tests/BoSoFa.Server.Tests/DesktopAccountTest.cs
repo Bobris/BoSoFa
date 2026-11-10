@@ -98,13 +98,18 @@ public class DesktopAccountTest
         Assert.Contains("could not be reached", await account.SignInAsync(nobody, default));
         Assert.Empty(opened);
 
-        // The right server: the browser opens and the sign-in waits; signing in again replaces it.
+        // The right server: the browser opens and the sign-in waits. Asked again, the same page opens again, so a tab opened first still works.
         var waiting = account.SignInAsync(server.BaseAddress.ToString(), default);
         await browserOpened.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var again = account.SignInAsync(server.BaseAddress.ToString(), default);
+        Assert.Equal(2, opened.Count);
+        Assert.Equal(opened[0], opened[1]);
+        // Another server replaces it.
         var replacing = account.SignInAsync(nobody, default);
         Assert.Equal("A newer sign-in took over.", await waiting.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal("A newer sign-in took over.", await again.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.Contains("could not be reached", await replacing);
-        Assert.Single(opened);
+        Assert.Equal(2, opened.Count);
         Assert.Null(account.Server);
     }
 

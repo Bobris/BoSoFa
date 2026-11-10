@@ -86,27 +86,103 @@ public sealed class DesktopAccount(string dataDirectory, ITokenVault vault, Func
             : null;
     }
 
-    CancellationTokenSource? _signingIn;
+    /// <summary>A sign-in waiting for the browser: asked again for the same server, the app shows its page again instead of
+    /// starting over, so approving in a tab opened earlier still works.</summary>
+    sealed class Pending(Uri origin, Uri authorize, CancellationTokenSource cancel)
+    {
+        public Uri Origin { get; } = origin;
+        public Uri Authorize { get; } = authorize;
+        public CancellationTokenSource Cancel { get; } = cancel;
+        public Task<string?> Result { get; set; } = Task.FromResult<string?>(null);
+        public volatile bool Replaced;
+    }
 
-    /// <summary>Null when it worked, else what to tell the person. A sign-in started while another still waits for the browser
-    /// replaces it, so a wrong address never holds the app up.</summary>
+    readonly object _pendingLock = new();
+    Pending? _pending;
+
+    /// <summary>Null when it worked, else what to tell the person. A sign-in for another server replaces one that still waits for
+    /// the browser, so a wrong address never holds the app up.</summary>
     public async Task<string?> SignInAsync(string server, CancellationToken cancellation)
     {
         if (OriginOf(server) is not { } origin) return "That is not a server address.";
-        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-        var previous = Interlocked.Exchange(ref _signingIn, attempt);
-        try { previous?.Cancel(); }
-        catch (ObjectDisposedException) { /* it ended meanwhile */ }
+        Pending? waiting, replaced = null;
+        lock (_pendingLock)
+        {
+            waiting = _pending is { Result.IsCompleted: false } current && current.Origin == origin ? current : null;
+            if (waiting == null) (replaced, _pending) = (_pending, null);
+        }
+        if (waiting != null)
+        {
+            await _openBrowser(waiting.Authorize);
+            return await waiting.Result.WaitAsync(cancellation);
+        }
+        if (replaced != null)
+            try
+            {
+                replaced.Replaced = true;
+                await replaced.Cancel.CancelAsync();
+            }
+            catch (ObjectDisposedException) { /* it ended meanwhile */ }
+        if (await ProblemWithAsync(origin, cancellation) is { } problem) return problem;
+
+        using var attempt = new CancellationTokenSource(BrowserTimeout);
+        using var listener = new HttpListener();
+        var port = FreeLoopbackPort();
+        var redirect = $"http://127.0.0.1:{port}{RedirectPath}";
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+        var verifier = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        var state = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+        var challenge = Convert.ToBase64String(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var authorize = new Uri(origin, "/desktop/authorize?redirect_uri=" + Uri.EscapeDataString(redirect) + "&code_challenge=" + challenge + "&state=" + state);
+        var pending = new Pending(origin, authorize, attempt);
+        var result = pending.Result = CompleteAsync(pending, listener, state, verifier, redirect);
+        lock (_pendingLock) _pending = pending;
         try
         {
-            if (await ProblemWithAsync(origin, attempt.Token) is { } problem) return problem;
-            return await SignInAtAsync(origin, attempt.Token, cancellation);
+            await _openBrowser(authorize);
+            return await result.WaitAsync(cancellation);
         }
-        catch (OperationCanceledException) when (attempt.IsCancellationRequested && !cancellation.IsCancellationRequested)
+        catch (System.ComponentModel.Win32Exception exception)
         {
-            return "A newer sign-in took over.";
+            await attempt.CancelAsync();
+            return "The browser could not be opened: " + exception.Message;
         }
-        finally { Interlocked.CompareExchange(ref _signingIn, null, attempt); }
+        finally
+        {
+            try { await result; } catch (Exception) { /* told above */ }
+            lock (_pendingLock)
+                if (_pending == pending) _pending = null;
+        }
+    }
+
+    /// <summary>Waits for the browser's code and exchanges it for tokens. A newer sign-in elsewhere or the browser timeout ends it.</summary>
+    async Task<string?> CompleteAsync(Pending pending, HttpListener listener, string state, string verifier, string redirect)
+    {
+        var (origin, attempt) = (pending.Origin, pending.Cancel);
+        try
+        {
+            var code = await WaitForCodeAsync(listener, state, attempt.Token);
+            using var response = await _http.PostAsJsonAsync(new Uri(origin, "/auth/desktop/token"),
+                new DesktopTokenRequest(code, verifier, redirect, Environment.MachineName), ProtocolJsonContext.Default.DesktopTokenRequest, attempt.Token);
+            if (!response.IsSuccessStatusCode) return "The server refused this sign-in.";
+            var tokens = (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.DesktopTokens, attempt.Token))!;
+            await _lock.WaitAsync(CancellationToken.None);
+            try
+            {
+                await vault.WriteAsync(tokens.RefreshToken, CancellationToken.None);
+                Directory.CreateDirectory(dataDirectory);
+                await File.WriteAllTextAsync(SettingsPath, JsonSerializer.Serialize(new DesktopSettings(origin.GetLeftPart(UriPartial.Authority)),
+                    DesktopSettingsContext.Default.DesktopSettings), CancellationToken.None);
+                Server = origin.GetLeftPart(UriPartial.Authority);
+                _tokens = tokens;
+                _signedIn = true;
+            }
+            finally { _lock.Release(); }
+            return null;
+        }
+        catch (OperationCanceledException) { return pending.Replaced ? "A newer sign-in took over." : "Nothing came back from the browser in time."; }
+        catch (HttpRequestException exception) { return "The server could not be reached: " + exception.Message; }
     }
 
     /// <summary>Why this is not a server to sign in to, asked before the browser opens; null when it answers as one.</summary>
@@ -126,47 +202,6 @@ public sealed class DesktopAccount(string dataDirectory, ITokenVault vault, Func
         catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { return $"{origin.Authority} did not answer."; }
         catch (HttpRequestException exception) { return $"{origin.Authority} could not be reached: {exception.Message}"; }
         catch (JsonException) { return $"{origin.Authority} answers, but not as a {Brand.Name} server."; }
-    }
-
-    async Task<string?> SignInAtAsync(Uri origin, CancellationToken attempt, CancellationToken cancellation)
-    {
-        using var listener = new HttpListener();
-        var port = FreeLoopbackPort();
-        var redirect = $"http://127.0.0.1:{port}{RedirectPath}";
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
-        var verifier = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-        var state = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
-        var challenge = Convert.ToBase64String(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        var authorize = new Uri(origin, "/desktop/authorize?redirect_uri=" + Uri.EscapeDataString(redirect) + "&code_challenge=" + challenge + "&state=" + state);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(attempt);
-        timeout.CancelAfter(BrowserTimeout);
-        try
-        {
-            var waiting = WaitForCodeAsync(listener, state, timeout.Token); // listening before anything can come back
-            await _openBrowser(authorize);
-            var code = await waiting;
-            using var response = await _http.PostAsJsonAsync(new Uri(origin, "/auth/desktop/token"),
-                new DesktopTokenRequest(code, verifier, redirect, Environment.MachineName), ProtocolJsonContext.Default.DesktopTokenRequest, attempt);
-            if (!response.IsSuccessStatusCode) return "The server refused this sign-in.";
-            var tokens = (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.DesktopTokens, attempt))!;
-            await _lock.WaitAsync(cancellation);
-            try
-            {
-                await vault.WriteAsync(tokens.RefreshToken, cancellation);
-                Directory.CreateDirectory(dataDirectory);
-                await File.WriteAllTextAsync(SettingsPath, JsonSerializer.Serialize(new DesktopSettings(origin.GetLeftPart(UriPartial.Authority)),
-                    DesktopSettingsContext.Default.DesktopSettings), cancellation);
-                Server = origin.GetLeftPart(UriPartial.Authority);
-                _tokens = tokens;
-                _signedIn = true;
-            }
-            finally { _lock.Release(); }
-            return null;
-        }
-        catch (OperationCanceledException) when (!attempt.IsCancellationRequested) { return "Nothing came back from the browser in time."; }
-        catch (HttpRequestException exception) { return "The server could not be reached: " + exception.Message; }
-        catch (System.ComponentModel.Win32Exception exception) { return "The browser could not be opened: " + exception.Message; }
     }
 
     static int FreeLoopbackPort()
