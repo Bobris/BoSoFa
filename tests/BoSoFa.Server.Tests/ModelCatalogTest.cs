@@ -35,6 +35,7 @@ public class ModelCatalogTest
                 var entry = new JsonObject();
                 entry["name"] = model!["name"]?.DeepClone();
                 if (model["tool_call"]?.GetValue<bool>() == false) entry["tools"] = false;
+                if (model["modalities"]?["input"] is JsonArray inputs && !inputs.Any(input => input?.GetValue<string>() == "image")) entry["images"] = false;
                 var efforts = (model["reasoning_options"] as JsonArray ?? []).OfType<JsonObject>().Where(option => option["type"]?.GetValue<string>() == "effort")
                     .SelectMany(option => option["values"]!.AsArray().Select(value => value!.GetValue<string>())).Where(Harnesses.ReasoningEfforts.Contains).ToArray();
                 if (efforts.Length > 0) entry["efforts"] = new JsonArray(efforts.Select(effort => (JsonNode?)JsonValue.Create(effort)).ToArray());
@@ -61,6 +62,8 @@ public class ModelCatalogTest
         Assert.Null(ModelCatalog.Find(AccountKind.ClaudeOAuthToken, "claude-opus-5-5"));
         Assert.NotNull(ModelCatalog.Find(AccountKind.OpenCodeGoApiKey, "glm-5.3"));
         Assert.NotNull(ModelCatalog.Find(AccountKind.OpenAIApiKey, "gpt-5.5"));
+        Assert.True(opus.ToDto("claude-opus-5-5").AcceptsImages);
+        Assert.False(ModelCatalog.Find(AccountKind.OpenAIApiKey, "gpt-4")!.ToDto("gpt-4").AcceptsImages);
     }
 
     [Fact]

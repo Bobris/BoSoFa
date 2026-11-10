@@ -26,6 +26,13 @@ sealed class FakeAgentBackend : IAsyncDisposable
     /// <summary>When set, a tool call waits for it before answering.</summary>
     public TaskCompletionSource? HoldTool { get; set; }
 
+    /// <summary>32×32 images of one colour, which any model that reads images can name.</summary>
+    public const string RedPng = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR42mO4IyJCU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAJ3LED19/LmKAAAAAElFTkSuQmCC",
+        BluePng = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR42mMQ0bhDU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAHncYD2v4JFYAAAAAElFTkSuQmCC";
+
+    /// <summary>The MCP tool also returns this image (base64), when set.</summary>
+    public string? ToolImage { get; set; }
+
     FakeAgentBackend(WebApplication app) => _app = app;
 
     public string ResponsesUrl => Address + "/v1/responses";
@@ -292,7 +299,9 @@ sealed class FakeAgentBackend : IAsyncDisposable
                 if (HoldTool is { } hold)
                     try { await hold.Task.WaitAsync(http.RequestAborted); }
                     catch (OperationCanceledException) { return; }
-                result = new JsonObject { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = "The answer is 42." }) };
+                var content = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = "The answer is 42." });
+                if (ToolImage is { } image) content.Add((JsonNode)new JsonObject { ["type"] = "image", ["data"] = image, ["mimeType"] = "image/png" });
+                result = new JsonObject { ["content"] = content };
                 break;
         }
         http.Response.ContentType = "application/json";

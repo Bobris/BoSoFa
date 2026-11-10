@@ -15,7 +15,7 @@ public static class ProviderModels
         {
             if (kind == AccountKind.OpenCodeGoApiKey)
                 return (await OpenCodeGo.ListModelsAsync(http, options.Agent.OpenCodeGoBaseUrl, cancellation))
-                    .Select(model => known.TryGetValue(model.Id, out var info) ? model with { InputPrice = info.InputPrice, OutputPrice = info.OutputPrice } : model).ToArray();
+                    .Select(model => known.TryGetValue(model.Id, out var info) ? model with { InputPrice = info.InputPrice, OutputPrice = info.OutputPrice, AcceptsImages = info.Images } : model).ToArray();
             // Providers also list embeddings, image models and retired ones; only those the snapshot knows can run an agent here.
             var offered = await ProviderIdsAsync(http, kind, secret, options, cancellation);
             var usable = offered.Where(known.ContainsKey).Select(id => known[id].ToDto(id)).ToArray();

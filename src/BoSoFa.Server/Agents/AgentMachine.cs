@@ -30,7 +30,7 @@ public sealed class AgentMachine(MachineRpcClient rpc, ulong machineId, string w
                 switch (answer)
                 {
                     case ToolRunResult result:
-                        return new(result.Text, result.IsError);
+                        return new(result.Text, result.IsError, result.Images);
                     case RpcFailure failure when MachineRpcClient.IsOffline(failure) && !isRetry:
                         return new(failure.Message + " The tool did not run.", true);
                     case RpcFailure failure when MachineRpcClient.IsOffline(failure) || MachineRpcClient.IsDisconnected(failure):

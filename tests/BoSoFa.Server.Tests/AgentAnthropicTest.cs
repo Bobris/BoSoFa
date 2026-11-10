@@ -68,6 +68,52 @@ public class AgentAnthropicTest
     }
 
     [Fact]
+    public async Task ImagesGoBeforeTheTextAndInsideToolResults()
+    {
+        await using var h = await StartAsync();
+        h.Backend.ToolImage = FakeAgentBackend.BluePng;
+        h.Backend.AnthropicThinkAndCall("Look it up.", "sig-1", "toolu_1", McpTool, "{}");
+        h.Backend.AnthropicAnswer("Red and blue.");
+        var red = await AgentSessionTest.UploadImageAsync(h.Boris, FakeAgentBackend.RedPng);
+        var session = await AgentSessionTest.StartWithImagesAsync(h, "What colours?", Model, red);
+        await h.RunEndedAsync(session.Id);
+
+        var messages = Messages(h.Backend.ModelRequests.Last());
+        var first = messages[0]!["content"]!.AsArray();
+        Assert.Equal(["image", "text"], first.Select(block => (string?)block!["type"]));
+        Assert.Equal(("base64", "image/png", FakeAgentBackend.RedPng),
+            ((string)first[0]!["source"]!["type"]!, (string)first[0]!["source"]!["media_type"]!, (string)first[0]!["source"]!["data"]!));
+        var result = messages[2]!["content"]![0]!;
+        Assert.Equal("tool_result", (string)result["type"]!);
+        var parts = result["content"]!.AsArray();
+        Assert.Equal(["text", "image"], parts.Select(block => (string?)block!["type"]));
+        Assert.Equal(FakeAgentBackend.BluePng, (string)parts[1]!["source"]!["data"]!);
+        Assert.Equal("ephemeral", (string)result["cache_control"]!["type"]!);
+    }
+
+    /// <summary>A real model names the colours of an attached image and of one a tool returned.</summary>
+    [ProviderTest.LiveAnthropicFact]
+    public async Task LiveAnthropicSeesAttachedAndToolImages()
+    {
+        var key = (await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_KEY_FILE")!)).Trim();
+        var model = Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_MODEL") is { Length: > 0 } configured ? configured : "claude-sonnet-5-5";
+        await using var h = await AgentSessionTest.Harness.StartAsync(liveKey: "sk-notusednotusednotusednotused"); // only so that the real endpoints are used
+        var response = await h.Boris.PostAsJsonAsync("/api/v1/accounts", new CreateHarnessAccountRequest(AccountKind.AnthropicApiKey, "My Claude API", key));
+        Assert.True(response.IsSuccessStatusCode, $"The key was refused: {(int)response.StatusCode}");
+        h.AccountId = (await response.Content.ReadFromJsonAsync<HarnessAccountDto>())!.Id;
+        h.Backend.ToolImage = FakeAgentBackend.BluePng;
+        var red = await AgentSessionTest.UploadImageAsync(h.Boris, FakeAgentBackend.RedPng);
+        var session = await AgentSessionTest.StartWithImagesAsync(h,
+            "Call the lookup tool once with q set to \"colour\". Then answer with two lowercase words only: the colour of the image I attached, then the colour of the image the tool returned.",
+            model, red);
+        var items = await AgentSessionTest.EventuallyLong(() => h.ItemsAsync(session.Id), all => all.Any(item => item.Kind == SessionItemKind.RunEnded));
+        Assert.False(items[^1].IsError, items[^1].Text + " " + string.Join(" | ", items.Where(item => item.Kind == SessionItemKind.Notice).Select(item => item.Text)));
+        Assert.NotEmpty(h.Backend.ToolCalls);
+        var answer = items.Last(item => item.Kind == SessionItemKind.Assistant).Text.ToLowerInvariant();
+        Assert.True(answer.Contains("red") && answer.Contains("blue") && answer.IndexOf("red", StringComparison.Ordinal) < answer.IndexOf("blue", StringComparison.Ordinal), answer);
+    }
+
+    [Fact]
     public async Task ARefusedSignatureIsAskedAgainWithoutThinking()
     {
         await using var h = await StartAsync();

@@ -13,9 +13,15 @@ namespace BoSoFa.Server.Tests;
 /// <summary>Server agent sessions whose tools run on a real daemon, against a fake model provider (docs/server-agent.md §6).</summary>
 public class AgentMachineTest(ITestOutputHelper output)
 {
-    sealed class FakeUploader : IBlobUploader
+    /// <summary>Uploads as the person, which puts the blob where the daemon's own upload would.</summary>
+    sealed class TestUploader(HttpClient client) : IBlobUploader
     {
-        public Task<BlobRef> UploadAsync(string file, CancellationToken cancellation) => Task.FromResult(new BlobRef(new string('a', 64), new FileInfo(file).Length));
+        public async Task<BlobRef> UploadAsync(string file, CancellationToken cancellation)
+        {
+            var response = await client.PostAsync("/api/v1/blobs", new ByteArrayContent(await File.ReadAllBytesAsync(file, cancellation)), cancellation);
+            response.EnsureSuccessStatusCode();
+            return (await response.Content.ReadFromJsonAsync<BlobRef>(cancellation))!;
+        }
     }
 
     internal sealed class Machine : IAsyncDisposable
@@ -41,7 +47,7 @@ public class AgentMachineTest(ITestOutputHelper output)
             machine.Id = machine._state.MachineId;
             machine._key = new DaemonStore(machine.DaemonDirectory).LoadOrCreateKey();
             machine._outbox = new Outbox(Path.Combine(machine.DaemonDirectory, "outbox"));
-            machine._host = new SessionHost(machine.DaemonDirectory, machine._outbox, new(Uploader: new FakeUploader()), TextWriter.Null);
+            machine._host = new SessionHost(machine.DaemonDirectory, machine._outbox, new(Uploader: new TestUploader(machine.H.Boris)), TextWriter.Null);
             if (connect) await machine.ConnectAsync();
             return machine;
         }
@@ -266,6 +272,23 @@ public class AgentMachineTest(ITestOutputHelper output)
         var plan = await m.StartSessionAsync("Plan.", "plan");
         await m.H.RunEndedAsync(plan.Id);
         Assert.DoesNotContain(Tool.UploadFile, AgentSessionTest.Tools(m.H.Backend.ModelRequests.Last()));
+    }
+
+    [Fact]
+    public async Task ReadingAnImageShowsItToTheModel()
+    {
+        await using var m = await Machine.StartAsync();
+        await File.WriteAllBytesAsync(m.PathOf("shot.png"), Convert.FromBase64String(FakeAgentBackend.RedPng));
+        m.H.Backend.Call("c1", Tool.ReadFile, Args(("path", "shot.png")));
+        m.H.Backend.Answer("It is red.");
+        var session = await m.StartSessionAsync("What colour is shot.png?");
+        var result = (await m.H.RunEndedAsync(session.Id)).Single(item => item.Kind == SessionItemKind.ToolResult);
+        Assert.Contains("image/png", result.Text);
+        Assert.Contains("\"mediaType\":\"image/png\"", result.Data);
+
+        var output = m.H.Backend.ModelRequests.Last()["input"]!.AsArray().Single(entry => (string?)entry!["type"] == "function_call_output")!["output"]!.AsArray();
+        Assert.Equal(["input_text", "input_image"], output.Select(part => (string?)part!["type"]));
+        Assert.Equal("data:image/png;base64," + FakeAgentBackend.RedPng, (string)output[1]!["image_url"]!);
     }
 
     [Fact]

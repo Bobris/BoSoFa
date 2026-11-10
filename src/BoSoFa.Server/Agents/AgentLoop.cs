@@ -218,8 +218,9 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         return changing ? await machine.DiffAsync(RunNumberOf(view), cancellation) : null;
     }
 
-    static AgentItem Result(ToolCall call, string text, bool isError, string? itemRef = null) =>
-        new(SessionItemKind.ToolResult, text, call.Id, call.Name, IsError: isError, Ref: itemRef);
+    static AgentItem Result(ToolCall call, string text, bool isError, string? itemRef = null, PromptImage[]? images = null) =>
+        new(SessionItemKind.ToolResult, text, call.Id, call.Name, IsError: isError, Ref: itemRef,
+            Data: images is { Length: > 0 } ? JsonSerializer.Serialize(images, ProtocolJsonContext.Default.PromptImageArray) : null);
 
     /// <summary>Runs <paramref name="work"/> and cancels it when the person interrupts or this node no longer holds the session.</summary>
     async Task<T> WatchedAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken stopping)
@@ -267,7 +268,8 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         return (_lastContextTokens ?? EstimateTokens(state.Conversation)) >= limit * CompactionThreshold;
     }
 
-    /// <summary>After a restart nothing says how large the last request was, so roughly four characters to a token will do.</summary>
+    /// <summary>After a restart nothing says how large the last request was, so roughly four characters to a token will do, and an image
+    /// counts as about the most the providers charge for one.</summary>
     static long EstimateTokens(IReadOnlyList<ConversationItem> conversation) => conversation.Sum(item => (long)(item switch
     {
         UserMessage user => user.Text.Length,
@@ -276,14 +278,17 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         ToolResult result => result.Text.Length,
         ReasoningItem reasoning => reasoning.ProviderData?.Length ?? reasoning.Text.Length,
         _ => 0
-    })) / 4;
+    }) / 4 + ImagesIn(item).Count() * ImageTokens);
+
+    const long ImageTokens = 1600;
 
     /// <summary>Replaces the conversation so far with the model's summary. A conversation too large for even that is summarized with its tool results cut short.</summary>
     async Task CompactAsync(AgentView view, AgentConversationState state, AgentEnvironment environment, AgentInstructionsRecord instructions, bool shortened, CancellationToken stopping)
     {
-        IReadOnlyList<ConversationItem> history = shortened ? Shortened(state.Conversation) : state.Conversation;
+        var (history, imageData) = shortened ? (Shortened(state.Conversation), null) : await WithImagesAsync(state.Conversation, environment, stopping);
         var request = new TurnRequest(view.Session.Model!, instructions.Shared, [..history, new UserMessage(CompactionInstruction)],
-            environment.Tools.SpecsFor(view.Session.PermissionMode), sessionId.ToString(), instructions.Session, view.Session.ReasoningEffort, environment.MaxOutputTokens, NoToolUse: true);
+            environment.Tools.SpecsFor(view.Session.PermissionMode), sessionId.ToString(), instructions.Session, view.Session.ReasoningEffort, environment.MaxOutputTokens, NoToolUse: true,
+            ImageData: imageData);
         TurnResponse response;
         try
         {
@@ -312,15 +317,19 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             response.Usage, Math.Max(1, summary.Length / 4), environment, stopping);
     }
 
-    static List<ConversationItem> Shortened(IReadOnlyList<ConversationItem> conversation) => conversation.Where(item => item is not ReasoningItem)
-        .Select(item => item is ToolResult { Text.Length: > CompactedToolResult } result ? result with { Text = result.Text[..CompactedToolResult] + " [cut]" } : item).ToList();
+    /// <summary>Without reasoning and images, and with long tool results cut.</summary>
+    static IReadOnlyList<ConversationItem> Shortened(IReadOnlyList<ConversationItem> conversation) => WithoutImages(conversation.Where(item => item is not ReasoningItem)
+        .Select(item => item is ToolResult { Text.Length: > CompactedToolResult } result ? result with { Text = result.Text[..CompactedToolResult] + " [cut]" } : item).ToList(),
+        _ => true, "the conversation had to be shortened");
 
     async Task CallModelAsync(AgentView view, AgentConversationState state, AgentEnvironment environment, AgentInstructionsRecord instructions, CancellationToken stopping)
     {
         var itemRef = $"agent-{view.Session.LastSeq}";
         var thinkingRef = $"thinking-{view.Session.LastSeq}";
-        var request = new TurnRequest(view.Session.Model!, instructions.Shared, state.Conversation,
-            environment.Tools.SpecsFor(view.Session.PermissionMode), sessionId.ToString(), instructions.Session, view.Session.ReasoningEffort, environment.MaxOutputTokens);
+        var (conversation, imageData) = await WithImagesAsync(state.Conversation, environment, stopping);
+        var request = new TurnRequest(view.Session.Model!, instructions.Shared, conversation,
+            environment.Tools.SpecsFor(view.Session.PermissionMode), sessionId.ToString(), instructions.Session, view.Session.ReasoningEffort, environment.MaxOutputTokens,
+            ImageData: imageData);
         TurnResponse response;
         try
         {
@@ -496,7 +505,85 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             ], null, stopping);
             return;
         }
-        await RecordAsync(view, [Result(call, result.Text, result.IsError, toolCall.LiveRef)], null, stopping);
+        await RecordAsync(view, [Result(call, result.Text, result.IsError, toolCall.LiveRef, await ImagesOfAsync(result, stopping))], null, stopping);
+    }
+
+    /// <summary>The result's images as blobs: a machine's tools stored them already, an MCP server over HTTP sent their content.</summary>
+    async Task<PromptImage[]?> ImagesOfAsync(McpToolResult result, CancellationToken cancellation)
+    {
+        var images = new List<PromptImage>(result.Images ?? []);
+        foreach (var content in (result.NewImages ?? []).Take(PromptImages.MaximumCount - images.Count))
+        {
+            using var stream = new MemoryStream(content, false);
+            var (file, sha256, size) = await BlobHash.SpoolAsync(stream, PromptImages.MaximumBytes, cancellation);
+            await context.Blobs.PutAsync(sha256, file, cancellation);
+            images.Add(new(sha256, PromptImages.MediaTypeOf(content.AsSpan(0, Math.Min(content.Length, PromptImages.HeaderLength)))!, size));
+        }
+        return images.Count > 0 ? images.Take(PromptImages.MaximumCount).ToArray() : null;
+    }
+
+    /// <summary>The content of the images the last request had, in base64; read again only when the conversation gains one.</summary>
+    Dictionary<string, string> _imageData = [];
+
+    /// <summary>What all of a request's images may take. The APIs refuse requests far larger than this (Anthropic at 32 MB).</summary>
+    const long ImageBudget = 20 * 1024 * 1024;
+
+    /// <summary>The APIs take at most this many images in one request.</summary>
+    const int MostImages = 100;
+
+    /// <summary>The conversation as the model may see it, with its images' content. The newest images go first; older ones beyond what a request can carry,
+    /// and all of them for a model that cannot read images, are replaced by a note.</summary>
+    async Task<(IReadOnlyList<ConversationItem> Conversation, IReadOnlyDictionary<string, string>? Data)> WithImagesAsync(IReadOnlyList<ConversationItem> conversation,
+        AgentEnvironment environment, CancellationToken cancellation)
+    {
+        var images = conversation.SelectMany(ImagesIn).Reverse().DistinctBy(image => image.Sha256).ToList();
+        if (images.Count == 0) return (conversation, null);
+        if (environment.Model is { Images: false }) return (WithoutImages(conversation, _ => true, "this model cannot read images"), null);
+        var data = new Dictionary<string, string>();
+        var leftOut = new HashSet<string>();
+        long used = 0;
+        foreach (var image in images)
+        {
+            if (data.Count == MostImages || used + (image.Size + 2) / 3 * 4 > ImageBudget) leftOut.Add(image.Sha256);
+            else if (_imageData.TryGetValue(image.Sha256, out var content) || (content = await ReadImageAsync(image, cancellation)) != null)
+            {
+                data[image.Sha256] = content;
+                used += content.Length;
+            }
+            // one that cannot be read stays, and the provider is told it is missing
+        }
+        _imageData = data;
+        return (leftOut.Count == 0 ? conversation : WithoutImages(conversation, image => leftOut.Contains(image.Sha256), "older images are left out to keep the request within the provider's limits"), data);
+    }
+
+    async Task<string?> ReadImageAsync(PromptImage image, CancellationToken cancellation)
+    {
+        await using var stream = await context.Blobs.OpenAsync(image.Sha256, cancellation);
+        if (stream == null || stream.Length > PromptImages.MaximumBytes) return null;
+        using var memory = new MemoryStream();
+        await stream.CopyToAsync(memory, cancellation);
+        var bytes = memory.GetBuffer().AsSpan(0, (int)memory.Length);
+        return PromptImages.MediaTypeOf(bytes[..Math.Min(bytes.Length, PromptImages.HeaderLength)]) == image.MediaType ? Convert.ToBase64String(bytes) : null;
+    }
+
+    static IEnumerable<PromptImage> ImagesIn(ConversationItem item) => item switch
+    {
+        UserMessage { Images: { } images } => images,
+        ToolResult { Images: { } images } => images,
+        _ => []
+    };
+
+    /// <summary>Replaces the images <paramref name="leaveOut"/> picks with a note saying why.</summary>
+    static IReadOnlyList<ConversationItem> WithoutImages(IReadOnlyList<ConversationItem> conversation, Func<PromptImage, bool> leaveOut, string why)
+    {
+        PromptImage[]? Kept(PromptImage[]? images) => images?.Where(image => !leaveOut(image)).ToArray() is { Length: > 0 } kept ? kept : null;
+        string Note(PromptImage[]? images) => images?.Count(leaveOut) is > 0 and var count ? $"\n[{count} image{(count == 1 ? "" : "s")} left out: {why}.]" : "";
+        return conversation.Select(item => item switch
+        {
+            UserMessage { Images: { } images } user when images.Any(leaveOut) => user with { Text = user.Text + Note(images), Images = Kept(images) },
+            ToolResult { Images: { } images } result when images.Any(leaveOut) => result with { Text = result.Text + Note(images), Images = Kept(images) },
+            _ => item
+        }).ToList();
     }
 
     static string Added(string? answer) => string.IsNullOrWhiteSpace(answer) ? "" : $" They added: {answer}";

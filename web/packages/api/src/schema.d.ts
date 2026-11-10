@@ -3350,6 +3350,8 @@ export interface components {
             inputPrice?: null | number | string;
             /** Format: double */
             outputPrice?: null | number | string;
+            /** @default true */
+            acceptsImages: boolean;
         };
         AnswerRuntimeRequest: {
             allow: boolean;

@@ -2,6 +2,7 @@ using System.Net.ServerSentEvents;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using BoSoFa.Protocol;
 using System.Text.RegularExpressions;
 
 namespace BoSoFa.Server.Agents;
@@ -114,7 +115,7 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
         });
         if (!string.IsNullOrWhiteSpace(request.SessionInstructions))
             system.Add((JsonNode)new JsonObject { ["type"] = "text", ["text"] = request.SessionInstructions });
-        var messages = Messages(request.Conversation, origin, replayThinking);
+        var messages = Messages(request, origin, replayThinking);
         if (messages.LastOrDefault() is JsonObject { } final && (string?)final["role"] == "user" && final["content"] is JsonArray { Count: > 0 } last && last[^1] is JsonObject lastBlock)
             lastBlock["cache_control"] = Ephemeral();
         var body = new JsonObject
@@ -195,8 +196,9 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
         return copy;
     }
 
-    static JsonArray Messages(IReadOnlyList<ConversationItem> conversation, ModelOrigin origin, bool replayThinking)
+    static JsonArray Messages(TurnRequest request, ModelOrigin origin, bool replayThinking)
     {
+        var conversation = request.Conversation;
         var messages = new JsonArray();
         JsonArray? content = null;
         string? role = null;
@@ -214,7 +216,15 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
             switch (item)
             {
                 case UserMessage user:
+                    // Images first: the API reads a question about them better after them.
+                    foreach (var image in user.Images ?? []) Add("user", ImageBlock(request, image));
                     Add("user", new JsonObject { ["type"] = "text", ["text"] = user.Text });
+                    break;
+                case ToolResult { Images.Length: > 0 } result:
+                    var parts = new JsonArray();
+                    if (result.Text.Length > 0) parts.Add((JsonNode)new JsonObject { ["type"] = "text", ["text"] = result.Text });
+                    foreach (var image in result.Images) parts.Add((JsonNode)ImageBlock(request, image));
+                    Add("user", new JsonObject { ["type"] = "tool_result", ["tool_use_id"] = result.CallId, ["content"] = parts, ["is_error"] = result.IsError });
                     break;
                 case ToolResult result:
                     Add("user", new JsonObject
@@ -240,6 +250,10 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
             }
         return messages;
     }
+
+    static JsonObject ImageBlock(TurnRequest request, PromptImage image) => request.DataOf(image) is { } data
+        ? new() { ["type"] = "image", ["source"] = new JsonObject { ["type"] = "base64", ["media_type"] = image.MediaType, ["data"] = data } }
+        : new() { ["type"] = "text", ["text"] = TurnRequest.MissingImage };
 
     /// <summary>The model's arguments as an object; arguments that do not parse are sent as an empty object, since the
     /// API would refuse the whole conversation otherwise.</summary>

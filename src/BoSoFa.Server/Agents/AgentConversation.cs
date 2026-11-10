@@ -64,7 +64,7 @@ public static class AgentConversation
                     open.Add(call);
                     break;
                 case SessionItemKind.ToolResult:
-                    conversation.Add(new ToolResult(item.ToolUseId ?? "", item.Text, item.IsError));
+                    conversation.Add(new ToolResult(item.ToolUseId ?? "", item.Text, item.IsError, ImagesOf(item)));
                     open.RemoveAll(candidate => candidate.Id == item.ToolUseId);
                     if (open.Count == 0)
                     {
@@ -93,6 +93,14 @@ public static class AgentConversation
     {
         var replay = item.Replay == null ? null : JsonSerializer.Deserialize(item.Replay, ProtocolJsonContext.Default.AgentUserReplay);
         queued = replay?.Queued == true;
-        return new(replay?.Text ?? item.Text);
+        return new(replay?.Text ?? item.Text, ImagesOf(item));
+    }
+
+    /// <summary>A message's or a tool result's images are in its data, where the page shows them too.</summary>
+    static PromptImage[]? ImagesOf(SessionItem item)
+    {
+        if (item.Data is not { Length: > 0 } data) return null;
+        try { return JsonSerializer.Deserialize(data, ProtocolJsonContext.Default.PromptImageArray) is { Length: > 0 } images ? images : null; }
+        catch (JsonException) { return null; }
     }
 }

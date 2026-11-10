@@ -214,6 +214,11 @@ function ToolCard(props: { item: SessionItem; result?: SessionItem; draft?: Draf
         <Show when={props.result?.text ?? props.draft?.text}>
           {(output) => <pre class="max-h-96 overflow-auto whitespace-pre-wrap border-t border-line px-3 py-2 text-xs">{output()}</pre>}
         </Show>
+        <Show when={props.result?.data}>
+          <div class="border-t border-line px-3 pt-2">
+            <SentImages data={props.result?.data} />
+          </div>
+        </Show>
       </div>
     </details>
   );

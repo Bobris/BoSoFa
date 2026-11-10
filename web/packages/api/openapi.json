@@ -2862,6 +2862,10 @@
               "string"
             ],
             "format": "double"
+          },
+          "acceptsImages": {
+            "type": "boolean",
+            "default": true
           }
         }
       },

@@ -2,6 +2,7 @@ using System.Net.ServerSentEvents;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using BoSoFa.Protocol;
 
 namespace BoSoFa.Server.Agents;
 
@@ -69,7 +70,7 @@ public sealed class OpenAIResponsesExecutor(HttpClient http, Uri endpoint, Actio
         if (!string.IsNullOrWhiteSpace(request.SessionInstructions))
             input.Add((JsonNode)Message("developer", "input_text", request.SessionInstructions));
         foreach (var item in request.Conversation)
-            if (InputOf(item, origin) is { } entry) input.Add((JsonNode)entry);
+            if (InputOf(request, item, origin) is { } entry) input.Add((JsonNode)entry);
         var body = new JsonObject
         {
             ["model"] = request.Model,
@@ -99,8 +100,13 @@ public sealed class OpenAIResponsesExecutor(HttpClient http, Uri endpoint, Actio
 
     /// <summary>An item as input: the provider's own form for the same origin, else rebuilt from what every API shares.
     /// Reasoning from another origin is left out, since only its own model can read it.</summary>
-    static JsonObject? InputOf(ConversationItem item, ModelOrigin origin) => item switch
+    static JsonObject? InputOf(TurnRequest request, ConversationItem item, ModelOrigin origin) => item switch
     {
+        UserMessage { Images.Length: > 0 } user => new JsonObject
+        {
+            ["type"] = "message", ["role"] = "user",
+            ["content"] = new JsonArray([..user.Images.Select(image => (JsonNode)ImagePart(request, image)), new JsonObject { ["type"] = "input_text", ["text"] = user.Text }])
+        },
         UserMessage user => Message("user", "input_text", user.Text),
         AssistantMessage assistant => Replay(assistant.Origin, assistant.ProviderData, origin) ??
                                       Message("assistant", "output_text", assistant.Text),
@@ -109,9 +115,18 @@ public sealed class OpenAIResponsesExecutor(HttpClient http, Uri endpoint, Actio
         {
             ["type"] = "function_call", ["call_id"] = call.Id, ["name"] = call.Name, ["arguments"] = call.Arguments
         },
+        ToolResult { Images.Length: > 0 } result => new JsonObject
+        {
+            ["type"] = "function_call_output", ["call_id"] = result.CallId,
+            ["output"] = new JsonArray([new JsonObject { ["type"] = "input_text", ["text"] = result.Text }, ..result.Images.Select(image => (JsonNode)ImagePart(request, image))])
+        },
         ToolResult result => new JsonObject { ["type"] = "function_call_output", ["call_id"] = result.CallId, ["output"] = result.Text },
         _ => null
     };
+
+    static JsonObject ImagePart(TurnRequest request, PromptImage image) => request.DataOf(image) is { } data
+        ? new() { ["type"] = "input_image", ["image_url"] = $"data:{image.MediaType};base64,{data}", ["detail"] = "auto" }
+        : new() { ["type"] = "input_text", ["text"] = TurnRequest.MissingImage };
 
     static JsonObject? Replay(ModelOrigin? from, string? data, ModelOrigin to) =>
         from == to ? ProviderHttp.ParseObject(data) : null;

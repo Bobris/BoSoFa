@@ -9,7 +9,7 @@ using ToolNames = BoSoFa.Protocol.MachineTools;
 namespace BoSoFa.Daemon.Tools;
 
 /// <summary>The file tools of a server agent session, always inside its working directory (<see cref="PathGuard"/>).</summary>
-sealed class FileTools(string workingDirectory, bool useRipgrep = true)
+sealed class FileTools(string workingDirectory, bool useRipgrep = true, ToolImages? images = null)
 {
     const int LongestLine = 2000, DefaultLines = 2000, MaximumEntries = 1000, MaximumMatches = 500;
     const long LargestSearchedFile = 4 * 1024 * 1024;
@@ -32,7 +32,13 @@ sealed class FileTools(string workingDirectory, bool useRipgrep = true)
         var header = new byte[8192];
         var headerLength = await stream.ReadAtLeastAsync(header, header.Length, false, cancellation);
         if (PromptImages.MediaTypeOf(header.AsSpan(0, headerLength)) is { } mediaType)
-            return new($"{Relative(file)} is an image ({mediaType}, {stream.Length} bytes). This tool cannot show images yet.", false);
+        {
+            var about = $"{Relative(file)} is an image ({mediaType}, {stream.Length} bytes).";
+            if (images is not { CanUpload: true }) return new(about + " This machine cannot show it to the model.", false);
+            if (stream.Length > PromptImages.MaximumBytes) return new(about + $" Images larger than {PromptImages.MaximumBytes / 1024 / 1024} MB cannot be shown to the model.", false);
+            await stream.DisposeAsync();
+            return new(about, false, [await images.UploadFileAsync(file, mediaType, cancellation)]);
+        }
         if (header.AsSpan(0, headerLength).Contains((byte)0)) return new($"{Relative(file)} is a binary file of {stream.Length} bytes.", false);
         stream.Position = 0;
         var offset = Math.Max(arguments.Number("offset") ?? 1, 1);

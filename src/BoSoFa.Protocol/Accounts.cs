@@ -51,7 +51,9 @@ public sealed record AccountUsageDto(UsageWindow? FiveHour, UsageWindow? SevenDa
 
 /// <summary>A model a provider account can run, for the new-session form.</summary>
 /// <param name="InputPrice">US dollars per million tokens, when known; so is <c>OutputPrice</c>.</param>
-public sealed record AgentModelDto(string Id, string Name, long? ContextWindow, long? MaxOutputTokens, string[] ReasoningEfforts, double? InputPrice = null, double? OutputPrice = null);
+/// <param name="AcceptsImages">False when the model is known not to read images.</param>
+public sealed record AgentModelDto(string Id, string Name, long? ContextWindow, long? MaxOutputTokens, string[] ReasoningEfforts, double? InputPrice = null, double? OutputPrice = null,
+    bool AcceptsImages = true);
 
 public sealed record CreateHarnessAccountRequest(AccountKind Kind, string Label, string Secret);
 

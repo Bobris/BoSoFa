@@ -25,7 +25,8 @@ public sealed class AgentToolHost : IAsyncDisposable
     readonly ConcurrentDictionary<string, Call> _calls = new();
     readonly ConcurrentDictionary<string, byte> _directories = new();
     readonly object _start = new();
-    readonly StdioMcpServers _mcp = new();
+    readonly StdioMcpServers _mcp;
+    readonly ToolImages _images;
     readonly ISessionSink _sink;
     readonly CancellationTokenSource _stopping = new();
     readonly Task _sweeper;
@@ -37,6 +38,8 @@ public sealed class AgentToolHost : IAsyncDisposable
     public AgentToolHost(ISessionSink sink, bool useRipgrep = true, IBlobUploader? uploader = null)
     {
         _uploader = uploader;
+        _images = new(uploader);
+        _mcp = new(_images);
         _sink = sink;
         _useRipgrep = useRipgrep;
         _sweeper = SweepAsync(_stopping.Token);
@@ -110,7 +113,7 @@ public sealed class AgentToolHost : IAsyncDisposable
                 var workspace = new GitWorkspace(request.WorkingDirectory);
                 if (!workspace.HasRef(checkpoint)) workspace.Checkpoint(checkpoint);
             }
-            var files = new FileTools(request.WorkingDirectory, _useRipgrep);
+            var files = new FileTools(request.WorkingDirectory, _useRipgrep, _images);
             return request.Tool switch
             {
                 ToolNames.ProjectInstructions => await files.ProjectInstructionsAsync(timeout.Token),

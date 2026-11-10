@@ -8,7 +8,7 @@ namespace BoSoFa.Daemon.Tools;
 
 /// <summary>The stdio MCP servers of server agent sessions, one process per session and server. The server names what to start in
 /// every call, so a daemon that restarted simply starts them again; those not used for a while are stopped.</summary>
-sealed class StdioMcpServers : IAsyncDisposable
+sealed class StdioMcpServers(ToolImages images) : IAsyncDisposable
 {
     const string SupportedVersion = "2025-11-25";
     static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(60), Idle = TimeSpan.FromMinutes(15);
@@ -138,8 +138,8 @@ sealed class StdioMcpServers : IAsyncDisposable
         catch (JsonRpcException problem) { return new($"{server.Name}: {problem.Message}", true); }
         catch (TimeoutException) { return new($"The tool did not answer within {request.TimeoutSeconds} seconds.", true); }
         catch (IOException) { return new($"The MCP server {server.Name} exited during the call.", true); }
-        var (text, isError) = McpResults.Read(result.ValueKind == JsonValueKind.Undefined ? null : JsonNode.Parse(result.GetRawText()));
-        return new(text, isError);
+        var content = McpResults.Read(result.ValueKind == JsonValueKind.Undefined ? null : JsonNode.Parse(result.GetRawText()));
+        return await images.ResultAsync(content.Text, content.IsError, content.Images, cancellation);
     }
 
     public async Task StopIdleAsync()

@@ -4,10 +4,11 @@ using BoSoFa.Protocol;
 namespace BoSoFa.Server.Agents;
 
 /// <summary>What is known about one model. Prices are in US dollars per million tokens.</summary>
+/// <param name="Images">The model reads images; a model the snapshot does not know is assumed to.</param>
 public sealed record ModelInfo(long? InputLimit, long? OutputLimit, double InputPrice, double OutputPrice, double? CacheReadPrice, double? CacheWritePrice,
-    string? Name = null, string[]? Efforts = null, bool ToolCall = true)
+    string? Name = null, string[]? Efforts = null, bool ToolCall = true, bool Images = true)
 {
-    public AgentModelDto ToDto(string id) => new(id, Name ?? id, InputLimit, OutputLimit, Efforts ?? [], InputPrice, OutputPrice);
+    public AgentModelDto ToDto(string id) => new(id, Name ?? id, InputLimit, OutputLimit, Efforts ?? [], InputPrice, OutputPrice, Images);
 
     /// <summary>A list-price estimate: tiered prices and the providers' per-search fees are not counted.</summary>
     public double CostOf(TurnUsage usage)
@@ -51,7 +52,8 @@ public static class ModelCatalog
 
     static ModelInfo Read(JsonObject entry) => new(entry["input_limit"]?.GetValue<long>(), entry["output_limit"]?.GetValue<long>(), Price(entry["input"]) ?? 0, Price(entry["output"]) ?? 0,
         Price(entry["cache_read"]), Price(entry["cache_write"]), entry["name"]?.GetValue<string>(),
-        (entry["efforts"] as JsonArray)?.Select(effort => effort!.GetValue<string>()).ToArray(), entry["tools"]?.GetValue<bool>() ?? true);
+        (entry["efforts"] as JsonArray)?.Select(effort => effort!.GetValue<string>()).ToArray(), entry["tools"]?.GetValue<bool>() ?? true,
+        entry["images"]?.GetValue<bool>() ?? true);
 
     static double? Price(JsonNode? node) => node?.GetValue<double>();
 }

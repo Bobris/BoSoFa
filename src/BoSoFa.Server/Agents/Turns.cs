@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using BoSoFa.Protocol;
 using System.Text.Json.Serialization;
 
 namespace BoSoFa.Server.Agents;
@@ -19,8 +20,8 @@ public sealed record ModelOrigin(string Api, string Endpoint, string Model);
 [JsonDerivedType(typeof(ToolResult), "result")]
 public abstract record ConversationItem;
 
-/// <summary>What the person wrote.</summary>
-public sealed record UserMessage(string Text) : ConversationItem;
+/// <summary>What the person wrote, and the images they attached.</summary>
+public sealed record UserMessage(string Text, PromptImage[]? Images = null) : ConversationItem;
 
 /// <summary>Text the model wrote. <c>ProviderData</c> is the provider's own form of it (JSON), for replay to the same origin.</summary>
 public sealed record AssistantMessage(string Text, ModelOrigin? Origin = null, string? ProviderData = null) : ConversationItem;
@@ -33,8 +34,8 @@ public sealed record ReasoningItem(string Text, ModelOrigin Origin, string? Prov
 public sealed record ToolCall(string Id, string Name, string Arguments, ModelOrigin? Origin = null, string? ProviderData = null)
     : ConversationItem;
 
-/// <summary>What running a tool gave back to the model.</summary>
-public sealed record ToolResult(string CallId, string Text, bool IsError = false) : ConversationItem;
+/// <summary>What running a tool gave back to the model, with any images.</summary>
+public sealed record ToolResult(string CallId, string Text, bool IsError = false, PromptImage[]? Images = null) : ConversationItem;
 
 /// <summary>A tool the model may call; <c>InputSchema</c> is a JSON Schema of an object.</summary>
 public sealed record ToolSpec(string Name, string Description, JsonObject InputSchema);
@@ -45,9 +46,16 @@ public sealed record ToolSpec(string Name, string Description, JsonObject InputS
 /// <param name="SessionId">Stable for a conversation: a cache key and, where an endpoint asks for one, its session header.</param>
 /// <param name="ReasoningEffort">low, medium, high or null for the model's default.</param>
 /// <param name="NoToolUse">The tools stay listed, as the conversation mentions them and the cached prefix has them, but none may be called.</param>
+/// <param name="ImageData">The conversation's images in base64, by their hash; one missing here could not be read.</param>
 public sealed record TurnRequest(string Model, string Instructions, IReadOnlyList<ConversationItem> Conversation,
     IReadOnlyList<ToolSpec> Tools, string SessionId, string? SessionInstructions = null, string? ReasoningEffort = null,
-    int? MaxOutputTokens = null, bool NoToolUse = false);
+    int? MaxOutputTokens = null, bool NoToolUse = false, IReadOnlyDictionary<string, string>? ImageData = null)
+{
+    /// <summary>Said in place of an image that is no longer there.</summary>
+    public const string MissingImage = "[An image that could not be read.]";
+
+    public string? DataOf(PromptImage image) => ImageData?.GetValueOrDefault(image.Sha256);
+}
 
 public enum StopReason
 {

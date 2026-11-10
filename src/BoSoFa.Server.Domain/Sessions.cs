@@ -385,7 +385,7 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
             ReasoningEffort = ev.ReasoningEffort, ToolGroup = AgentToolGroups.Narrower(ev.ToolGroup, profile?.MaxToolGroup)
         };
         Ambient.Relation<ISessionTable>().Insert(session);
-        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, replay: AgentRunners.UserReplay(ev.Prompt, false));
+        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, data: Sessions.ImagesData(ev.ImagesJson), replay: AgentRunners.UserReplay(ev.Prompt, false));
         AgentRunners.Claim(signals, session, ev.RunnerNodeId, ev.RunnerPeerUrl, ev.When);
         Sessions.Changed(signals, session, ev.When);
         Audit.Record(ev.When, ev.UserId, "session.created", $"session {session.Id}", $"{ev.Harness} with {session.Model}");
@@ -444,7 +444,8 @@ public sealed class SessionMessageSentHandler(IDomainSignals signals)
         if (session.Harness == Harnesses.Agent)
         {
             if (ev.RunnerNodeId.Length == 0) return new() { Outcome = CommandOutcome.Invalid };
-            Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text, replay: AgentRunners.UserReplay(ev.Text, ev.Mode == DispatchMode.Queue));
+            Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text, data: Sessions.ImagesData(ev.ImagesJson),
+                replay: AgentRunners.UserReplay(ev.Text, ev.Mode == DispatchMode.Queue));
             AgentRunners.Claim(signals, session, ev.RunnerNodeId, ev.RunnerPeerUrl, ev.When);
             Sessions.Changed(signals, session, ev.When);
             return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };

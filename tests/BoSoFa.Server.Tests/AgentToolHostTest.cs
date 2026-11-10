@@ -454,6 +454,49 @@ public class AgentToolHostTest : IAsyncLifetime
         Assert.Equal("in work with s3", result.Text);
     }
 
+    sealed class RecordingUploader : IBlobUploader
+    {
+        public ConcurrentQueue<byte[]> Uploaded { get; } = new();
+
+        public async Task<BlobRef> UploadAsync(string file, CancellationToken cancellation)
+        {
+            var content = await File.ReadAllBytesAsync(file, cancellation);
+            Uploaded.Enqueue(content);
+            return new(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(content)), content.Length);
+        }
+    }
+
+    [Fact]
+    public async Task AnImageIsUploadedForTheModel()
+    {
+        var uploader = new RecordingUploader();
+        await using var host = new AgentToolHost(_sink, uploader: uploader);
+        var png = Convert.FromBase64String(FakeAgentBackend.RedPng);
+        await File.WriteAllBytesAsync(PathOf("red.png"), png);
+        var result = Assert.IsType<ToolRunResult>(await host.HandleAsync(Request(Tool.ReadFile, Json(("path", "red.png"))), default));
+        var image = Assert.Single(result.Images!);
+        Assert.Equal(("image/png", png.Length), (image.MediaType, image.Size));
+        Assert.Equal(png, Assert.Single(uploader.Uploaded));
+
+        await File.WriteAllBytesAsync(PathOf("huge.png"), [..png, ..new byte[PromptImages.MaximumBytes]]);
+        var huge = Assert.IsType<ToolRunResult>(await host.HandleAsync(Request(Tool.ReadFile, Json(("path", "huge.png"))), default));
+        Assert.Null(huge.Images);
+        Assert.Contains("larger than", huge.Text);
+        Assert.Contains("cannot show", (await Run(Tool.ReadFile, ("path", "red.png"))).Text); // the default host has no uploader
+    }
+
+    [Fact]
+    public void AnMcpResultKeepsOnlyImagesTheModelsTake()
+    {
+        var content = McpResults.Read(System.Text.Json.Nodes.JsonNode.Parse($$"""
+            {"content":[{"type":"text","text":"Here."},{"type":"image","mimeType":"image/png","data":"{{FakeAgentBackend.RedPng}}"},
+              {"type":"image","mimeType":"image/svg+xml","data":"PHN2Zz48L3N2Zz4="},{"type":"image","data":"not base64!"}]}
+            """));
+        Assert.Equal(Convert.FromBase64String(FakeAgentBackend.RedPng), Assert.Single(content.Images));
+        Assert.StartsWith("Here.\n[an image (image/svg+xml) the model cannot take", content.Text);
+        Assert.Equal(3, content.Text.Split('\n').Length);
+    }
+
     [Fact]
     public async Task AStdioMcpServerThatCannotStartIsAFailure()
     {

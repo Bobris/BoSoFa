@@ -1,6 +1,7 @@
 using System.Net.WebSockets;
 using System.Text.Json;
 using BoSoFa.Protocol;
+using BoSoFa.Server.Agents;
 using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Live;
@@ -24,7 +25,12 @@ public static class SessionEndpoints
     }
 
     const int PageSize = 500;
-    const string NoAgentImages = "The server agent cannot take images yet.";
+    /// <summary>Refuses images for a model the snapshot knows cannot read them; one it does not know may try.</summary>
+    static string? ImagesRefused(ulong accountId, string? model)
+    {
+        if (model == null || Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(accountId) is not { } account) return null;
+        return ModelCatalog.Find(account.Kind, model.Trim()) is { Images: false } ? $"{model} cannot read images." : null;
+    }
 
     public static void MapSessionEndpoints(this WebApplication app)
     {
@@ -140,7 +146,6 @@ public static class SessionEndpoints
         if (isAgent && request.UseWorktree) return TypedResults.BadRequest("The server agent cannot use a worktree yet.");
         if (isAgent && request.MachineId != 0 && string.IsNullOrWhiteSpace(request.WorkingDirectory))
             return TypedResults.BadRequest("A session on a machine needs a working directory.");
-        if (isAgent && imagesJson.Length > 0) return TypedResults.BadRequest(NoAgentImages);
         // The request's own choices win over the profile's defaults.
         string? model = request.Model, permissionMode = request.PermissionMode;
         if (request.ProfileName is { } name)
@@ -156,6 +161,12 @@ public static class SessionEndpoints
         }
         if (isAgent && string.IsNullOrWhiteSpace(model)) return TypedResults.BadRequest("The server agent needs a model.");
         if (isAgent && request.AccountId is null or 0) return TypedResults.BadRequest("The server agent needs a provider account.");
+        if (isAgent && imagesJson.Length > 0)
+        {
+            var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+            using var query = publisher.StartQuery();
+            if (ImagesRefused(request.AccountId!.Value, model) is { } refused) return TypedResults.BadRequest(refused);
+        }
         return await RunAsync(node, http, new SessionCreated
         {
             MachineId = request.MachineId, UserId = http.User.UserId() ?? 0, Harness = request.Harness,
@@ -176,7 +187,8 @@ public static class SessionEndpoints
         {
             var publisher = await node.Ready.WaitAsync(http.RequestAborted);
             using var query = publisher.StartQuery();
-            if (Ambient.Relation<ISessionTable>().FindByIdOrDefault(id)?.Harness == Harnesses.Agent) return TypedResults.BadRequest(NoAgentImages);
+            if (Ambient.Relation<ISessionTable>().FindByIdOrDefault(id) is { Harness: Harnesses.Agent } session && ImagesRefused(session.AccountId, session.Model) is { } refused)
+                return TypedResults.BadRequest(refused);
         }
         return await RunAsync(node, http, new SessionMessageSent
         {

@@ -56,7 +56,8 @@ public sealed record ToolDiffRequest(string WorkingDirectory, string BeforeRef, 
 /// <summary>The tools of a stdio MCP server, which is started in the session's working directory if needed.</summary>
 public sealed record McpToolsRequest(ulong SessionId, string WorkingDirectory, ResolvedMcpServer Server) : ToolRpc;
 
-public sealed record ToolRunResult(string Text, bool IsError) : MachineRpcResult;
+/// <param name="Images">Images the tool gave the model, already uploaded as blobs.</param>
+public sealed record ToolRunResult(string Text, bool IsError, PromptImage[]? Images = null) : MachineRpcResult;
 
 /// <summary>Both are null when nothing changed or the folder is not a repository. <c>Data</c> is the JSON of a <c>Diff</c> item.</summary>
 public sealed record ToolDiffResult(string? Patch, string? Data) : MachineRpcResult;
@@ -68,22 +69,52 @@ public sealed record McpToolsResult(McpToolInfo[] Tools) : MachineRpcResult;
 /// <summary>Reads what an MCP server answered to <c>tools/call</c>, whichever transport brought it.</summary>
 public static class McpResults
 {
-    public static (string Text, bool IsError) Read(JsonNode? result)
+    /// <param name="Images">The images' content, each a format <see cref="PromptImages.MediaTypeOf"/> knows and within its limit; the others are named in the text.</param>
+    public sealed record Content(string Text, bool IsError, IReadOnlyList<byte[]> Images);
+
+    public static Content Read(JsonNode? result)
     {
         var text = new StringBuilder();
-        foreach (var part in (result?["content"] as JsonArray ?? []).OfType<JsonObject>())
+        var images = new List<byte[]>();
+        void Line(string? line)
         {
             if (text.Length > 0) text.Append('\n');
-            text.Append(Str(part["type"]) switch
-            {
-                "text" => Str(part["text"]),
-                "resource" => Str(part["resource"]?["text"]) ?? $"[resource {Str(part["resource"]?["uri"])}]",
-                "resource_link" => $"[resource {Str(part["uri"])}]",
-                var other => $"[{other} content, not shown to the model]"
-            });
+            text.Append(line);
         }
-        if (text.Length == 0 && result?["structuredContent"] is { } structured) text.Append(structured.ToJsonString());
-        return (text.ToString(), result?["isError"] is JsonValue flag && flag.TryGetValue<bool>(out var isError) && isError);
+        foreach (var part in (result?["content"] as JsonArray ?? []).OfType<JsonObject>())
+            switch (Str(part["type"]))
+            {
+                case "text":
+                    Line(Str(part["text"]));
+                    break;
+                case "image":
+                    if (ImageOf(Str(part["data"])) is { } image) images.Add(image);
+                    else Line($"[an image ({Str(part["mimeType"])}) the model cannot take: only PNG, JPEG, GIF and WebP of at most {PromptImages.MaximumBytes / 1024 / 1024} MB]");
+                    break;
+                case "resource":
+                    Line(Str(part["resource"]?["text"]) ?? $"[resource {Str(part["resource"]?["uri"])}]");
+                    break;
+                case "resource_link":
+                    Line($"[resource {Str(part["uri"])}]");
+                    break;
+                case var other:
+                    Line($"[{other} content, not shown to the model]");
+                    break;
+            }
+        if (text.Length == 0 && images.Count == 0 && result?["structuredContent"] is { } structured) text.Append(structured.ToJsonString());
+        return new(text.ToString(), result?["isError"] is JsonValue flag && flag.TryGetValue<bool>(out var isError) && isError, images);
+    }
+
+    /// <summary>The image's bytes, when they are one the models take; the content decides, not the type the server claims.</summary>
+    static byte[]? ImageOf(string? base64)
+    {
+        if (base64 == null || base64.Length > (PromptImages.MaximumBytes + 2) / 3 * 4) return null;
+        try
+        {
+            var bytes = Convert.FromBase64String(base64);
+            return PromptImages.MediaTypeOf(bytes.AsSpan(0, Math.Min(bytes.Length, PromptImages.HeaderLength))) != null ? bytes : null;
+        }
+        catch (FormatException) { return null; }
     }
 
     static string? Str(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;

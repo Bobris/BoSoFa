@@ -284,6 +284,20 @@ The context window, output limit and price of a model come from a checked-in mod
 (`https://models.dev/api.json`), as in CodeAlta, refreshed by a small tool. A model missing from it still runs, with
 compaction off and no cost shown.
 
+### 5.6 Images
+
+- Images reach the model from three places: attached to a message (as for the other harnesses), `read_file` on an image, and
+  an MCP tool's image content. The transcript keeps only `PromptImage` hashes, in the item's `Data`, where the page shows them;
+  the bytes are blobs. The daemon uploads what its tools give; the loop stores what an HTTP MCP server sent.
+- Only PNG, JPEG, GIF and WebP of at most 5 MB, judged by the content, never by the claimed type.
+- The loop reads the blobs for each model call (keeping those of the last call in memory) and sends them in base64: Anthropic
+  `image` blocks before the message's text and inside `tool_result`, OpenAI `input_image` data URLs in the message and in
+  `function_call_output`. The newest images go first; beyond 100 images or 20 MB of base64 in one request, older ones become a
+  note. An image whose blob is gone becomes a note too.
+- The snapshot records which models cannot read images (models.dev `modalities.input`). Attaching images for one of them is
+  refused, and their tools' images become a note. A model the snapshot does not know is assumed to read them.
+- Compaction keeps the images of the person's last message. The shortened retry after an overflow leaves all images out.
+
 ## 6. Tools
 
 ### 6.1 Machine tools (run by the daemon)
@@ -294,7 +308,7 @@ approval unless the mode is `bypassPermissions`.
 
 | Tool | Group | Does |
 |---|---|---|
-| `read_file` | read | Numbered lines of a text file, with offset and limit. An image is only named, until the provider contracts carry images. |
+| `read_file` | read | Numbered lines of a text file, with offset and limit. A PNG, JPEG, GIF or WebP image of at most 5 MB is uploaded as a blob and shown to the model (§5.6). |
 | `list_dir` | read | Entries of a folder. |
 | `glob` | read | Files matching a pattern, without those git ignores. |
 | `grep` | read | Matching lines (ripgrep when installed, else our own). |
@@ -327,8 +341,8 @@ approval unless the mode is `bypassPermissions`.
   passes `tools/list` and `tools/call` through `ToolRpc` (decided 2026-11-09). Every call names the server, secrets
   included, so they stay in memory and a restarted daemon just starts it again; one idle for 15 minutes is stopped.
   Without a machine, the session cannot use them, and starting it says so.
-- Tools are named `mcp__<server>__<tool>`, with the server's schema passed through. Results keep text; images are named
-  in the text until the provider contracts carry them.
+- Tools are named `mcp__<server>__<tool>`, with the server's schema passed through. Results keep text and images (§5.6);
+  other content, and images of a format or size the models do not take, are named in the text.
 
 ### 6.3 Web access
 
@@ -499,8 +513,7 @@ at the start, the session goes on without it and says so.
      dropping while a command runs (it runs once), and stdio MCP on the machine.
    - `LiveOpenAIFixesAFailingTest` has a real model find and fix a failing test with every step approved. The same was
      done from the browser with the published Native AOT daemon.
-   - Not done: worktrees for agent sessions are refused, and images (attached or read from a file) do not reach the
-     model yet. Both wait for later steps.
+   - Not done: worktrees for agent sessions are refused. Images came later (§5.6).
 4. **Anthropic Messages.** Thinking, caching, schema fixes. Accounts: Anthropic API key.
    *Done (2026-11-09):*
    - Anthropic API key accounts appear as harnesses like OpenAI's. `apply_patch` stays OpenAI-only.
@@ -543,6 +556,9 @@ at the start, the session goes on without it and says so.
    - A status bar shows the model, how full the context is, the prompt cache's countdown (Anthropic only: the others promise no
      lifetime), the plan limit closest to running out, the project, the worktree and the cost. What is unknown is left out.
    - `upload_file` from §6.4.
+10. **Images.** *Done (2026-11-10):* §5.6. `ImagesReachTheModelFromThePersonAndFromTools`, `ReadingAnImageShowsItToTheModel` and
+    `LiveAnthropicSeesAttachedAndToolImages` (Sonnet 5.5, Opus 5.5 and Haiku 4.5 named both colours). OpenAI's image input is checked against the
+    documented format only, since the test key has no credits.
 
 ## 12. Decisions (2026-11-09)
 

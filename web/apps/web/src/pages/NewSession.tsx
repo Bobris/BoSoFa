@@ -95,6 +95,8 @@ export default function NewSession() {
   const [typingModel, setTypingModel] = createSignal(false);
   const chosenModel = () => (agentAccount() ? model().trim() || remembered(lastModelKey(agentAccount()!)) : model().trim());
   const listedModel = () => agentModels().some((option) => option.id === chosenModel());
+  // A model the list knows cannot read images gets none; any other may try.
+  const takesImages = () => !agentAccount() || agentModels().find((option) => option.id === chosenModel())?.acceptsImages !== false;
   const needsDirectory = () => !agentAccount() || agentMachine() !== "";
 
   async function start(event: SubmitEvent) {
@@ -115,7 +117,7 @@ export default function NewSession() {
             : null,
         useWorktree: !agentAccount() && worktree(),
         profileName: profile() || null,
-        images: agentAccount() ? [] : attachments.hashes(),
+        images: takesImages() ? attachments.hashes() : [],
         systemPrompt: agentAccount() && systemPrompt().trim() ? systemPrompt().trim() : null,
         reasoningEffort: agentAccount() && efforts().includes(effort()) ? effort() : null,
         toolGroup: agentAccount() && agentMachine() ? toolGroup() : null,
@@ -294,7 +296,12 @@ export default function NewSession() {
               onDrop={attachments.onDrop}
             />
           </label>
-          <Show when={!agentAccount()}>
+          <Show when={takesImages()} fallback={
+              <Show when={attachments.items().length > 0}>
+                <p class="text-xs text-muted">This model cannot read images, so they will not be sent.</p>
+              </Show>
+            }
+          >
             <AttachmentStrip attachments={attachments} />
           </Show>
           <div class="flex items-center gap-3">

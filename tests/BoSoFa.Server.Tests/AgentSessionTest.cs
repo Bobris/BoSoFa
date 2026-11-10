@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using BoSoFa.Protocol;
 
@@ -321,6 +322,66 @@ public class AgentSessionTest
         Assert.Contains(done, item => item is { Kind: SessionItemKind.ToolResult, Text: "The answer is 42." });
     }
 
+    internal static async Task<string> UploadImageAsync(HttpClient client, string base64) =>
+        (await (await client.PostAsync("/api/v1/blobs", new ByteArrayContent(Convert.FromBase64String(base64)))).Content.ReadFromJsonAsync<BlobRef>())!.Sha256;
+
+    internal static async Task<SessionDto> StartWithImagesAsync(Harness h, string prompt, string model, params string[] images)
+    {
+        var response = await h.Boris.PostAsJsonAsync("/api/v1/sessions",
+            new CreateSessionRequest(0, Harnesses.Agent, "", prompt, "bypassPermissions", model, h.AccountId, ProfileName: "research", Images: images));
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        return (await response.Content.ReadFromJsonAsync<SessionDto>())!;
+    }
+
+    static IEnumerable<JsonNode> Parts(JsonObject request) => request["input"]!.AsArray().SelectMany(entry =>
+        (entry!["content"] ?? entry["output"]) is JsonArray parts ? parts.Select(part => part!) : []);
+
+    [Fact]
+    public async Task ImagesReachTheModelFromThePersonAndFromTools()
+    {
+        await using var h = await Harness.StartAsync();
+        h.Backend.ToolImage = FakeAgentBackend.BluePng;
+        h.Backend.Call("c1", "mcp__facts__lookup", "{\"q\":\"x\"}");
+        h.Backend.Answer("Red and blue.");
+        h.Backend.Answer("Red again.");
+        var red = await UploadImageAsync(h.Boris, FakeAgentBackend.RedPng);
+        var session = await StartWithImagesAsync(h, "What colours?", "test-model", red);
+        var items = await h.RunEndedAsync(session.Id);
+        Assert.Contains(red, items[0].Data);
+        var blue = Assert.Single(JsonSerializer.Deserialize(items.Single(item => item.Kind == SessionItemKind.ToolResult).Data!, ProtocolJsonContext.Default.PromptImageArray)!);
+        Assert.Equal(Convert.FromBase64String(FakeAgentBackend.BluePng), await h.Boris.GetByteArrayAsync($"/api/v1/blobs/{blue.Sha256}"));
+
+        var second = h.Backend.ModelRequests.ElementAt(1)["input"]!.AsArray();
+        var user = second.First(entry => (string?)entry!["role"] == "user")!["content"]!.AsArray();
+        Assert.Equal(["input_image", "input_text"], user.Select(part => (string?)part!["type"]));
+        Assert.Equal("data:image/png;base64," + FakeAgentBackend.RedPng, (string)user[0]!["image_url"]!);
+        var output = second.Single(entry => (string?)entry!["type"] == "function_call_output")!["output"]!.AsArray();
+        Assert.Equal(("The answer is 42.", "data:image/png;base64," + FakeAgentBackend.BluePng), ((string)output[0]!["text"]!, (string)output[1]!["image_url"]!));
+
+        (await h.Boris.PostAsJsonAsync($"/api/v1/sessions/{session.Id}/messages", new SendMessageRequest("And now?", Images: [red]))).EnsureSuccessStatusCode();
+        await h.RunEndedAsync(session.Id, 2);
+        Assert.Equal(3, Parts(h.Backend.ModelRequests.Last()).Count(part => (string?)part["type"] == "input_image"));
+    }
+
+    [Fact]
+    public async Task AModelThatCannotReadImagesGetsANoteInstead()
+    {
+        await using var h = await Harness.StartAsync();
+        var red = await UploadImageAsync(h.Boris, FakeAgentBackend.RedPng);
+        var refused = await h.Boris.PostAsJsonAsync("/api/v1/sessions",
+            new CreateSessionRequest(0, Harnesses.Agent, "", "Look", null, "gpt-4", h.AccountId, ProfileName: "research", Images: [red]));
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Contains("cannot read images", await refused.Content.ReadAsStringAsync());
+
+        h.Backend.ToolImage = FakeAgentBackend.BluePng;
+        h.Backend.Call("c1", "mcp__facts__lookup", "{}");
+        h.Backend.Answer("Done.");
+        var session = await StartWithImagesAsync(h, "Look it up.", "gpt-4");
+        await h.RunEndedAsync(session.Id);
+        var output = h.Backend.ModelRequests.Last()["input"]!.AsArray().Single(entry => (string?)entry!["type"] == "function_call_output")!["output"]!;
+        Assert.Equal("The answer is 42.\n[1 image left out: this model cannot read images.]", (string?)output);
+    }
+
     /// <summary>The whole loop against the real API, with the key file named by BOSOFA_TEST_OPENAI_KEY_FILE: the tool's result reaches the
     /// answer, and a second message goes on from the stored conversation, reasoning included.</summary>
     [ProviderTest.LiveOpenAIFact]
@@ -342,7 +403,7 @@ public class AgentSessionTest
         Assert.Contains("43", items.Last(item => item.Kind == SessionItemKind.Assistant).Text);
     }
 
-    static async Task<T> EventuallyLong<T>(Func<Task<T>> probe, Func<T, bool> done)
+    internal static async Task<T> EventuallyLong<T>(Func<Task<T>> probe, Func<T, bool> done)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(2);
         while (true)

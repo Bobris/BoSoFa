@@ -53,7 +53,7 @@ public sealed partial class AgentToolbox
 
     static readonly ToolSpec[] MachineRead =
     [
-        new(MachineTools.ReadFile, "Read lines of a text file, numbered. Long files come in parts: continue with offset.", Schema(
+        new(MachineTools.ReadFile, "Read lines of a text file, numbered. Long files come in parts: continue with offset. A PNG, JPEG, GIF or WebP image is shown to you as an image.", Schema(
             ("path", "string", "The file, relative to the working directory.", true),
             ("offset", "integer", "The first line to read, from 1.", false),
             ("limit", "integer", "How many lines to read.", false))),
