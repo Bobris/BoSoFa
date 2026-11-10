@@ -211,6 +211,34 @@ public class AgentSessionTest
     }
 
     [Fact]
+    public async Task CompactingSummarizesTheConversationAndTheNextMessageGoesOnFromTheSummary()
+    {
+        await using var h = await Harness.StartAsync();
+        h.Backend.Answer("Forty-two.");
+        var session = await h.StartSessionAsync(profile: null);
+        await h.RunEndedAsync(session.Id);
+        await h.IdleAsync(session.Id);
+
+        h.Backend.Answer("We talked about the answer, which is 42.");
+        (await h.Boris.PostAsync($"/api/v1/sessions/{session.Id}/compact", null)).EnsureSuccessStatusCode();
+        var items = await h.RunEndedAsync(session.Id, 2);
+        Assert.Contains(items, item => item is { Kind: SessionItemKind.Notice, Text: "Compacting the conversation…" });
+        Assert.Equal("We talked about the answer, which is 42.", items.Single(item => item.Kind == SessionItemKind.Compaction).Text);
+        Assert.Contains("summar", Input(h.Backend.ModelRequests.Last()).Last()!.ToJsonString(), StringComparison.OrdinalIgnoreCase);
+        await h.IdleAsync(session.Id);
+        Assert.Empty(await h.ActionsAsync(session.Id));
+
+        // The next message goes from the summary alone: the question answered before is not asked again.
+        h.Backend.Answer("Still 42.");
+        await h.SendAsync(session.Id, "And now?");
+        await h.RunEndedAsync(session.Id, 3);
+        var next = Input(h.Backend.ModelRequests.Last()).ToJsonString();
+        Assert.Contains("We talked about the answer", next);
+        Assert.DoesNotContain("What is the answer?", next);
+        Assert.Contains("And now?", next);
+    }
+
+    [Fact]
     public async Task AnInterruptDuringAToolReportsItToTheModel()
     {
         await using var h = await Harness.StartAsync();

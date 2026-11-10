@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Match, onSettled, Show, Switch, untrack } from "solid-js";
 import { StatusBadge } from "../components/StatusBadge";
 import { ArrowUpIcon, StopIcon } from "../components/icons";
+import { matchingCommands, SlashMenu, type SlashCommand } from "../components/SlashCommands";
 import { createLiveSession, isThinking, isToolOutput, type Draft } from "../live";
 import { paths } from "../router";
 import { fetchMe } from "../session";
@@ -502,6 +503,20 @@ function Composer(props: { sessionId: number; disabled: boolean; stopped: boolea
   const [text, setText] = createSignal("");
   const [error, setError] = createSignal<string>();
   const attachments = createAttachments();
+  // A slash at the start offers the commands; Escape puts the menu away until the text changes.
+  const [picked, setPicked] = createSignal(0);
+  const [dismissed, setDismissed] = createSignal(false);
+  const commands = createMemo(() => (dismissed() ? [] : matchingCommands(text(), props.session)));
+
+  async function runCommand(command: SlashCommand) {
+    if (!props.session) return;
+    const problem = await command.run(props.session);
+    if (problem) return setError(problem);
+    setText("");
+    setError(undefined);
+    if (textarea) textarea.value = "";
+    grow();
+  }
 
   /** Queue waits for the running turn; Steer redirects it now. */
   async function send(mode: "Queue" | "Steer" = "Queue") {
@@ -535,12 +550,15 @@ function Composer(props: { sessionId: number; disabled: boolean; stopped: boolea
         ? "Only the machine's owner can write here."
         : props.running
           ? "Queue a message, or steer this turn"
-          : "Reply…";
+          : "Reply, or / for commands";
 
   return (
     <div class="sticky bottom-0 -mx-4 bg-gradient-to-t from-canvas from-70% to-transparent px-4 pb-4 pt-6 sm:-mx-6 sm:px-6">
       <Show when={props.session}>{(session) => <SessionBar session={session()} />}</Show>
-      <div class="rounded-2xl border border-line bg-panel shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.05)] transition-shadow focus-within:border-accent/40">
+      <div class="relative rounded-2xl border border-line bg-panel shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.05)] transition-shadow focus-within:border-accent/40">
+        <Show when={commands().length > 0}>
+          <SlashMenu commands={commands()} selected={picked()} onPick={(command) => void runCommand(command)} onHover={setPicked} />
+        </Show>
         <div class="px-3 pt-2 empty:hidden">
           <AttachmentStrip attachments={attachments} />
         </div>
@@ -556,9 +574,34 @@ function Composer(props: { sessionId: number; disabled: boolean; stopped: boolea
           value={text()}
           onInput={(event) => {
             setText(event.currentTarget.value);
+            setPicked(0);
+            setDismissed(false);
             grow();
           }}
           onKeyDown={(event) => {
+            const offered = commands();
+            if (offered.length > 0 && !event.isComposing) {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                setPicked((index) => (index + (event.key === "ArrowDown" ? 1 : offered.length - 1)) % offered.length);
+                return;
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setDismissed(true);
+                return;
+              }
+              if (event.key === "Tab") {
+                event.preventDefault();
+                setText(`/${offered[picked()]?.name ?? offered[0].name}`);
+                return;
+              }
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void runCommand(offered[picked()] ?? offered[0]);
+                return;
+              }
+            }
             if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
               event.preventDefault();
               void send().then(grow);

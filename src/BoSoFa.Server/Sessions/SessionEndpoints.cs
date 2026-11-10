@@ -42,6 +42,7 @@ public static class SessionEndpoints
         api.MapGet("/sessions/{id}/requests", ListRequestsAsync);
         api.MapPost("/sessions/{id}/messages", SendMessageAsync);
         api.MapPost("/sessions/{id}/interrupt", InterruptAsync);
+        api.MapPost("/sessions/{id}/compact", CompactAsync);
         api.MapPost("/sessions/{id}/stop", StopAsync);
         api.MapPost("/sessions/{id}/requests/{requestId}/answer", AnswerAsync);
         api.Map(LiveSocket.Path["/api/v1".Length..], LiveAsync);
@@ -200,6 +201,11 @@ public static class SessionEndpoints
     static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> InterruptAsync(ulong id,
         BtdbNode node, HttpContext http) =>
         RunAsync(node, http, new SessionInterruptRequested { SessionId = id, UserId = http.User.UserId() ?? 0 });
+
+    /// <summary>Summarizes the conversation so far to free the context (/compact), after the running turn if one runs.</summary>
+    static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> CompactAsync(ulong id,
+        BtdbNode node, HttpContext http) =>
+        RunAsync(node, http, new SessionCompactRequested { SessionId = id, UserId = http.User.UserId() ?? 0 });
 
     static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> StopAsync(ulong id,
         BtdbNode node, HttpContext http) =>

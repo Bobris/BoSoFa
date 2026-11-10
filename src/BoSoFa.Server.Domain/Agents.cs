@@ -53,6 +53,10 @@ public class AgentRunner
     public bool EndedCleanly { get; set; }
 
     public bool InterruptRequested { get; set; }
+
+    /// <summary>The person asked to summarize the conversation: the loop does it once the run has nothing else to do.</summary>
+    public bool CompactRequested { get; set; }
+
     public DateTime RunStartedAt { get; set; }
     public long InputTokens { get; set; }
     public long CachedInputTokens { get; set; }

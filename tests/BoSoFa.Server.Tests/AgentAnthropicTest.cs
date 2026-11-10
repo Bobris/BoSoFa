@@ -113,6 +113,30 @@ public class AgentAnthropicTest
         Assert.True(answer.Contains("red") && answer.Contains("blue") && answer.IndexOf("red", StringComparison.Ordinal) < answer.IndexOf("blue", StringComparison.Ordinal), answer);
     }
 
+    [ProviderTest.LiveAnthropicFact]
+    public async Task LiveAnthropicCompactsOnRequestAndRemembersFromTheSummary()
+    {
+        var key = (await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_KEY_FILE")!)).Trim();
+        var model = Environment.GetEnvironmentVariable("BOSOFA_TEST_ANTHROPIC_MODEL") is { Length: > 0 } configured ? configured : "claude-haiku-5-5";
+        await using var h = await AgentSessionTest.Harness.StartAsync(liveKey: "sk-notusednotusednotusednotused"); // only so that the real endpoints are used
+        var response = await h.Boris.PostAsJsonAsync("/api/v1/accounts", new CreateHarnessAccountRequest(AccountKind.AnthropicApiKey, "My Claude API", key));
+        Assert.True(response.IsSuccessStatusCode, $"The key was refused: {(int)response.StatusCode}");
+        h.AccountId = (await response.Content.ReadFromJsonAsync<HarnessAccountDto>())!.Id;
+        var session = await h.StartSessionAsync("Remember this code word: periwinkle. Reply with just OK.", profile: null, model: model);
+        await AgentSessionTest.EventuallyLong(() => h.ItemsAsync(session.Id), all => all.Any(item => item.Kind == SessionItemKind.RunEnded));
+        await h.IdleAsync(session.Id);
+
+        (await h.Boris.PostAsync($"/api/v1/sessions/{session.Id}/compact", null)).EnsureSuccessStatusCode();
+        var compacted = await AgentSessionTest.EventuallyLong(() => h.ItemsAsync(session.Id), all => all.Count(item => item.Kind == SessionItemKind.RunEnded) >= 2);
+        Assert.False(compacted[^1].IsError, compacted[^1].Text + " " + string.Join(" | ", compacted.Where(item => item.Kind == SessionItemKind.Notice).Select(item => item.Text)));
+        Assert.Contains("periwinkle", compacted.Single(item => item.Kind == SessionItemKind.Compaction).Text, StringComparison.OrdinalIgnoreCase);
+        await h.IdleAsync(session.Id);
+
+        await h.SendAsync(session.Id, "What was the code word? Answer with the word only.");
+        var items = await AgentSessionTest.EventuallyLong(() => h.ItemsAsync(session.Id), all => all.Count(item => item.Kind == SessionItemKind.RunEnded) >= 3);
+        Assert.Contains("periwinkle", items.Last(item => item.Kind == SessionItemKind.Assistant).Text, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task ARefusedSignatureIsAskedAgainWithoutThinking()
     {

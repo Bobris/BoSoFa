@@ -96,7 +96,10 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                 await FinishAsync(view, state, "interrupted", false, null, true, stopping);
                 continue;
             }
-            if (state.OpenCalls.Count == 0 && !state.NeedsModel)
+            // Asked for (/compact): once nothing else is left to do, and only when there is something to summarize.
+            var compacting = view.Runner.CompactRequested && state.OpenCalls.Count == 0 && !state.NeedsModel && !state.JustCompacted &&
+                             state.Conversation.Count > 0 && InstructionsOf(view) != null;
+            if (state.OpenCalls.Count == 0 && !state.NeedsModel && !compacting)
             {
                 await FinishAsync(view, state, "completed", false, null, false, stopping);
                 continue;
@@ -117,6 +120,11 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                     await FinishAsync(view, state, "failed", true, problem.Message, false, stopping);
                     continue;
                 }
+            }
+            if (compacting)
+            {
+                await CompactAsync(view, state, environment, InstructionsOf(view)!, false, stopping);
+                continue;
             }
             if (state.OpenCalls.Count > 0 && view.RequestOf(state.OpenCalls[0])?.Status == RuntimeRequestStatus.Pending) return true;
             if (state.OpenCalls.Count > 0) await RunToolAsync(view, state.OpenCalls[0], environment, suspectCall, stopping);

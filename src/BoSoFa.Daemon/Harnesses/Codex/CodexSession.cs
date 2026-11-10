@@ -86,6 +86,11 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
             await StartTurnAsync(prompt);
             return;
         }
+        if (ReferenceEquals(prompt, HarnessPrompt.Compaction))
+        {
+            lock (_lock) _queued.Enqueue(prompt); // never steers: it follows the running turn
+            return;
+        }
         try
         {
             await (_rpc ?? throw new IOException("Codex exited.")).RequestAsync("turn/steer", new JsonObject
@@ -126,10 +131,10 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         }
         sink.Report(state.SessionId, new StatusReport(SessionStatus.Running));
         var rpc = _rpc ?? throw new IOException("Codex exited.");
-        var result = await rpc.RequestAsync("turn/start", new JsonObject
-        {
-            ["threadId"] = state.HarnessSessionId, ["input"] = Input(prompt)
-        }, RequestTimeout);
+        // Compacting is a turn of its own in Codex, started by its own request.
+        var result = ReferenceEquals(prompt, HarnessPrompt.Compaction)
+            ? await rpc.RequestAsync("thread/compact/start", new JsonObject { ["threadId"] = state.HarnessSessionId }, RequestTimeout)
+            : await rpc.RequestAsync("turn/start", new JsonObject { ["threadId"] = state.HarnessSessionId, ["input"] = Input(prompt) }, RequestTimeout);
         // turn/started can arrive before this response; whichever comes first names the turn.
         if (ClaudeJson.Obj(result, "turn") is { } turn)
             lock (_lock) _turnId ??= ClaudeJson.Str(turn, "id");
@@ -298,6 +303,8 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
             }
     }
 
+    public Task CompactAsync() => SendAsync(HarnessPrompt.Compaction, DispatchMode.Queue);
+
     public async Task InterruptAsync()
     {
         string? turn;
@@ -427,6 +434,9 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         {
             case "agentMessage" when ClaudeJson.Str(item, "text") is { Length: > 0 } text:
                 sink.Report(state.SessionId, new ItemReport(SessionItemKind.Assistant, now, text, Ref: id));
+                break;
+            case "contextCompaction":
+                sink.Report(state.SessionId, new ItemReport(SessionItemKind.Notice, now, "The conversation was compacted."));
                 break;
             case "reasoning" when ClaudeJson.Obj(item, "summary") is { ValueKind: JsonValueKind.Array } summary:
                 var thinking = string.Join("\n\n", summary.EnumerateArray().Select(part =>

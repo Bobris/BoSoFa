@@ -80,7 +80,7 @@ public static class Domain
 {
     /// <summary>Raise this with every change to persisted relations: a node of a higher generation takes over from older
     /// nodes and publishes its schema, and older builds can never lead again (BTDB <c>Doc/ReplicationHosting.md</c>).</summary>
-    public const ulong ApplicationGeneration = 10;
+    public const ulong ApplicationGeneration = 11;
 
     /// <summary>Every relation of the server database; InitializeRelations registers them under leader authority.</summary>
     public static readonly Type[] Relations =
@@ -113,6 +113,7 @@ public static class Domain
         .Register(new SessionCreatedHandler(signals, actions))
         .Register(new SessionMessageSentHandler(signals, actions))
         .Register(new SessionInterruptRequestedHandler(signals, actions))
+        .Register(new SessionCompactRequestedHandler(signals, actions))
         .Register(new SessionStopRequestedHandler(signals, actions))
         .Register(new RuntimeRequestAnsweredHandler(signals, actions))
         .Register(new MachineCommandsAckedHandler())

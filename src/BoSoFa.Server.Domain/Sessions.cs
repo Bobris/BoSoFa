@@ -226,6 +226,13 @@ public class SessionInterruptRequested : EventWithResult<SessionCommandResult>
     public ulong UserId { get; set; }
 }
 
+/// <summary>The person asked to summarize the conversation so far (/compact).</summary>
+public class SessionCompactRequested : EventWithResult<SessionCommandResult>
+{
+    public ulong SessionId { get; set; }
+    public ulong UserId { get; set; }
+}
+
 public class SessionStopRequested : EventWithResult<SessionCommandResult>
 {
     public ulong SessionId { get; set; }
@@ -490,6 +497,34 @@ public sealed class SessionInterruptRequestedHandler(IDomainSignals signals, BTD
             return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
         }
         Sessions.IssueCommand(signals, machine!.Id, new InterruptCommand(session.Id), ev.When);
+        return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
+    }
+}
+
+public sealed class SessionCompactRequestedHandler(IDomainSignals signals, BTDB.BackendActions.BackendActions actions)
+    : IEventHandler<SessionCompactRequested, SessionCommandResult>
+{
+    public SessionCommandResult? Validate(SessionCompactRequested ev) => null;
+
+    public SessionCommandResult Consume(SessionCompactRequested ev)
+    {
+        var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId);
+        if (session == null) return new() { Outcome = outcome };
+        if (session.Status == SessionStatus.Failed) return new() { Outcome = CommandOutcome.Invalid };
+        if (session.Harness == Harnesses.Agent)
+        {
+            // An idle session gets a run for it; a running one does it when it has nothing else left to do.
+            AgentRunners.Claim(signals, actions, session, ev.When);
+            var runners = Ambient.Relation<IAgentRunnerTable>();
+            var runner = runners.FindByIdOrDefault(session.Id)!;
+            runner.CompactRequested = true;
+            runners.Update(runner);
+            AgentRunners.Ensure(actions, session);
+        }
+        else Sessions.IssueCommand(signals, machine!.Id, new CompactSessionCommand(session.Id), ev.When);
+        Sessions.AppendItem(session, SessionItemKind.Notice, ev.When, "Compacting the conversation…");
+        Sessions.Changed(signals, session, ev.When);
+        Audit.Record(ev.When, ev.UserId, "session.compacted", $"session {session.Id}");
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }
 }

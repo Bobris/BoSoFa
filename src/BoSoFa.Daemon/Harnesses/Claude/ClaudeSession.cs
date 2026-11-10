@@ -52,6 +52,9 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
         finally { _lock.Release(); }
     }
 
+    /// <summary>Claude Code's own /compact, which it queues behind a running turn.</summary>
+    public Task CompactAsync() => SendAsync(HarnessPrompt.Compaction);
+
     public async Task InterruptAsync()
     {
         if (_transport is not { } transport) return;
@@ -189,6 +192,11 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
                         sink.Report(state.SessionId, new StatusReport(_turnRunning ? SessionStatus.Running : SessionStatus.Idle,
                             HarnessSessionId: id, Model: ClaudeJson.Str(line, "model")));
                         break;
+                    case "compact_boundary":
+                        var before = ClaudeJson.Obj(line, "compact_metadata") is { } compacted ? ClaudeJson.Long(compacted, "pre_tokens") : 0;
+                        sink.Report(state.SessionId, new ItemReport(SessionItemKind.Notice, DateTime.UtcNow,
+                            before > 0 ? $"The conversation was compacted ({before.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} tokens before)." : "The conversation was compacted."));
+                        break;
                     case "session_state_changed":
                         switch (ClaudeJson.Str(line, "state"))
                         {
@@ -269,12 +277,18 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
         return "";
     }
 
+    const string CompactSummaryOpening = "This session is being continued from a previous conversation";
+
     void TranslateUser(JsonElement line, DateTime now)
     {
         if (ClaudeJson.Obj(line, "message") is not { } message || ClaudeJson.Obj(message, "content") is not { } content) return;
+        // After /compact, Claude Code goes on from its own summary, which it hands itself as a user message.
+        var summary = ClaudeJson.Bool(line, "isCompactSummary");
         if (content.ValueKind == JsonValueKind.String)
         {
-            sink.Report(state.SessionId, new ItemReport(SessionItemKind.Notice, now, content.GetString() ?? ""));
+            var text = content.GetString() ?? "";
+            sink.Report(state.SessionId, new ItemReport(summary || text.StartsWith(CompactSummaryOpening, StringComparison.Ordinal)
+                ? SessionItemKind.Compaction : SessionItemKind.Notice, now, text));
             return;
         }
         if (content.ValueKind != JsonValueKind.Array) return;
@@ -287,7 +301,8 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
                         IsError: ClaudeJson.Bool(block, "is_error")));
                     break;
                 case "text" when ClaudeJson.Str(block, "text") is { Length: > 0 } text:
-                    sink.Report(state.SessionId, new ItemReport(SessionItemKind.Notice, now, text));
+                    sink.Report(state.SessionId, new ItemReport(summary || text.StartsWith(CompactSummaryOpening, StringComparison.Ordinal)
+                        ? SessionItemKind.Compaction : SessionItemKind.Notice, now, text));
                     break;
             }
     }
@@ -322,7 +337,9 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
                     cost += c.GetDouble();
         var usage = ClaudeJson.Obj(line, "usage") ?? ClaudeJson.Empty;
         var isError = ClaudeJson.Bool(line, "is_error");
-        var outcome = ClaudeJson.Str(line, "terminal_reason") ?? ClaudeJson.Str(line, "subtype") ?? "ended";
+        // A turn that only compacted ends with "success" and no reason: it completed like any other.
+        var outcome = ClaudeJson.Str(line, "terminal_reason") ??
+                      (ClaudeJson.Str(line, "subtype") is "success" ? "completed" : ClaudeJson.Str(line, "subtype")) ?? "ended";
         foreach (var key in _approvals.Keys)
             if (_approvals.TryRemove(key, out _)) sink.Report(state.SessionId, new ApprovalClosedReport(key, "turn ended"));
         sink.Report(state.SessionId, new RunEndedReport(now, outcome, isError, cost,

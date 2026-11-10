@@ -300,6 +300,9 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
 
     public Task InterruptAsync() => InterruptAsync(clearQueue: true);
 
+    /// <summary>The agent's /compact command (OpenCode's summary), as a prompt after the running turn.</summary>
+    public Task CompactAsync() => SendAsync(HarnessPrompt.Compaction, DispatchMode.Queue);
+
     async Task InterruptAsync(bool clearQueue)
     {
         lock (_lock)

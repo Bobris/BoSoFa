@@ -75,6 +75,7 @@ public sealed record OutboxAck(ulong SessionId, long Seq);
 [JsonDerivedType(typeof(StartSessionCommand), "startSession")]
 [JsonDerivedType(typeof(SendMessageCommand), "sendMessage")]
 [JsonDerivedType(typeof(InterruptCommand), "interrupt")]
+[JsonDerivedType(typeof(CompactSessionCommand), "compact")]
 [JsonDerivedType(typeof(AnswerApprovalCommand), "answerApproval")]
 [JsonDerivedType(typeof(StopSessionCommand), "stopSession")]
 [JsonDerivedType(typeof(InstallHarnessCommand), "installHarness")]
@@ -91,6 +92,9 @@ public sealed record SendMessageCommand(ulong SessionId, string Text, DispatchMo
     : MachineCommand(SessionId);
 
 public sealed record InterruptCommand(ulong SessionId) : MachineCommand(SessionId);
+
+/// <summary>Summarize the conversation so far, to free the context: after the running turn, if there is one.</summary>
+public sealed record CompactSessionCommand(ulong SessionId) : MachineCommand(SessionId);
 
 public sealed record AnswerApprovalCommand(ulong SessionId, string Key, bool Allow, string? Message)
     : MachineCommand(SessionId);

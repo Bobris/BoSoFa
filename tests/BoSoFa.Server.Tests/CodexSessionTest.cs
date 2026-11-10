@@ -81,6 +81,10 @@ public class CodexSessionTest
                     case "account/login/start": Send(Respond(new() { ["type"] = "chatgptDeviceCode", ["loginId"] = "login-1", ["verificationUrl"] = "https://auth.example/device", ["userCode"] = "ABCD-EFGH" })); break;
                     case "thread/start": Send(Respond(new() { ["thread"] = new JsonObject { ["id"] = "thread-1" }, ["model"] = "gpt-test" })); break;
                     case "turn/steer": Send(Respond(new() { ["turnId"] = "turn-1" })); break;
+                    case "thread/compact/start":
+                        Send(Respond(new()));
+                        _ = Task.Run(PlayCompactionAsync);
+                        break;
                     case "turn/start":
                         var turn = ++_turns;
                         Send(Respond(new() { ["turn"] = new JsonObject { ["id"] = $"turn-{turn}", ["status"] = "inProgress" } }));
@@ -112,6 +116,15 @@ public class CodexSessionTest
                 Notify("item/completed", Item(id, new() { ["id"] = "cmd-1", ["type"] = "commandExecution", ["command"] = "ls", ["cwd"] = "/work", ["status"] = "completed", ["aggregatedOutput"] = "a.txt", ["exitCode"] = 0 }));
                 Notify("thread/tokenUsage/updated", new() { ["threadId"] = "thread-1", ["turnId"] = id, ["tokenUsage"] = new JsonObject { ["last"] = new JsonObject { ["inputTokens"] = 100, ["outputTokens"] = 7 } } });
             }
+            Notify("turn/completed", new() { ["threadId"] = "thread-1", ["turn"] = Turn("completed") });
+        }
+
+        /// <summary>Codex compacts in a turn of its own, with a context compaction item.</summary>
+        void PlayCompactionAsync()
+        {
+            JsonObject Turn(string status) => new() { ["id"] = "compact-1", ["status"] = status, ["items"] = new JsonArray(), ["durationMs"] = 800 };
+            Notify("turn/started", new() { ["threadId"] = "thread-1", ["turn"] = Turn("inProgress") });
+            Notify("item/completed", new() { ["threadId"] = "thread-1", ["turnId"] = "compact-1", ["item"] = new JsonObject { ["id"] = "c-1", ["type"] = "contextCompaction" } });
             Notify("turn/completed", new() { ["threadId"] = "thread-1", ["turn"] = Turn("completed") });
         }
 
@@ -197,6 +210,31 @@ public class CodexSessionTest
         var input = server.Received.First(message => Method(message) == "turn/start").GetProperty("params").GetProperty("input");
         Assert.Equal("look", input[0].GetProperty("text").GetString());
         Assert.Equal(("localImage", "/tmp/a.png"), (input[1].GetProperty("type").GetString(), input[1].GetProperty("path").GetString()));
+    }
+
+    [Fact]
+    public async Task CompactingWaitsForTheRunningTurnAndIsReported()
+    {
+        await using var server = new FakeCodex();
+        var sink = new RecordingSink();
+        var state = new SessionState { SessionId = 1, Harness = Harnesses.Codex, WorkingDirectory = Path.GetTempPath(), PermissionMode = "default" };
+        await using IHarnessSession session = new CodexSession(state, sink, () => Task.FromResult(new CodexLaunch(server.Client, null)), TextWriter.Null);
+        await session.SendAsync("List the files", DispatchMode.Queue);
+        await WaitFor(() => sink.Reports.OfType<ItemReport>().Any(item => item.Kind == SessionItemKind.Notice), "the device code");
+        server.CompleteLogin();
+        await WaitFor(() => sink.Reports.OfType<ApprovalRequestedReport>().Any(), "the approval");
+
+        // Asked during the turn, it waits for that turn to end.
+        await session.CompactAsync();
+        await Task.Delay(200);
+        Assert.DoesNotContain(server.Received, message => Method(message) == "thread/compact/start");
+        await session.AnswerAsync(sink.Reports.OfType<ApprovalRequestedReport>().Single().Key, true, null);
+        server.FinishTurn();
+        await WaitFor(() => server.Received.Any(message => Method(message) == "thread/compact/start"), "the compaction");
+        await WaitFor(() => sink.Reports.OfType<RunEndedReport>().Count() == 2, "the compaction's turn to end");
+        Assert.Contains(sink.Reports.OfType<ItemReport>(), item => item is { Kind: SessionItemKind.Notice, Text: "The conversation was compacted." });
+        Assert.IsType<StatusReport>(sink.Reports.Last());
+        Assert.Equal(SessionStatus.Idle, ((StatusReport)sink.Reports.Last()).Status);
     }
 
     static string? Method(JsonElement message) => message.TryGetProperty("method", out var method) ? method.GetString() : null;

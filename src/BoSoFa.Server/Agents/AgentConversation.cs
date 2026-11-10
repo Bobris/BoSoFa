@@ -44,10 +44,11 @@ public static class AgentConversation
                     runOpen = true;
                     break;
                 case SessionItemKind.Compaction:
-                    // Everything so far becomes the summary, and the person's latest words stay as they were.
+                    // Everything so far becomes the summary; during a run the person's latest words stay as they were, while one asked
+                    // for between runs (/compact) leaves only the summary, as those words were answered.
                     conversation.Clear();
                     conversation.Add(Stored<UserMessage>(item) ?? new UserMessage(item.Text));
-                    if (lastUser != null) conversation.Add(lastUser);
+                    if (lastUser != null && runOpen) conversation.Add(lastUser);
                     justCompacted = true;
                     break;
                 case SessionItemKind.Assistant:

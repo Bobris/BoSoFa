@@ -405,6 +405,11 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - The start page is the composer. The harness, machine, folder (with the machine's recent folders) and model sit in it, and permissions, worktree, profile, account and the agent's options sit below. Enter starts, Shift+Enter adds a line.
   - The first word written creates a draft on the server (`/api/v1/drafts`, the settings as the client's own JSON), saved as it is typed. Starting the session turns the draft into it (`CreateSessionRequest.DraftId`). Clearing the prompt discards it.
   - The sidebar lists terminals from `/api/v1/terminals`, which asks every online machine of mine, with a 3 s limit.
+  - A `/` at the start of a reply offers commands (`web/apps/web/src/components/SlashCommands.tsx`). `/compact` summarizes
+    the conversation to free context (`POST /api/v1/sessions/{id}/compact`), after the running turn if one runs.
+    - Server agent: the run summarizes once nothing else is left (`AgentRunner.CompactRequested`).
+    - Codex: `thread/compact/start`, a turn of its own.
+    - Claude Code and OpenCode: their own `/compact`, sent as a prompt. Claude Code's summary shows as a Compaction item.
 - **Rules for agents** (go into `AGENTS.md`):
   - Solid 2 docs: `https://v2.solidjs.com/llms-small.txt` (the primer), `/llms.txt`, and `/llms-full.txt`.
   - Read `node_modules/solid-js/CHEATSHEET.md`, `solid-js/skills/solid-2.0/SKILL.md` and `@solidjs/diagnostics/skills/agent-loops/SKILL.md`.

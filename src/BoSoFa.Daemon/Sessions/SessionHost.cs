@@ -317,6 +317,10 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
             case InterruptCommand:
                 if (session != null) await session.InterruptAsync();
                 break;
+            case CompactSessionCommand compact:
+                if (session == null) Report(compact.SessionId, new StatusReport(SessionStatus.Failed, Error: "Unknown session."));
+                else await session.CompactAsync();
+                break;
             case AnswerApprovalCommand answer:
                 if (Mcp.TryAnswer(answer.Key, answer.Allow, answer.Message)) break;
                 if (session != null) await session.AnswerAsync(answer.Key, answer.Allow, answer.Message);
