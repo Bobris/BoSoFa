@@ -573,6 +573,8 @@ public sealed class DaemonReportsReceivedHandler(IDomainSignals signals) : IEven
 
     public void Consume(DaemonReportsReceived ev)
     {
+        // A removed machine's last reports can still be on their way; its sessions have stopped for good.
+        if (Ambient.Relation<IMachineTable>().FindByIdOrDefault(ev.MachineId) == null) return;
         var sessions = Ambient.Relation<ISessionTable>();
         var changed = new Dictionary<ulong, Session>();
         foreach (var record in Parse(ev))
