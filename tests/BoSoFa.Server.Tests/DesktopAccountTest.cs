@@ -75,6 +75,47 @@ public class DesktopAccountTest
     }
 
     [Fact]
+    public async Task AWrongAddressIsToldAtOnceAndANewSignInReplacesOneThatWaits()
+    {
+        Assert.Equal("https://bosofa.example.com/", DesktopAccount.OriginOf(" bosofa.example.com/ ")?.ToString());
+        Assert.Equal("http://localhost:5080/", DesktopAccount.OriginOf("localhost:5080")?.ToString());
+        Assert.Equal("https://bosofa.example.com/", DesktopAccount.OriginOf("https://bosofa.example.com/sessions/3")?.ToString());
+        Assert.Null(DesktopAccount.OriginOf("ftp://bosofa.example.com"));
+
+        await using var server = await TestServer.StartAsync();
+        var data = Directory.CreateTempSubdirectory("bosofa-desktop-").FullName;
+        var opened = new List<Uri>();
+        var browserOpened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var account = new DesktopAccount(data, new MemoryVault(), authorize =>
+        {
+            opened.Add(authorize);
+            browserOpened.TrySetResult();
+            return Task.CompletedTask; // the person never approves
+        });
+
+        // Nothing answers there: said before any browser opens.
+        var nobody = $"http://127.0.0.1:{FreePort()}";
+        Assert.Contains("could not be reached", await account.SignInAsync(nobody, default));
+        Assert.Empty(opened);
+
+        // The right server: the browser opens and the sign-in waits; signing in again replaces it.
+        var waiting = account.SignInAsync(server.BaseAddress.ToString(), default);
+        await browserOpened.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var replacing = account.SignInAsync(nobody, default);
+        Assert.Equal("A newer sign-in took over.", await waiting.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Contains("could not be reached", await replacing);
+        Assert.Single(opened);
+        Assert.Null(account.Server);
+    }
+
+    static int FreePort()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
+
+    [Fact]
     public void ThePagesPolicyNamesOnlyTheServer()
     {
         Assert.Contains("connect-src 'self';", SpaProvider.ContentSecurityPolicy(null));

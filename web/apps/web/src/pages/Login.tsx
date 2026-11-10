@@ -4,36 +4,52 @@ import { createMemo, createSignal, Show } from "solid-js";
 import { branding } from "../branding";
 import { paths } from "../router";
 
-/** The desktop app signs in through the system browser; afterwards the page reloads, because its CSP names the server. */
+/** The desktop app signs in through the system browser; afterwards the page reloads, because its CSP names the server.
+ * While the browser is out, the address can still be corrected: continuing again replaces the sign-in that waits. */
 function DesktopLogin() {
   const platform = getPlatform();
   const [server, setServer] = createSignal(platform.server ?? "");
   const [error, setError] = createSignal<string>();
-  const [waiting, setWaiting] = createSignal(false);
+  const [waitingFor, setWaitingFor] = createSignal<string>();
+  let attempt = 0;
 
   async function signIn(event: SubmitEvent) {
     event.preventDefault();
+    const address = server().trim();
+    const mine = ++attempt;
     setError(undefined);
-    setWaiting(true);
-    const problem = await platform.signIn!(server().trim());
-    setWaiting(false);
+    setWaitingFor(address);
+    const problem = await platform.signIn!(address);
+    if (mine !== attempt) return; // a newer sign-in took over
+    setWaitingFor(undefined);
     if (problem) setError(problem);
     else location.href = "/";
   }
 
   return (
-    <form class="max-w-sm mx-auto mt-16 rounded-lg border border-line bg-panel p-6 space-y-4" onSubmit={signIn}>
-      <h1 class="text-xl font-semibold">Sign in to {branding().name}</h1>
+    <form class="mx-auto mt-[18vh] max-w-sm space-y-4 rounded-2xl border border-line bg-panel p-6 shadow-sm" onSubmit={signIn}>
+      <div>
+        <h1 class="font-serif text-2xl tracking-tight">Sign in to {branding().name}</h1>
+        <p class="mt-1 text-sm text-muted">The address of your team's server. You approve the sign-in in your browser.</p>
+      </div>
       <input
-        class="w-full rounded-md border border-line bg-transparent px-3 py-2"
-        placeholder="https://bosofa.example.com"
+        class="w-full rounded-lg border border-line bg-transparent px-3 py-2 outline-none focus:border-accent/50"
+        placeholder="bosofa.example.com"
         required
+        autofocus
         value={server()}
         onInput={(event) => setServer(event.currentTarget.value)}
       />
-      <button type="submit" class="w-full rounded-md bg-accent text-white py-2 font-medium" disabled={waiting()}>
-        {waiting() ? "Waiting for the browser…" : "Continue in the browser"}
+      <button type="submit" class="w-full rounded-lg bg-accent py-2 font-medium text-white disabled:opacity-50" disabled={!server().trim()}>
+        {waitingFor() && waitingFor() === server().trim() ? "Open the browser again" : "Continue in the browser"}
       </button>
+      <Show when={waitingFor()}>
+        {(address) => (
+          <p class="text-sm text-muted">
+            Waiting for you to approve in the browser at <span class="font-medium text-ink">{address()}</span>. Wrong address? Change it and continue again.
+          </p>
+        )}
+      </Show>
       <Show when={error()}>{(message) => <p class="text-sm text-red-600">{message()}</p>}</Show>
     </form>
   );

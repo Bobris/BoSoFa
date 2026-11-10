@@ -74,11 +74,62 @@ public sealed class DesktopAccount(string dataDirectory, ITokenVault vault, Func
         return _signedIn.Value;
     }
 
-    /// <summary>Null when it worked, else what to tell the person.</summary>
+    /// <summary>The origin a person meant: <c>https://</c> when they typed no scheme, except for this computer.</summary>
+    public static Uri? OriginOf(string server)
+    {
+        var text = server.Trim().TrimEnd('/');
+        if (text.Length == 0) return null;
+        if (!text.Contains("://", StringComparison.Ordinal))
+            text = (text.StartsWith("localhost", StringComparison.OrdinalIgnoreCase) || text.StartsWith("127.", StringComparison.Ordinal) ? "http://" : "https://") + text;
+        return Uri.TryCreate(text, UriKind.Absolute, out var origin) && origin.Scheme is "https" or "http" && origin.Host.Length > 0
+            ? new Uri(origin.GetLeftPart(UriPartial.Authority))
+            : null;
+    }
+
+    CancellationTokenSource? _signingIn;
+
+    /// <summary>Null when it worked, else what to tell the person. A sign-in started while another still waits for the browser
+    /// replaces it, so a wrong address never holds the app up.</summary>
     public async Task<string?> SignInAsync(string server, CancellationToken cancellation)
     {
-        if (!Uri.TryCreate(server.Trim().TrimEnd('/'), UriKind.Absolute, out var origin) || origin.Scheme is not ("https" or "http"))
-            return "That is not a server address.";
+        if (OriginOf(server) is not { } origin) return "That is not a server address.";
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        var previous = Interlocked.Exchange(ref _signingIn, attempt);
+        try { previous?.Cancel(); }
+        catch (ObjectDisposedException) { /* it ended meanwhile */ }
+        try
+        {
+            if (await ProblemWithAsync(origin, attempt.Token) is { } problem) return problem;
+            return await SignInAtAsync(origin, attempt.Token, cancellation);
+        }
+        catch (OperationCanceledException) when (attempt.IsCancellationRequested && !cancellation.IsCancellationRequested)
+        {
+            return "A newer sign-in took over.";
+        }
+        finally { Interlocked.CompareExchange(ref _signingIn, null, attempt); }
+    }
+
+    /// <summary>Why this is not a server to sign in to, asked before the browser opens; null when it answers as one.</summary>
+    async Task<string?> ProblemWithAsync(Uri origin, CancellationToken cancellation)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        try
+        {
+            using var response = await _http.GetAsync(new Uri(origin, "/api/v1/branding"), timeout.Token);
+            if (!response.IsSuccessStatusCode) return $"{origin.Authority} answers, but not as a {Brand.Name} server ({(int)response.StatusCode}).";
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(timeout.Token), cancellationToken: timeout.Token);
+            return document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("name", out _)
+                ? null
+                : $"{origin.Authority} answers, but not as a {Brand.Name} server.";
+        }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { return $"{origin.Authority} did not answer."; }
+        catch (HttpRequestException exception) { return $"{origin.Authority} could not be reached: {exception.Message}"; }
+        catch (JsonException) { return $"{origin.Authority} answers, but not as a {Brand.Name} server."; }
+    }
+
+    async Task<string?> SignInAtAsync(Uri origin, CancellationToken attempt, CancellationToken cancellation)
+    {
         using var listener = new HttpListener();
         var port = FreeLoopbackPort();
         var redirect = $"http://127.0.0.1:{port}{RedirectPath}";
@@ -88,7 +139,7 @@ public sealed class DesktopAccount(string dataDirectory, ITokenVault vault, Func
         var state = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         var challenge = Convert.ToBase64String(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         var authorize = new Uri(origin, "/desktop/authorize?redirect_uri=" + Uri.EscapeDataString(redirect) + "&code_challenge=" + challenge + "&state=" + state);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(attempt);
         timeout.CancelAfter(BrowserTimeout);
         try
         {
@@ -96,9 +147,9 @@ public sealed class DesktopAccount(string dataDirectory, ITokenVault vault, Func
             await _openBrowser(authorize);
             var code = await waiting;
             using var response = await _http.PostAsJsonAsync(new Uri(origin, "/auth/desktop/token"),
-                new DesktopTokenRequest(code, verifier, redirect, Environment.MachineName), ProtocolJsonContext.Default.DesktopTokenRequest, cancellation);
+                new DesktopTokenRequest(code, verifier, redirect, Environment.MachineName), ProtocolJsonContext.Default.DesktopTokenRequest, attempt);
             if (!response.IsSuccessStatusCode) return "The server refused this sign-in.";
-            var tokens = (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.DesktopTokens, cancellation))!;
+            var tokens = (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.DesktopTokens, attempt))!;
             await _lock.WaitAsync(cancellation);
             try
             {
@@ -113,7 +164,7 @@ public sealed class DesktopAccount(string dataDirectory, ITokenVault vault, Func
             finally { _lock.Release(); }
             return null;
         }
-        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { return "Nothing came back from the browser in time."; }
+        catch (OperationCanceledException) when (!attempt.IsCancellationRequested) { return "Nothing came back from the browser in time."; }
         catch (HttpRequestException exception) { return "The server could not be reached: " + exception.Message; }
         catch (System.ComponentModel.Win32Exception exception) { return "The browser could not be opened: " + exception.Message; }
     }
