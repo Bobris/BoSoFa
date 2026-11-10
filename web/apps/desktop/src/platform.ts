@@ -1,5 +1,5 @@
 import type { Platform } from "@bosofa/api";
-import { auth, files, localDaemon, updates } from "#neoastra";
+import { auth, files, frame, localDaemon, updates } from "#neoastra";
 
 /** Refreshing a little early, so a token does not run out on the way to the server. */
 const expiryMarginMs = 60_000;
@@ -49,6 +49,11 @@ export async function createDesktopPlatform(): Promise<Platform> {
       enable: async () => (await localDaemon.enable({})).error ?? undefined,
       disable: async () => (await localDaemon.disable({})).error ?? undefined,
       addClaudeAccount: async (label) => (await localDaemon.addClaudeAccount({ label })).error ?? undefined,
+    },
+    frame: {
+      titleBar: () => frame.titleBar({}),
+      startDrag: () => void frame.startDrag({}),
+      zoom: () => void frame.zoom({}),
     },
     updates: {
       check: () => updates.check({}),

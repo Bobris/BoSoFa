@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, createSignal, For, Loading, Match, Show, Switch } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { branding } from "../branding";
+import { startWindowDrag, zoomWindow } from "../frame";
 import { logout } from "../session";
 import { isAdmin, useWorkspace, type Activity } from "../workspace";
 import {
@@ -276,14 +277,18 @@ export default function Sidebar(props: { onNavigate: () => void; onCollapse: () 
   const action = "flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-sm font-medium text-ink/90 transition-colors hover:bg-hover hover:text-ink";
   return (
     <nav class="flex h-full flex-col bg-sidebar">
-      <div class="flex h-12 items-center justify-between gap-2 px-3">
+      <div
+        class="flex h-[var(--titlebar-height,3rem)] shrink-0 items-center justify-between gap-2 pl-[max(0.75rem,calc(var(--titlebar-inset,0px)+0.25rem))] pr-3"
+        onPointerDown={startWindowDrag}
+        onDblClick={zoomWindow}
+      >
         <a href="/" class="min-w-0 truncate text-[15px] font-semibold tracking-tight" onClick={() => workspace.newSession()}>
           {branding().name}
         </a>
         <button
           type="button"
-          class="flex size-8 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink"
-          title="Hide the sidebar"
+          class="flex size-7 items-center justify-center rounded-md text-muted hover:bg-hover hover:text-ink"
+          title="Hide the sidebar (⌘\)"
           onClick={() => props.onCollapse()}
         >
           <SidebarIcon class="size-[18px]" />

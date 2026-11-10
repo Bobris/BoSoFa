@@ -134,7 +134,50 @@ public sealed class FilesService
     }
 }
 
+/// <summary>Where the native window buttons sit over the page, in CSS pixels; all zero when the window has its own title bar.</summary>
+public sealed record TitleBarLayout(int Height, int LeftInset, int RightInset);
+
+/// <summary>The window's frame for a page that draws its own title bar: where the native buttons are, and moving or zooming the
+/// window from the page's top strip. Only this app's own page reaches it.</summary>
+[NeoRpcService("frame", Version = 1)]
+public sealed class FrameService
+{
+    readonly NeoAstra.NeoWindow _window;
+    readonly NeoAstra.NeoDispatcher _dispatcher;
+
+    internal FrameService(NeoAstra.NeoWindow window, NeoAstra.NeoDispatcher dispatcher) => (_window, _dispatcher) = (window, dispatcher);
+
+    [NeoRpcMethod("titleBar")]
+    public async ValueTask<TitleBarLayout> TitleBarAsync(EmptyRequest request, CancellationToken cancellationToken) =>
+        await _dispatcher.InvokeAsync(() =>
+        {
+            var layout = _window.GetTitleBarLayout();
+            return layout.Style == NeoAstra.NeoWindowTitleBarStyle.Default ? new TitleBarLayout(0, 0, 0) : new TitleBarLayout(layout.Height, layout.LeftInset, layout.RightInset);
+        }, cancellationToken);
+
+    /// <summary>Moves the window with the pointer while its button is still down, as dragging a title bar does.</summary>
+    [NeoRpcMethod("startDrag")]
+    public async ValueTask<DoneResponse> StartDragAsync(EmptyRequest request, CancellationToken cancellationToken)
+    {
+        await _dispatcher.InvokeAsync(_window.BeginDrag, cancellationToken);
+        return new();
+    }
+
+    /// <summary>What a double click on a title bar does: fills the screen, or gives the window its size back.</summary>
+    [NeoRpcMethod("zoom")]
+    public async ValueTask<DoneResponse> ZoomAsync(EmptyRequest request, CancellationToken cancellationToken)
+    {
+        await _dispatcher.InvokeAsync(() =>
+        {
+            if (_window.State == NeoAstra.NeoWindowState.Maximized) _window.Restore();
+            else _window.Maximize();
+        }, cancellationToken);
+        return new();
+    }
+}
+
 [JsonSerializable(typeof(EmptyRequest))]
+[JsonSerializable(typeof(TitleBarLayout))]
 [JsonSerializable(typeof(AuthState))]
 [JsonSerializable(typeof(AccessTokenResponse))]
 [JsonSerializable(typeof(SignInRequest))]

@@ -1,9 +1,11 @@
+import { getPlatform } from "@bosofa/api";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, createSignal, Errored, Loading, onSettled, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { branding } from "./branding";
 import { MenuIcon, NewIcon, SidebarIcon } from "./components/icons";
 import Sidebar from "./components/Sidebar";
+import { followTitleBar, startWindowDrag, zoomWindow } from "./frame";
 import { Router } from "./router";
 import { useWorkspace, WorkspaceProvider } from "./workspace";
 
@@ -68,6 +70,8 @@ function Shell(props: { children: JSX.Element }) {
     navigate("/");
   }
 
+  onSettled(followTitleBar);
+
   onSettled(() => {
     const onKey = (event: KeyboardEvent) => {
       const mod = event.metaKey || event.ctrlKey;
@@ -83,9 +87,9 @@ function Shell(props: { children: JSX.Element }) {
     return () => document.removeEventListener("keydown", onKey);
   });
 
-  const iconButton = "flex size-8 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink";
+  const iconButton = "flex size-7 items-center justify-center rounded-md text-muted hover:bg-hover hover:text-ink";
   return (
-    <div class={["flex min-h-screen [--bar:3rem]", { "md:[--bar:0px]": !collapsed() }]}>
+    <div class={["flex min-h-screen [--bar:var(--titlebar-height,3rem)]", { "md:[--bar:0px]": !collapsed() }]}>
       <Show when={drawer()}>
         <div class="fixed inset-0 z-30 bg-black/30 md:hidden" onClick={() => setDrawer(false)} />
       </Show>
@@ -102,7 +106,14 @@ function Shell(props: { children: JSX.Element }) {
         />
       </aside>
       <div class="flex min-w-0 flex-1 flex-col">
-        <div class={["sticky top-0 z-20 flex h-12 items-center gap-1 bg-canvas/90 px-2 backdrop-blur", { "md:hidden": !collapsed() }]}>
+        <div
+          class={[
+            "sticky top-0 z-20 flex h-[var(--titlebar-height,3rem)] items-center gap-1 bg-canvas/90 pr-2 backdrop-blur pl-[max(0.5rem,calc(var(--titlebar-inset,0px)+0.25rem))]",
+            { "md:hidden": !collapsed() },
+          ]}
+          onPointerDown={startWindowDrag}
+          onDblClick={zoomWindow}
+        >
           <button type="button" class={[iconButton, "md:hidden"]} title="Menu" onClick={() => setDrawer(true)}>
             <MenuIcon class="size-[18px]" />
           </button>
@@ -126,7 +137,18 @@ export default function App() {
       {(props) => {
         const location = useLocation();
         return (
-          <Show when={!bare.includes(location.pathname)} fallback={<Content>{props.children}</Content>}>
+          <Show
+            when={!bare.includes(location.pathname)}
+            fallback={
+              <>
+                <Show when={getPlatform().frame}>
+                  {/* Under the title bar: somewhere to move the window from. */}
+                  <div class="fixed inset-x-0 top-0 z-10 h-[var(--titlebar-height,3rem)]" onPointerDown={startWindowDrag} onDblClick={zoomWindow} />
+                </Show>
+                <Content>{props.children}</Content>
+              </>
+            }
+          >
             <WorkspaceProvider>
               <Shell>{props.children}</Shell>
             </WorkspaceProvider>

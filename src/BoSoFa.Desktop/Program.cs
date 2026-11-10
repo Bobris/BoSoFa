@@ -42,7 +42,12 @@ return NeoApplication.Run(new NeoApplicationOptions { ApplicationName = Brand.Na
 {
     try
     {
-        await using var window = application.CreateWindow(new NeoWindowOptions { Label = "main", Title = Brand.Name, Width = 1200, Height = 800, IsVisible = false });
+        // On macOS the page runs under the title bar and the window buttons sit in the sidebar's top row, as in other modern apps.
+        await using var window = application.CreateWindow(new NeoWindowOptions
+        {
+            Label = "main", Title = Brand.Name, Width = 1200, Height = 800, IsVisible = false,
+            TitleBar = OperatingSystem.IsMacOS() ? new NeoWindowTitleBar(NeoWindowTitleBarStyle.Overlay) : default
+        });
         application.MainWindow = window;
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         window.Closed += (_, _) => closed.TrySetResult();
@@ -56,6 +61,7 @@ return NeoApplication.Run(new NeoApplicationOptions { ApplicationName = Brand.Na
         builder.AddFilesService(new FilesService(account));
         builder.AddLocalDaemonService(new LocalDaemonService(localDaemon));
         builder.AddUpdatesService(new UpdatesService(updater));
+        builder.AddFrameService(new FrameService(window, application.Dispatcher));
         await using var rpc = builder.Build();
         window.Show();
         await using var view = await environment.CreateWebViewAsync(NeoAstraHost.FillWindow(window), new NeoAstraOptions

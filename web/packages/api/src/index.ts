@@ -57,6 +57,12 @@ export interface Platform {
     disable(): Promise<string | undefined>;
     addClaudeAccount(label: string): Promise<string | undefined>;
   };
+  /** Desktop only, where the page runs under the title bar: room for the native window buttons, and moving or zooming the window. */
+  readonly frame?: {
+    titleBar(): Promise<{ height: number; leftInset: number; rightInset: number }>;
+    startDrag(): void;
+    zoom(): void;
+  };
   /** Desktop only: the names this app was built with, shown until a server tells its own. */
   readonly branding?: Branding;
   /** Desktop only: this app's own updates, which come from the server it signs in to. */
