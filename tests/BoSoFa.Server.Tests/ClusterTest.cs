@@ -180,10 +180,15 @@ public class ClusterTest(Azurite azurite, ITestOutputHelper output) : IClassFixt
                 System.Net.WebSockets.WebSocketMessageType.Text, true, default);
             var listening = SessionTest.ListenAsync(socket, live);
             await Eventually(() => Task.FromResult(live.Count), count => count > 0); // subscribed: deltas are not replayed
+            // The follower connects its relay in the background; deltas the leader sends before that are lost.
+            var relay = first.Service<BoSoFa.Server.Live.LiveRelay>();
+            Assert.True(await Eventually(() => Task.FromResult(relay.IsRelayed(state.MachineId)), relayed => relayed));
             BoSoFa.Daemon.Harnesses.Claude.ReplayTransport.Release("subscribed");
 
+            // Deltas come over the relay and the approval through the event log: either may arrive first.
             var waiting = await Eventually(() => Task.FromResult(live.ToArray()),
-                messages => messages.OfType<LiveSessionUpdate>().Any(update => update.Requests.Length == 1));
+                messages => messages.OfType<LiveSessionUpdate>().Any(update => update.Requests.Length == 1) &&
+                            messages.Any(message => message is LiveDelta { Ref: "msg_01Replay:0" }));
             Assert.Contains(waiting, message => message is LiveDelta { Ref: "msg_01Replay:0" });
             Step("deltas and the approval reached the follower's client");
 
@@ -194,7 +199,8 @@ public class ClusterTest(Azurite azurite, ITestOutputHelper output) : IClassFixt
             (await onSecond.PostAsJsonAsync($"/api/v1/sessions/{session.Id}/requests/{request.Id}/answer",
                 new AnswerRuntimeRequest(true, null))).EnsureSuccessStatusCode();
             var done = await Eventually(() => Task.FromResult(live.ToArray()), messages => messages.OfType<LiveSessionUpdate>()
-                .SelectMany(update => update.Items).Any(item => item.Kind == SessionItemKind.RunEnded));
+                .SelectMany(update => update.Items).Any(item => item.Kind == SessionItemKind.RunEnded) &&
+                messages.Any(message => message is LiveDelta { Ref: "msg_02Replay:0" }));
             var items = done.OfType<LiveSessionUpdate>().SelectMany(update => update.Items).ToList();
             Assert.Equal(Enumerable.Range(1, items.Count).Select(seq => (long)seq), items.Select(item => item.Seq));
             Assert.Contains(done, message => message is LiveDelta { Ref: "msg_02Replay:0" });

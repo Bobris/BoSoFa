@@ -24,6 +24,7 @@ sealed class TestServer : IAsyncDisposable
     public string DataDirectory { get; }
     public Uri BaseAddress { get; private set; } = null!;
     public BoSoFa.Server.Btdb.BtdbNode Node => _app.Services.GetRequiredService<BoSoFa.Server.Btdb.BtdbNode>();
+    public T Service<T>() where T : notnull => _app.Services.GetRequiredService<T>();
     bool _running;
 
     public static async Task<TestServer> StartAsync(string? dataDirectory = null, string[]? extraArgs = null)

@@ -50,6 +50,10 @@ public sealed class LiveRelay(LiveHub hub, BtdbNode node, ServerOptions options,
             foreach (var stream in streams.Keys) stream.Writer.TryWrite(message);
     }
 
+    /// <summary>Owner side: whether another node streams this machine's deltas now.</summary>
+    internal bool IsRelayed(ulong machineId) =>
+        _outgoing.TryGetValue(new Source(false, machineId), out var streams) && !streams.IsEmpty;
+
     /// <summary>Owner side: the internal endpoint. Streams this machine's deltas as JSON lines until the caller leaves.</summary>
     public Task ServeAsync(HttpContext http, ulong machineId) => ServeAsync(http, new Source(false, machineId));
 
