@@ -216,16 +216,20 @@ public class AgentMachineTest(ITestOutputHelper output)
         await using var m = await Machine.StartAsync();
         var marker = m.PathOf("finished.txt");
         var started = m.PathOf("started.txt");
+        // Long enough that a busy runner still interrupts it before it ends; the marker is checked once it would have been written.
+        const int seconds = 10;
         var command = OperatingSystem.IsWindows()
-            ? $"Set-Content '{started}' x; {Sleep(4)}; Set-Content '{marker}' x"
-            : $"touch '{started}'; {Sleep(4)}; touch '{marker}'";
+            ? $"Set-Content '{started}' x; {Sleep(seconds)}; Set-Content '{marker}' x"
+            : $"touch '{started}'; {Sleep(seconds)}; touch '{marker}'";
         m.H.Backend.Call("c1", Tool.Shell, Args(("command", command)));
         var session = await m.StartSessionAsync("Go.", "bypassPermissions");
         await AgentSessionTest.Eventually(() => Task.FromResult(File.Exists(started)), exists => exists);
+        var startedAt = DateTime.UtcNow;
         (await m.H.Boris.PostAsync($"/api/v1/sessions/{session.Id}/interrupt", null)).EnsureSuccessStatusCode();
         var items = await m.H.RunEndedAsync(session.Id);
         Assert.Equal("interrupted", items[^1].Text);
-        await Task.Delay(TimeSpan.FromSeconds(5));
+        var left = startedAt + TimeSpan.FromSeconds(seconds + 2) - DateTime.UtcNow;
+        if (left > TimeSpan.Zero) await Task.Delay(left);
         Assert.False(File.Exists(marker));
     }
 
