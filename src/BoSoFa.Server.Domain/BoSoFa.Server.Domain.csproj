@@ -6,6 +6,7 @@
   <ItemGroup>
     <PackageReference Include="BTDB" />
     <PackageReference Include="BTDB.Replication.EventSourcing" />
+    <PackageReference Include="BTDB.BackendActions" />
     <PackageReference Include="BTDB.SourceGenerator" OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
     <ProjectReference Include="../BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
   </ItemGroup>

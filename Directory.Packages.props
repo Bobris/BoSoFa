@@ -10,6 +10,7 @@
     <PackageVersion Include="BTDB.Replication.Http" Version="$(BtdbVersion)" />
     <PackageVersion Include="BTDB.Replication.Azure" Version="$(BtdbVersion)" />
     <PackageVersion Include="BTDB.Replication.EventSourcing" Version="$(BtdbVersion)" />
+    <PackageVersion Include="BTDB.BackendActions" Version="$(BtdbVersion)" />
     <PackageVersion Include="Azure.Extensions.AspNetCore.DataProtection.Blobs" Version="1.5.5" />
     <PackageVersion Include="Azure.Extensions.AspNetCore.DataProtection.Keys" Version="1.6.5" />
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />

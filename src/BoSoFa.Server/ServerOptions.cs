@@ -27,6 +27,10 @@ public sealed class ServerOptions
     /// <summary>How often a running daemon rollout is moved along.</summary>
     public int RolloutTickSeconds { get; set; } = 15;
 
+    /// <summary>What this node's backend action worker offers, in CPU units (100 is one core). An agent run counts 10, since it
+    /// mostly waits for the model; unset, the larger of 100 per processor and 1000.</summary>
+    public int? ActionWorkerCpu { get; set; }
+
     /// <summary>Takes the client address and scheme from X-Forwarded-* headers. Only behind a proxy that sets them and
     /// with nothing else able to reach this port.</summary>
     public bool TrustForwardedHeaders { get; set; }

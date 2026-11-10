@@ -80,7 +80,7 @@ public static class Domain
 {
     /// <summary>Raise this with every change to persisted relations: a node of a higher generation takes over from older
     /// nodes and publishes its schema, and older builds can never lead again (BTDB <c>Doc/ReplicationHosting.md</c>).</summary>
-    public const ulong ApplicationGeneration = 8;
+    public const ulong ApplicationGeneration = 9;
 
     /// <summary>Every relation of the server database; InitializeRelations registers them under leader authority.</summary>
     public static readonly Type[] Relations =
@@ -91,19 +91,27 @@ public static class Domain
         typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable), typeof(IMcpServerTable),
         typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable), typeof(IAuditEntryTable),
         typeof(IDaemonReleaseTable), typeof(IDesktopReleaseTable), typeof(IMachineUpdatePolicyTable), typeof(IDaemonRolloutTable), typeof(IDaemonRolloutMachineTable), typeof(IDesktopSessionTable),
-        typeof(IAgentRunnerTable)
+        typeof(IAgentRunnerTable), .. BTDB.BackendActions.BackendActions.RelationTypes
     ];
 
-    public static EventDispatcher CreateDispatcher(IDomainSignals signals) => new EventDispatcher()
+    /// <summary>The domain's handlers and those of <paramref name="actions"/>, whose action types must all be registered.</summary>
+    public static EventDispatcher CreateDispatcher(IDomainSignals signals, BTDB.BackendActions.BackendActions actions)
+    {
+        var dispatcher = Handlers(signals, actions);
+        actions.RegisterEvents(dispatcher);
+        return dispatcher;
+    }
+
+    static EventDispatcher Handlers(IDomainSignals signals, BTDB.BackendActions.BackendActions actions) => new EventDispatcher()
         .Register(new UserSignedInHandler())
         .Register(new EnrollmentStartedHandler())
         .Register(new EnrollmentApprovedHandler())
         .Register(new MachineRenamedHandler())
-        .Register(new SessionCreatedHandler(signals))
-        .Register(new SessionMessageSentHandler(signals))
-        .Register(new SessionInterruptRequestedHandler(signals))
-        .Register(new SessionStopRequestedHandler(signals))
-        .Register(new RuntimeRequestAnsweredHandler(signals))
+        .Register(new SessionCreatedHandler(signals, actions))
+        .Register(new SessionMessageSentHandler(signals, actions))
+        .Register(new SessionInterruptRequestedHandler(signals, actions))
+        .Register(new SessionStopRequestedHandler(signals, actions))
+        .Register(new RuntimeRequestAnsweredHandler(signals, actions))
         .Register(new MachineCommandsAckedHandler())
         .Register(new DaemonReportsReceivedHandler(signals))
         .Register(new MachineConnectedHandler(signals))
@@ -132,5 +140,7 @@ public static class Domain
         .Register(new AgentItemsRecordedHandler(signals))
         .Register(new AgentApprovalRaisedHandler(signals))
         .Register(new AgentRunFinishedHandler(signals))
+        .Register(new AgentRunAttachedHandler(signals, actions))
+        .Register(new AgentRunsResumedHandler(signals, actions))
         .Register(new AgentRunClaimedHandler(signals));
 }

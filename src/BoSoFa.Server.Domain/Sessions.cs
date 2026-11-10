@@ -194,7 +194,7 @@ public class SessionCreated : EventWithResult<SessionCommandResult>
     public string? ReasoningEffort { get; set; }
     public string? ToolGroup { get; set; }
 
-    /// <summary>For an agent session: the node handling this request, which runs the session.</summary>
+    /// <summary>No longer used: a backend action runs an agent session wherever the leader starts it. Kept for stored events.</summary>
     public string RunnerNodeId { get; set; } = "";
 
     public string RunnerPeerUrl { get; set; } = "";
@@ -210,7 +210,7 @@ public class SessionMessageSent : EventWithResult<SessionCommandResult>
     /// <summary>The message's images as JSON (<see cref="PromptImage"/>[]); empty without any.</summary>
     public string ImagesJson { get; set; } = "";
 
-    /// <summary>For an agent session that nothing runs right now: the node handling this request takes it.</summary>
+    /// <summary>No longer used: a backend action runs an agent session wherever the leader starts it. Kept for stored events.</summary>
     public string RunnerNodeId { get; set; } = "";
 
     public string RunnerPeerUrl { get; set; } = "";
@@ -339,13 +339,13 @@ static class Sessions
     }
 }
 
-public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandler<SessionCreated, SessionCommandResult>
+public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendActions.BackendActions actions) : IEventHandler<SessionCreated, SessionCommandResult>
 {
     public SessionCommandResult? Validate(SessionCreated ev) =>
         string.IsNullOrWhiteSpace(ev.Prompt) || ev.Prompt.Length > Sessions.MaximumPromptLength ||
         !Harnesses.All.Contains(ev.Harness) || !Harnesses.PermissionModes.Contains(ev.PermissionMode) ||
         (ev.Harness == Harnesses.Agent
-            ? string.IsNullOrWhiteSpace(ev.Model) || ev.AccountId == 0 || ev.RunnerNodeId.Length == 0 || ev.UseWorktree ||
+            ? string.IsNullOrWhiteSpace(ev.Model) || ev.AccountId == 0 || ev.UseWorktree ||
               (ev.MachineId != 0 && string.IsNullOrWhiteSpace(ev.WorkingDirectory)) || ev.SystemPrompt?.Length > Sessions.MaximumPromptLength ||
               (ev.ReasoningEffort != null && !Harnesses.ReasoningEfforts.Contains(ev.ReasoningEffort)) ||
               (ev.ToolGroup != null && !AgentToolGroups.All.Contains(ev.ToolGroup))
@@ -386,7 +386,7 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
         };
         Ambient.Relation<ISessionTable>().Insert(session);
         Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, data: Sessions.ImagesData(ev.ImagesJson), replay: AgentRunners.UserReplay(ev.Prompt, false));
-        AgentRunners.Claim(signals, session, ev.RunnerNodeId, ev.RunnerPeerUrl, ev.When);
+        AgentRunners.Claim(signals, actions, session, ev.When);
         Sessions.Changed(signals, session, ev.When);
         Audit.Record(ev.When, ev.UserId, "session.created", $"session {session.Id}", $"{ev.Harness} with {session.Model}");
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
@@ -428,7 +428,7 @@ public sealed class SessionCreatedHandler(IDomainSignals signals) : IEventHandle
     }
 }
 
-public sealed class SessionMessageSentHandler(IDomainSignals signals)
+public sealed class SessionMessageSentHandler(IDomainSignals signals, BTDB.BackendActions.BackendActions actions)
     : IEventHandler<SessionMessageSent, SessionCommandResult>
 {
     public SessionCommandResult? Validate(SessionMessageSent ev) =>
@@ -443,10 +443,9 @@ public sealed class SessionMessageSentHandler(IDomainSignals signals)
         if (session.Status is SessionStatus.Stopped) return new() { Outcome = CommandOutcome.Invalid };
         if (session.Harness == Harnesses.Agent)
         {
-            if (ev.RunnerNodeId.Length == 0) return new() { Outcome = CommandOutcome.Invalid };
             Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text, data: Sessions.ImagesData(ev.ImagesJson),
                 replay: AgentRunners.UserReplay(ev.Text, ev.Mode == DispatchMode.Queue));
-            AgentRunners.Claim(signals, session, ev.RunnerNodeId, ev.RunnerPeerUrl, ev.When);
+            AgentRunners.Claim(signals, actions, session, ev.When);
             Sessions.Changed(signals, session, ev.When);
             return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
         }
@@ -457,7 +456,7 @@ public sealed class SessionMessageSentHandler(IDomainSignals signals)
     }
 }
 
-public sealed class SessionInterruptRequestedHandler(IDomainSignals signals)
+public sealed class SessionInterruptRequestedHandler(IDomainSignals signals, BTDB.BackendActions.BackendActions actions)
     : IEventHandler<SessionInterruptRequested, SessionCommandResult>
 {
     public SessionCommandResult? Validate(SessionInterruptRequested ev) => null;
@@ -468,12 +467,13 @@ public sealed class SessionInterruptRequestedHandler(IDomainSignals signals)
         if (session == null) return new() { Outcome = outcome };
         if (session.Harness == Harnesses.Agent)
         {
-            // Kept in the row, so a node taking over still honors it.
+            // Kept in the row, so a later attempt still honors it; a run waiting for a person gets a loop to end it.
             var runners = Ambient.Relation<IAgentRunnerTable>();
             if (runners.FindByIdOrDefault(session.Id) is { InterruptRequested: false } runner)
             {
                 runner.InterruptRequested = true;
                 runners.Update(runner);
+                AgentRunners.Ensure(actions, session);
                 Sessions.Changed(signals, session, ev.When);
             }
             return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
@@ -483,7 +483,7 @@ public sealed class SessionInterruptRequestedHandler(IDomainSignals signals)
     }
 }
 
-public sealed class SessionStopRequestedHandler(IDomainSignals signals)
+public sealed class SessionStopRequestedHandler(IDomainSignals signals, BTDB.BackendActions.BackendActions actions)
     : IEventHandler<SessionStopRequested, SessionCommandResult>
 {
     public SessionCommandResult? Validate(SessionStopRequested ev) => null;
@@ -494,7 +494,13 @@ public sealed class SessionStopRequestedHandler(IDomainSignals signals)
         if (session == null) return new() { Outcome = outcome };
         if (session.Harness == Harnesses.Agent)
         {
-            if (Ambient.Relation<IAgentRunnerTable>().RemoveById(session.Id)) AgentRunners.RunnerChanged(signals, session.Id);
+            var runners = Ambient.Relation<IAgentRunnerTable>();
+            if (runners.FindByIdOrDefault(session.Id) is { } runner)
+            {
+                if (runner.ActionId != 0) actions.Cancel(AgentRunners.ActionOf(session, runner)); // a running loop sees the row gone and stops
+                runners.RemoveById(session.Id);
+                AgentRunners.RunnerChanged(signals, session.Id);
+            }
             Sessions.CancelPending(session, ev.When);
             session.Status = SessionStatus.Stopped;
             Sessions.Changed(signals, session, ev.When);
@@ -507,7 +513,7 @@ public sealed class SessionStopRequestedHandler(IDomainSignals signals)
     }
 }
 
-public sealed class RuntimeRequestAnsweredHandler(IDomainSignals signals)
+public sealed class RuntimeRequestAnsweredHandler(IDomainSignals signals, BTDB.BackendActions.BackendActions actions)
     : IEventHandler<RuntimeRequestAnswered, SessionCommandResult>
 {
     public SessionCommandResult? Validate(RuntimeRequestAnswered ev) =>
@@ -530,6 +536,7 @@ public sealed class RuntimeRequestAnsweredHandler(IDomainSignals signals)
             request.Answer = ev.Message;
             requests.Update(request);
             if (!requests.ListById(session.Id).Any(other => other.Status == RuntimeRequestStatus.Pending)) session.Status = SessionStatus.Running;
+            AgentRunners.Ensure(actions, session);
         }
         else
             Sessions.IssueCommand(signals, machine!.Id,

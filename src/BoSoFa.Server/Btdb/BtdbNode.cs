@@ -1,4 +1,5 @@
 using BoSoFa.Server.Domain;
+using BTDB.BackendActions;
 using BTDB.KVDBLayer;
 using BTDB.ODBLayer;
 using BTDB.Replication;
@@ -68,6 +69,7 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
         }, cancellation);
         _objects = new ObjectDB();
         _objects.Open(_db, false, new DBOptions().WithoutAutoRegistrationOfRelations());
+        (await _services.Task.WaitAsync(cancellation)).GetRequiredService<BackendActions>().RegisterTypes(_objects); // attached before replication starts
         _schemaReady = false;
         logger.LogInformation(restored ? "Restored database {Database}" : "Starting new database {Database}", Database);
         if (restored)
@@ -146,7 +148,7 @@ public sealed class BtdbNode(BtdbNodeOptions options, ILogger<BtdbNode> logger, 
             var services = await _services.Task;
             var log = services.GetRequiredService<IEventLog>();
             var publisher = new EventPublisher(_objects!, log.GetTopic("data"), log.GetTopic("metadata"),
-                Domain.Domain.CreateDispatcher(services.GetRequiredService<IDomainSignals>()),
+                Domain.Domain.CreateDispatcher(services.GetRequiredService<IDomainSignals>(), services.GetRequiredService<BackendActions>()),
                 new() { Cluster = new EventCluster(options.NodeId, services.GetRequiredService<ReplicationPresence>()) },
                 _capture);
             await publisher.StartAsync(_stopping.Token);

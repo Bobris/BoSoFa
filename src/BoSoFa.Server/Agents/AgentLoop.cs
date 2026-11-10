@@ -37,8 +37,8 @@ sealed class AgentSetupException(string message) : Exception(message);
 
 /// <summary>
 /// The server's agent loop for one session (docs/server-agent.md §4). Each pass reads the transcript, does the one thing it says is
-/// due, stores the outcome and reads again, so a node taking over needs nothing but the transcript. A write naming an older
-/// <see cref="AgentRunner.Version"/> is refused by the domain, and the next read shows what really happened.
+/// due, stores the outcome and reads again, so a later attempt, on any node, needs nothing but the transcript. A write naming an older
+/// <see cref="AgentRunner.Version"/> or another attempt is refused by the domain, and the next read shows what really happened.
 /// </summary>
 sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
 {
@@ -61,7 +61,6 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
 
     const string UnknownOutcome = "The server restarted while this ran; whether it took effect is unknown.";
     const string InterruptedResult = "The person interrupted this before it finished.";
-    static readonly TimeSpan PendingRecheck = TimeSpan.FromSeconds(30);
 
     TaskCompletionSource _pulse = new(TaskCreationOptions.RunContinuationsAsynchronously);
     readonly Dictionary<string, string> _blobs = [];
@@ -72,8 +71,9 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
     /// <summary>The session changed; a waiting pass looks again.</summary>
     public void Pulse() => Interlocked.Exchange(ref _pulse, new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
 
-    /// <summary>Runs until the session has no more work here, or <paramref name="stopping"/> ends it.</summary>
-    public async Task RunAsync(CancellationToken stopping)
+    /// <summary>Runs until this attempt has nothing more to do, or <paramref name="stopping"/> ends it. True when the run waits only
+    /// for a person: their answer starts the next action.</summary>
+    public async Task<bool> RunAsync(CancellationToken stopping)
     {
         AgentEnvironment? environment = null;
         var firstPass = true;
@@ -81,15 +81,14 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         while (true)
         {
             stopping.ThrowIfCancellationRequested();
-            var pulse = NextPulse; // taken before reading, so a change after the read still wakes the wait below
-            if (Read() is not { } view) return;
+            if (Read() is not { } view) return false;
             await ResolveReplaysAsync(view, stopping);
             var state = AgentConversation.Rebuild(view.Items);
             if (firstPass)
             {
-                // Whatever is open when a loop starts belongs to a loop that ended: its first open call may have been running.
+                // A loop that was cut off may have been running its first open call; one that stopped by itself had not started it.
                 firstPass = false;
-                if (state.OpenCalls.Count > 0 && view.RequestOf(state.OpenCalls[0])?.Status != RuntimeRequestStatus.Pending)
+                if (!context.CleanStart && state.OpenCalls.Count > 0 && view.RequestOf(state.OpenCalls[0])?.Status != RuntimeRequestStatus.Pending)
                     suspectCall = state.OpenCalls[0].Id;
             }
             if (view.Runner.InterruptRequested)
@@ -119,7 +118,8 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                     continue;
                 }
             }
-            if (state.OpenCalls.Count > 0) await RunToolAsync(view, state.OpenCalls[0], environment, suspectCall, pulse, stopping);
+            if (state.OpenCalls.Count > 0 && view.RequestOf(state.OpenCalls[0])?.Status == RuntimeRequestStatus.Pending) return true;
+            if (state.OpenCalls.Count > 0) await RunToolAsync(view, state.OpenCalls[0], environment, suspectCall, stopping);
             else if (InstructionsOf(view) is { } instructions)
             {
                 if (IsNearTheLimit(state, environment)) await CompactAsync(view, state, environment, instructions, false, stopping);
@@ -129,10 +129,12 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         }
     }
 
+    bool Holds(AgentRunner runner) => runner.ActionId == context.ActionId && runner.Attempt == context.Attempt;
+
     AgentView? Read()
     {
         using var query = Publisher.StartQuery();
-        if (Ambient.Relation<IAgentRunnerTable>().FindByIdOrDefault(sessionId) is not { } runner || runner.NodeId != context.NodeId ||
+        if (Ambient.Relation<IAgentRunnerTable>().FindByIdOrDefault(sessionId) is not { } runner || !Holds(runner) ||
             Ambient.Relation<ISessionTable>().FindByIdOrDefault(sessionId) is not { } session)
             return null;
         var items = Ambient.Relation<ISessionItemTable>().ListById(sessionId, new AdvancedEnumeratorParam<long>(EnumerationOrder.Ascending, 0,
@@ -186,7 +188,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         Publisher.PublishAndWaitAsync(new AgentItemsRecorded
         {
             CostUsd = costUsd, ContextTokens = contextTokens, ContextLimit = contextLimit, CacheSeconds = cacheSeconds,
-            SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version,
+            SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, ActionId = context.ActionId, Attempt = context.Attempt,
             ItemsJson = JsonSerializer.Serialize(items.ToArray(), ProtocolJsonContext.Default.AgentItemArray),
             InputTokens = usage?.InputTokens ?? 0, CachedInputTokens = usage?.CachedInputTokens ?? 0,
             CacheWriteTokens = usage?.CacheWriteTokens ?? 0, OutputTokens = usage?.OutputTokens ?? 0,
@@ -200,7 +202,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         if (await RunDiffAsync(view, cancellation) is { } diff) items.Add(diff);
         await Publisher.PublishAndWaitAsync(new AgentRunFinished
         {
-            SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, SeenSeq = view.Session.LastSeq, Outcome = outcome,
+            SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, ActionId = context.ActionId, Attempt = context.Attempt, SeenSeq = view.Session.LastSeq, Outcome = outcome,
             IsError = isError, Error = error, Interrupted = interrupted, HasQueued = state.HasQueued,
             ItemsJson = JsonSerializer.Serialize(items.ToArray(), ProtocolJsonContext.Default.AgentItemArray)
         }, cancellation);
@@ -222,7 +224,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         new(SessionItemKind.ToolResult, text, call.Id, call.Name, IsError: isError, Ref: itemRef,
             Data: images is { Length: > 0 } ? JsonSerializer.Serialize(images, ProtocolJsonContext.Default.PromptImageArray) : null);
 
-    /// <summary>Runs <paramref name="work"/> and cancels it when the person interrupts or this node no longer holds the session.</summary>
+    /// <summary>Runs <paramref name="work"/> and cancels it when the person interrupts or this attempt no longer holds the run.</summary>
     async Task<T> WatchedAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken stopping)
     {
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(stopping);
@@ -239,8 +241,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
     bool IsCalledOff()
     {
         using var query = Publisher.StartQuery();
-        return Ambient.Relation<IAgentRunnerTable>().FindByIdOrDefault(sessionId) is not { } runner ||
-               runner.NodeId != context.NodeId || runner.InterruptRequested;
+        return Ambient.Relation<IAgentRunnerTable>().FindByIdOrDefault(sessionId) is not { } runner || !Holds(runner) || runner.InterruptRequested;
     }
 
     static AgentInstructionsRecord? InstructionsOf(AgentView view) =>
@@ -408,7 +409,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
 
     static string Summary(string arguments) => arguments.Length <= 120 ? arguments : arguments[..119] + "…";
 
-    async Task RunToolAsync(AgentView view, ToolCall call, AgentEnvironment environment, string? suspectCall, Task pulse, CancellationToken stopping)
+    async Task RunToolAsync(AgentView view, ToolCall call, AgentEnvironment environment, string? suspectCall, CancellationToken stopping)
     {
         var mode = view.Session.PermissionMode;
         var kind = environment.Tools.KindOf(call.Name, mode);
@@ -438,7 +439,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             {
                 await Publisher.PublishAndWaitAsync(new AgentApprovalRaised
                 {
-                    SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, Key = ApprovalKey(view.SeqOf(call)), ToolUseId = call.Id, ToolName = call.Name,
+                    SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, ActionId = context.ActionId, Attempt = context.Attempt, Key = ApprovalKey(view.SeqOf(call)), ToolUseId = call.Id, ToolName = call.Name,
                     Input = call.Arguments, Description = kind switch
                     {
                         AgentToolKind.Ask => Str(arguments["question"]),
@@ -452,9 +453,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             switch (request.Status)
             {
                 case RuntimeRequestStatus.Pending:
-                    await pulse.WaitAsync(PendingRecheck, stopping).ContinueWith(_ => { }, TaskContinuationOptions.ExecuteSynchronously);
-                    stopping.ThrowIfCancellationRequested();
-                    return;
+                    return; // RunAsync stops before that
                 case RuntimeRequestStatus.Cancelled:
                     await RecordAsync(view, [Result(call, "Nobody answered before the turn ended.", true)], null, stopping);
                     return;

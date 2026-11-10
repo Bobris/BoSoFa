@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Threading.Channels;
 using BoSoFa.Protocol;
 using BoSoFa.Server.Accounts;
 using BoSoFa.Server.Btdb;
@@ -7,18 +6,24 @@ using BoSoFa.Server.Domain;
 using BoSoFa.Server.Live;
 using BoSoFa.Server.Machines;
 using BoSoFa.Server.Tokens;
+using BTDB.BackendActions;
 using BTDB.Replication;
 using BTDB.Replication.EventSourcing;
 using Microsoft.AspNetCore.DataProtection;
 
 namespace BoSoFa.Server.Agents;
 
-/// <summary>What a loop needs from its node.</summary>
-sealed class AgentLoopContext(EventPublisher publisher, string nodeId, IBlobStore blobs, ILogger logger, Action<LiveDelta> publishDelta,
-    Func<Session, CancellationToken, Task<(AgentEnvironment, List<string>)>> openEnvironment, Func<Session, AgentMachine?> machineOf)
+/// <summary>What a loop needs from its node, and which attempt of the session's backend action it is.</summary>
+sealed class AgentLoopContext(EventPublisher publisher, string nodeId, ulong actionId, ulong attempt, bool cleanStart, IBlobStore blobs, ILogger logger,
+    Action<LiveDelta> publishDelta, Func<Session, CancellationToken, Task<(AgentEnvironment, List<string>)>> openEnvironment, Func<Session, AgentMachine?> machineOf)
 {
     public EventPublisher Publisher => publisher;
     public string NodeId => nodeId;
+    public ulong ActionId => actionId;
+    public ulong Attempt => attempt;
+
+    /// <summary>The previous loop stopped by itself, so no call it left open had started.</summary>
+    public bool CleanStart => cleanStart;
     public IBlobStore Blobs => blobs;
     public ILogger Logger => logger;
     public void PublishDelta(LiveDelta delta) => publishDelta(delta);
@@ -28,9 +33,9 @@ sealed class AgentLoopContext(EventPublisher publisher, string nodeId, IBlobStor
 }
 
 /// <summary>
-/// Runs the agent sessions claimed by this node, one <see cref="AgentLoop"/> each (docs/server-agent.md §4.2). The event log is the
-/// bus: a message handled by any node shows up here as a changed session. While this node leads, it also takes over the sessions
-/// of nodes that left the cluster.
+/// Runs agent session loops (docs/server-agent.md §4.2). Each runs as an attempt of the session's <see cref="AgentRun"/> backend
+/// action, which the leader starts on some node and starts again elsewhere when that node goes. The event log is the bus: a
+/// message handled by any node wakes the loop through <see cref="Wake"/> on every node.
 /// </summary>
 public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, MachinePresenceService presence, ReplicationLeadership leadership,
     LiveHub hub, LiveRelay relay, MachineRpcClient rpc, IDataProtectionProvider protection, IBlobStore blobs, TimeProvider time, ILogger<AgentRunnerService> logger)
@@ -39,8 +44,6 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
     /// <summary>Anthropic's default cache lifetime; OpenAI and OpenCode do not promise one, so nothing is counted down for them.</summary>
     const int AnthropicCacheSeconds = 300;
 
-    static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(2);
-    static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(5);
     static readonly TimeSpan RetryAfterFailure = TimeSpan.FromSeconds(2);
 
     // Connections to model providers and MCP servers; a long streamed answer must not be cut by a client timeout.
@@ -50,108 +53,69 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
     }) { Timeout = Timeout.InfiniteTimeSpan };
 
     readonly WebFetcher _webFetcher = new(options.Agent.WebFetchAllowPrivateNetworks);
-    readonly ConcurrentDictionary<ulong, RunningLoop> _loops = new();
-    readonly Channel<ulong> _changed = Channel.CreateUnbounded<ulong>(new() { SingleReader = true });
+    readonly ConcurrentDictionary<ulong, AgentLoop> _loops = new();
 
-    sealed record RunningLoop(AgentLoop Loop)
+    /// <summary>A session changed: its loop, if it runs here, looks again. Called after commit on the event thread.</summary>
+    public void Wake(ulong sessionId)
     {
-        public Task Completion { get; set; } = Task.CompletedTask;
+        if (_loops.TryGetValue(sessionId, out var loop)) loop.Pulse();
     }
 
-    /// <summary>A session changed. Called after commit on the event thread, so the work happens on the dispatcher.</summary>
-    public void Wake(ulong sessionId) => _changed.Writer.TryWrite(sessionId);
-
+    /// <summary>Each new leader gives a backend action to every run that has work but none, such as runs from before backend
+    /// actions ran the loops.</summary>
     protected override async Task ExecuteAsync(CancellationToken stopping)
     {
         try
         {
             var publisher = await node.Ready.WaitAsync(stopping);
-            await presence.Ready.WaitAsync(stopping);
-            await Task.WhenAll(DispatchAsync(publisher, stopping), ReconcileAsync(publisher, stopping),
-                leadership.RunWhileLeaderAsync(cancellation => SweepAsync(publisher, cancellation), stopping));
+            await leadership.RunWhileLeaderAsync(async leading =>
+            {
+                await publisher.PublishAsync(new AgentRunsResumed(), leading);
+                await Task.Delay(Timeout.Infinite, leading);
+            }, stopping);
         }
         catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
-        await Task.WhenAll(_loops.Values.Select(loop => loop.Completion));
     }
 
-    async Task DispatchAsync(EventPublisher publisher, CancellationToken stopping)
+    /// <summary>One attempt of a session's <see cref="AgentRun"/>: attaches to the run, so older attempts can no longer write, and runs
+    /// the loop until the run ends or waits only for a person. The attempt's cancellation stops it; the next attempt goes on from the
+    /// transcript.</summary>
+    internal async Task<AgentRunResult> RunAsync(AgentRun input, IActionContext action)
     {
-        await foreach (var sessionId in _changed.Reader.ReadAllAsync(stopping))
-            if (_loops.TryGetValue(sessionId, out var running)) running.Loop.Pulse();
-            else if (IsOurs(publisher, sessionId)) Start(publisher, sessionId, stopping);
-    }
-
-    /// <summary>A node that restarts finds its sessions here, and no lost signal can leave a session stuck.</summary>
-    async Task ReconcileAsync(EventPublisher publisher, CancellationToken stopping)
-    {
-        while (true)
+        var stopping = action.Cancellation;
+        var publisher = await node.Ready.WaitAsync(stopping);
+        await presence.Ready.WaitAsync(stopping);
+        var attached = await publisher.PublishAndWaitAsync(new AgentRunAttached
         {
-            List<ulong> ours;
-            using (publisher.StartQuery())
-                ours = Ambient.Relation<IAgentRunnerTable>().Where(row => row.NodeId == presence.NodeId).Select(row => row.SessionId).ToList();
-            foreach (var sessionId in ours) Wake(sessionId);
-            await Task.Delay(ReconcileInterval, time, stopping);
-        }
-    }
-
-    async Task SweepAsync(EventPublisher publisher, CancellationToken cancellation)
-    {
-        while (true)
+            SessionId = input.SessionId, ActionId = action.Id.ActionId, Attempt = action.Attempt, NodeId = presence.NodeId, PeerUrl = presence.PeerUrl
+        }, stopping);
+        if (attached is not { Attached: true })
         {
-            await Task.Delay(SweepInterval, time, cancellation);
-            var cluster = publisher.Cluster;
-            if (cluster.Settling) continue; // the view may miss nodes that are alive
-            List<(ulong SessionId, string NodeId)> orphaned;
-            using (publisher.StartQuery())
-                orphaned = Ambient.Relation<IAgentRunnerTable>().Where(row => row.NodeId != presence.NodeId && !cluster.LiveNodeIds.Contains(row.NodeId))
-                    .Select(row => (row.SessionId, row.NodeId)).ToList();
-            foreach (var (sessionId, previous) in orphaned)
-            {
-                logger.LogInformation("Node {NodeId} left the cluster; taking over agent session {SessionId}", previous, sessionId);
-                await publisher.PublishAndWaitAsync(new AgentRunClaimed
-                {
-                    SessionId = sessionId, NodeId = presence.NodeId, PeerUrl = presence.PeerUrl, PreviousNodeId = previous
-                }, cancellation);
-            }
+            logger.LogInformation("Attempt {Attempt} of agent session {SessionId} found the run held by another or ended", action.Attempt, input.SessionId);
+            return new();
         }
-    }
-
-    bool IsOurs(EventPublisher publisher, ulong sessionId)
-    {
-        using var query = publisher.StartQuery();
-        return Ambient.Relation<IAgentRunnerTable>().FindByIdOrDefault(sessionId)?.NodeId == presence.NodeId;
-    }
-
-    void Start(EventPublisher publisher, ulong sessionId, CancellationToken stopping)
-    {
-        var context = new AgentLoopContext(publisher, presence.NodeId, blobs, logger, PublishDelta, OpenEnvironmentAsync, MachineOf);
-        var running = new RunningLoop(new AgentLoop(context, sessionId));
-        if (!_loops.TryAdd(sessionId, running)) return;
-        running.Completion = Task.Run(() => RunLoopAsync(running, sessionId, stopping), CancellationToken.None);
-    }
-
-    async Task RunLoopAsync(RunningLoop running, ulong sessionId, CancellationToken stopping)
-    {
+        logger.LogInformation("Running agent session {SessionId}, attempt {Attempt}", input.SessionId, action.Attempt);
+        var context = new AgentLoopContext(publisher, presence.NodeId, action.Id.ActionId, action.Attempt, attached.Clean, blobs, logger, PublishDelta,
+            OpenEnvironmentAsync, MachineOf);
+        var loop = new AgentLoop(context, input.SessionId);
+        _loops[input.SessionId] = loop; // before the loop's first read, so no change is missed
         try
         {
             while (true)
                 try
                 {
-                    await running.Loop.RunAsync(stopping);
-                    return;
+                    return new() { Waiting = await loop.RunAsync(stopping) };
                 }
                 catch (Exception problem) when (!stopping.IsCancellationRequested)
                 {
                     // Storage or leadership trouble: nothing is lost, the transcript says where to go on.
-                    logger.LogWarning(problem, "The loop of agent session {SessionId} failed; trying again", sessionId);
+                    logger.LogWarning(problem, "The loop of agent session {SessionId} failed; trying again", input.SessionId);
                     await Task.Delay(RetryAfterFailure, time, stopping);
                 }
         }
-        catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
         finally
         {
-            _loops.TryRemove(new KeyValuePair<ulong, RunningLoop>(sessionId, running));
-            Wake(sessionId); // a message may have come in between the loop's last look and now
+            _loops.TryRemove(new KeyValuePair<ulong, AgentLoop>(input.SessionId, loop));
         }
     }
 

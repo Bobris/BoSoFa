@@ -68,6 +68,14 @@ public class AgentSessionTest
             (await Boris.PostAsJsonAsync($"/api/v1/sessions/{id}/requests/{request}/answer", new AnswerRuntimeRequest(allow, message))).EnsureSuccessStatusCode();
         public async Task SendAsync(ulong id, string text, DispatchMode mode = DispatchMode.Queue) =>
             (await Boris.PostAsJsonAsync($"/api/v1/sessions/{id}/messages", new SendMessageRequest(text, mode))).EnsureSuccessStatusCode();
+        /// <summary>The backend actions that run or will run the session's loop.</summary>
+        public Task<BTDB.BackendActions.ActionInfo[]> ActionsAsync(ulong id)
+        {
+            using var query = Server.Node.Publisher!.StartQuery();
+            return Task.FromResult(Server.Service<BTDB.BackendActions.BackendActions>().ListActions()
+                .Where(action => action.Input is BoSoFa.Server.Domain.AgentRun run && run.SessionId == id).ToArray());
+        }
+
         public Task<SessionDto> IdleAsync(ulong id) =>
             Eventually(() => Boris.GetFromJsonAsync<SessionDto>($"/api/v1/sessions/{id}")!, session => session!.Status == SessionStatus.Idle)!;
 
@@ -97,6 +105,7 @@ public class AgentSessionTest
         Assert.Equal(McpTool, request.ToolName);
         Assert.Equal(SessionStatus.WaitingForApproval, (await h.Boris.GetFromJsonAsync<SessionDto>($"/api/v1/sessions/{session.Id}"))!.Status);
         Assert.Empty(h.Backend.ToolCalls);
+        Assert.Empty(await Eventually(() => h.ActionsAsync(session.Id), actions => actions.Length == 0)); // waiting for a person takes no worker
         await h.AnswerAsync(session.Id, request.Id, true);
 
         var items = await h.RunEndedAsync(session.Id);
@@ -107,6 +116,7 @@ public class AgentSessionTest
         Assert.Equal("completed", items[4].Text);
         Assert.Contains("\"inputTokens\":20", items[4].Data);
         Assert.Equal(SessionStatus.Idle, (await h.IdleAsync(session.Id)).Status);
+        Assert.Empty(await Eventually(() => h.ActionsAsync(session.Id), actions => actions.Length == 0));
 
         Assert.Equal(["{\"q\":\"life\"}"], h.Backend.ToolCalls);
         Assert.All(h.Backend.McpAuthorizations, secret => Assert.Equal("mcp-secret", secret));

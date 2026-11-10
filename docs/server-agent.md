@@ -82,7 +82,7 @@ profile allows.
 ### 4.1 The loop
 
 ```
-person ─ message ─▶ server node running the session (runner)
+person ─ message ─▶ backend action "agent-run", on a node the leader picks
                       │  build request from the session's items + tools + instructions
                       ▼
                  IModelTurnExecutor ── HTTPS, streamed ──▶ OpenAI / ChatGPT / OpenCode Go / Anthropic
@@ -90,7 +90,7 @@ person ─ message ─▶ server node running the session (runner)
                       │  assistant message + tool calls ──▶ event: AgentStepRecorded
                       ▼
                  for each tool call, in order:
-                   approval needed? ──▶ runtime request, wait for the answer
+                   approval needed? ──▶ runtime request; the action ends, the answer starts the next
                    machine tool ──▶ machine RPC ──▶ daemon runs it (PathGuard, timeout, output cap)
                    MCP tool ──▶ HTTP MCP from the server, or stdio MCP through the daemon
                    BoSoFa tool ──▶ ask/notify the person, upload a file
@@ -104,15 +104,26 @@ that cross to the daemon go into `BoSoFa.Protocol`.
 
 ### 4.2 Who runs a session, and surviving a dead node
 
-- **Ownership.** One node runs a session's loop at a time, recorded in the relation `AgentRunner`, which exists only
-  while the session has work. The event carrying a person's message names the node that handled it, and the handler
-  claims the session for that node if nobody runs it.
-- **No forwarding.** A message for a session another node runs is simply an event: every node applies it, and the node
-  running the session sees the change. Interrupt, stop and approval answers reach it the same way.
-- **Failover.** While a node leads, it claims the sessions of nodes that left the cluster (`AgentRunClaimed`) and resumes
-  them from their items. A node that restarts finds its own rows.
-- **Fencing.** Every write of the loop names the row's `Version`. A repeated write, or one from a node that lost the
-  session, is refused.
+Long work on the server runs as a BTDB backend action (`BTDB.BackendActions`, hosted by `BackendActionsService`): the leader's
+coordinator starts it on a node's worker, and starts it again elsewhere when that node goes.
+
+- **Ownership.** A session's run is recorded in the relation `AgentRunner`, which exists only while the session has work. The
+  event that gives an idle run something to do (a new session, a message, an approval's answer, an interrupt) enqueues one
+  `AgentRun` action in its own transaction, unless the run has one. Its tenant is the session's creator, so people share the
+  workers fairly. It counts 10 CPU units, as it mostly waits for the model.
+- **One attempt at a time.** An attempt first attaches to the run (`AgentRunAttached`), which only the action's current attempt
+  may do; from then on only its loop may write.
+- **Waiting costs nothing.** The action ends when the run ends or waits only for a person. Its `OnFinished` starts the next one
+  when there is something to do after all, for example an answer that came while the loop was stopping, and after five seconds
+  when the attempt failed.
+- **No forwarding.** A message for a running session is simply an event: every node applies it, and the node running the
+  loop sees the change. Interrupt, stop and approval answers reach it the same way. Stopping cancels the action.
+- **Failover.** A node that goes takes its attempts with it. The coordinator starts the action again on another node after the
+  worker timeout (10 s), or after the attempt's lease (15 s) when the leader went too. A worker that stops cleanly interrupts
+  its loops, and they go on elsewhere at once. Each new leader also gives an action to every run with work but none
+  (`AgentRunsResumed`), such as runs from before backend actions ran the loops.
+- **Fencing.** Every write of the loop names the action, the attempt and the row's `Version`. A repeated write, or one from an
+  attempt that lost the run, is refused.
 - **Durable steps.** Each model response is stored as items in one event before any of its tools run, and each tool
   result is stored before the next model call. The transcript is therefore the loop's state; nothing else must
   survive. Each pass of `AgentLoop` reads it and does the one thing it says is due.
@@ -121,8 +132,9 @@ that cross to the daemon go into `BoSoFa.Protocol`.
   - The first tool call without a result is not run again: its effect is unknown. It gets the result "The server
     restarted while this ran; whether it took effect is unknown," and the model decides what to do. Later calls of that
     step had not started and run normally (tools run one at a time).
-  - A pending approval stays pending, and the call runs once it is answered.
-- **Single node.** The same code; the claim always succeeds.
+  - A pending approval stays pending, and the call runs once it is answered. The loop that ran before an answer stopped by
+    itself, so the answered call is known not to have started.
+- **Single node.** The same code: the node is the coordinator and the only worker.
 
 ### 4.3 Transcript and items
 
@@ -432,9 +444,10 @@ at the start, the session goes on without it and says so.
   - `ToolRpc` requests and results;
   - delta kinds for tool output.
 - **Domain** (raises `ApplicationGeneration`):
-  - `AgentRunner`;
+  - `AgentRunner`, and the backend action `AgentRun` with BTDB's action relations;
   - session fields: system prompt, tool group, reasoning effort;
-  - events `AgentItemsRecorded`, `AgentApprovalRaised`, `AgentRunFinished`, `AgentRunClaimed`, `AccountTokensRefreshed`;
+  - events `AgentItemsRecorded`, `AgentApprovalRaised`, `AgentRunFinished`, `AgentRunAttached`, `AgentRunsResumed`,
+    `AccountTokensRefreshed` (`AgentRunClaimed` is no longer published);
   - profile fields: system prompt and mode, most tool group allowed, model default.
 - **`SessionCreated`** allows no machine for `agent` sessions. Every other harness still needs one.
 - **API:**
@@ -559,6 +572,10 @@ at the start, the session goes on without it and says so.
 10. **Images.** *Done (2026-11-10):* §5.6. `ImagesReachTheModelFromThePersonAndFromTools`, `ReadingAnImageShowsItToTheModel` and
     `LiveAnthropicSeesAttachedAndToolImages` (Sonnet 5.5, Opus 5.5 and Haiku 4.5 named both colours). OpenAI's image input is checked against the
     documented format only, since the test key has no credits.
+11. **Backend actions.** Loops run as BTDB backend actions instead of node claims, a sweep and a reconcile loop (§4.2).
+    *Done (2026-11-10):* `Domain.ApplicationGeneration` is 9. `AnAgentSessionSurvivesItsNodeBeingKilled` kills whichever node runs
+    the session, and another node finishes it about ten seconds later; `ASessionWithNoMachineAnswersThroughAnHttpMcpServer`
+    checks that a run waiting for a person holds no action.
 
 ## 12. Decisions (2026-11-09)
 

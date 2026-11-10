@@ -45,8 +45,8 @@ public class FailoverTest(Tests.Azurite azurite, ITestOutputHelper output) : ICl
         };
 
     /// <summary>Docs/server-agent.md, step 2 "done when": a session with no machine answers through an HTTP MCP server and survives
-    /// its node being killed. A client on another node follows the live text, the node dies mid-answer, and another one asks the
-    /// model again and finishes.</summary>
+    /// its node being killed. A client on another node follows the live text, the node running the session's backend action dies
+    /// mid-answer, and another one asks the model again and finishes.</summary>
     [Fact]
     public async Task AnAgentSessionSurvivesItsNodeBeingKilled()
     {
@@ -66,7 +66,6 @@ public class FailoverTest(Tests.Azurite azurite, ITestOutputHelper output) : ICl
                     .EnsureSuccessStatusCode(), _ => true));
             nodes.Add(new NodeProcess(root, "node-2", azurite.ConnectionString, container, extraArguments: extra));
             nodes.Add(new NodeProcess(root, "node-3", azurite.ConnectionString, container, extraArguments: extra));
-            using var second = Client(nodes[1].MainUrl, cookies);
             foreach (var node in nodes.Skip(1))
             {
                 using var direct = Client(node.MainUrl, cookies);
@@ -80,31 +79,35 @@ public class FailoverTest(Tests.Azurite azurite, ITestOutputHelper output) : ICl
             var account = await (await first.PostAsJsonAsync("/api/v1/accounts",
                 new CreateHarnessAccountRequest(AccountKind.OpenAIApiKey, "Work OpenAI", "sk-testtesttesttesttesttesttest"))).Content.ReadFromJsonAsync<HarnessAccountDto>();
 
-            // Started through node-1, which therefore runs it. The model hangs mid-answer.
+            // The leader starts the session's action on some node. The model hangs mid-answer.
             backend.Hang("Half an answer");
             backend.Call("call_1", "mcp__facts__lookup", "{\"q\":\"life\"}");
             backend.Answer("It is 42.");
             var session = (await (await first.PostAsJsonAsync("/api/v1/sessions", new CreateSessionRequest(0, Harnesses.Agent, "", "What is the answer?",
                 "bypassPermissions", "test-model", account!.Id, ProfileName: "research"))).Content.ReadFromJsonAsync<SessionDto>())!;
             await backend.WaitForModelCallAsync();
-            Step("the model is answering on node-1");
+            var running = nodes.FindIndex(node => node.Log.Contains($"Running agent session {session.Id}, attempt 1"));
+            Assert.True(running >= 0);
+            var watching = nodes[(running + 1) % nodes.Count];
+            using var watcher = Client(watching.MainUrl, cookies);
+            Step($"the model is answering on {nodes[running].NodeId}");
 
-            // A client on node-2 sees node-1's stream through the relay.
+            // A client on another node sees the stream through the relay.
             using var socket = new System.Net.WebSockets.ClientWebSocket();
             socket.Options.Cookies = cookies;
-            await socket.ConnectAsync(new Uri($"ws://{nodes[1].MainUrl.Authority}{LiveSocket.Path}"), CancellationToken.None);
+            await socket.ConnectAsync(new Uri($"ws://{watching.MainUrl.Authority}{LiveSocket.Path}"), CancellationToken.None);
             var live = new System.Collections.Concurrent.ConcurrentQueue<LiveServerMessage>();
             var listening = SessionTest.ListenAsync(socket, live);
             await socket.SendAsync(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes<LiveClientMessage>(new LiveSubscribe(session.Id, 0), ProtocolJsonContext.Default.LiveClientMessage),
                 System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
             await Eventually(() => Task.FromResult(live.OfType<LiveDelta>().Count()), count => count > 0);
             Assert.Contains(live, message => message is LiveDelta { Text: "." });
-            Step("a client on node-2 follows the text from node-1");
+            Step($"a client on {watching.NodeId} follows the text");
 
-            nodes[0].Kill();
-            Step("node-1 killed");
+            nodes[running].Kill();
+            Step($"{nodes[running].NodeId} killed");
 
-            var items = await Eventually(() => second.GetFromJsonAsync<SessionItemDto[]>($"/api/v1/sessions/{session.Id}/items")!,
+            var items = await Eventually(() => watcher.GetFromJsonAsync<SessionItemDto[]>($"/api/v1/sessions/{session.Id}/items")!,
                 all => all!.Any(item => item.Kind == SessionItemKind.RunEnded));
             Step("the session finished on another node");
             Assert.Equal(
@@ -112,8 +115,8 @@ public class FailoverTest(Tests.Azurite azurite, ITestOutputHelper output) : ICl
                 items!.Select(item => item.Kind));
             Assert.Equal("The answer is 42.", items![3].Text);
             Assert.Equal("It is 42.", items[4].Text);
-            Assert.Equal(3, backend.ModelRequests.Count); // once on node-1, twice after it died
-            var after = await Eventually(() => second.GetFromJsonAsync<SessionDto>($"/api/v1/sessions/{session.Id}")!, s => s!.Status == SessionStatus.Idle);
+            Assert.Equal(3, backend.ModelRequests.Count); // once on the killed node, twice after it died
+            var after = await Eventually(() => watcher.GetFromJsonAsync<SessionDto>($"/api/v1/sessions/{session.Id}")!, s => s!.Status == SessionStatus.Idle);
             Assert.Equal(SessionStatus.Idle, after!.Status);
             socket.Abort();
             await listening.WaitAsync(Timeout).ContinueWith(_ => { });

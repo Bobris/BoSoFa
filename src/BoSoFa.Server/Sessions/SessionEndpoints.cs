@@ -134,7 +134,7 @@ public static class SessionEndpoints
     }
 
     static async Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> CreateSessionAsync(
-        CreateSessionRequest request, BtdbNode node, IBlobStore blobs, MachinePresenceService presence, HttpContext http)
+        CreateSessionRequest request, BtdbNode node, IBlobStore blobs, HttpContext http)
     {
         var (imagesJson, problem) = await ImagesJsonAsync(request.Images, blobs, http.RequestAborted);
         if (problem != null) return TypedResults.BadRequest(problem);
@@ -173,13 +173,12 @@ public static class SessionEndpoints
             WorkingDirectory = request.WorkingDirectory, Prompt = request.Prompt,
             PermissionMode = permissionMode ?? "default", Model = model, AccountId = request.AccountId ?? 0,
             UseWorktree = request.UseWorktree, ProfileName = request.ProfileName, ImagesJson = imagesJson,
-            RunnerNodeId = isAgent ? presence.NodeId : "", RunnerPeerUrl = isAgent ? presence.PeerUrl : "",
             SystemPrompt = request.SystemPrompt, ReasoningEffort = request.ReasoningEffort, ToolGroup = request.ToolGroup
         });
     }
 
     static async Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> SendMessageAsync(ulong id,
-        SendMessageRequest request, BtdbNode node, IBlobStore blobs, MachinePresenceService presence, HttpContext http)
+        SendMessageRequest request, BtdbNode node, IBlobStore blobs, HttpContext http)
     {
         var (imagesJson, problem) = await ImagesJsonAsync(request.Images, blobs, http.RequestAborted);
         if (problem != null) return TypedResults.BadRequest(problem);
@@ -193,7 +192,7 @@ public static class SessionEndpoints
         return await RunAsync(node, http, new SessionMessageSent
         {
             SessionId = id, UserId = http.User.UserId() ?? 0, Text = request.Text, Mode = request.Mode ?? DispatchMode.Queue,
-            ImagesJson = imagesJson, RunnerNodeId = presence.NodeId, RunnerPeerUrl = presence.PeerUrl
+            ImagesJson = imagesJson
         });
     }
 

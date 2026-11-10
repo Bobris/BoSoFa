@@ -35,7 +35,9 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
   `bosofad`, `BoSoFa` or `bosofa` in anything people see. `BoSoFa:Branding` renames the UI only. See [docs/branding.md](docs/branding.md).
 - Single node without Azure: `deploy/compose.yaml` ([docs/deploy-single-node.md](docs/deploy-single-node.md)).
 - Sessions are visible only to their creator (`SessionAccess.CanSee`).
-- Server agent (`src/BoSoFa.Server/Agents`, [docs/server-agent.md](docs/server-agent.md)): harness `agent`, whose loop runs on a server node and keeps all its state in the transcript; its machine tools run in `src/BoSoFa.Daemon/Tools`. CI uses recorded streams in
+- Long-running work on the server is a BTDB backend action (`BTDB.BackendActions`, hosted by `BackendActionsService`), never a
+  hand-made background loop with its own claims; usage in BTDB's `Doc/BackendActions.md`.
+- Server agent (`src/BoSoFa.Server/Agents`, [docs/server-agent.md](docs/server-agent.md)): harness `agent`, whose loop runs as a BTDB backend action on a server node and keeps all its state in the transcript; its machine tools run in `src/BoSoFa.Daemon/Tools`. CI uses recorded streams in
   `tests/fixtures/providers`. The live tests run with `BOSOFA_TEST_OPENAI_KEY_FILE=<file with the key>` , `BOSOFA_TEST_ANTHROPIC_KEY_FILE` and `BOSOFA_TEST_OPENCODE_KEY_FILE`
   (and optionally `BOSOFA_TEST_OPENAI_MODEL`, `BOSOFA_TEST_ANTHROPIC_MODEL`, `BOSOFA_TEST_OPENCODE_MODEL`); never print or commit a key.
 - Distribution: computers install both products from the server's `/install` page and update from it. A desktop package:
