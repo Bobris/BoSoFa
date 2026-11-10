@@ -563,13 +563,16 @@ Done when: the same project runs on Claude, Codex and OpenCode, with diffs per r
    - `HarnessRelease` entries with per-RID artifacts and SHA-256 hashes. The daemon installs into `harnesses/<id>/<version>/` and reports its inventory.
    - Codex is installed through it.
 
-### M3 status (2026-11-08)
+### M3 status (2026-11-10)
 
-Steps 1–6 are implemented, but the milestone's "done when" is not fully met yet:
+Steps 1–6 are implemented and the milestone's "done when" is met:
 
 - **Claude Code:** real turns ran in M1.
 - **OpenCode (ACP):** a real turn and a resume after a daemon restart ran.
-- **Codex:** the protocol is tested against a fake server, and the AOT daemon with the real 0.167 CLI reached the device-code prompt. A full real turn needs a person to sign in.
+- **Codex:** run end to end from the browser on 2026-11-10 with the AOT daemon and the real 0.167 CLI. A new session in a git
+  worktree showed the device code, continued after the sign-in, and fixed a failing test with each command and the edit
+  approved; the diff showed the change. After a daemon restart a follow-up turn in the same thread needed no new sign-in
+  and remembered the change, and the machine page showed the plan, credits and weekly limit.
 - **Gemini CLI:** postponed (2026-11-08) and removed from the providers. It was never run. To bring it back, add its name to `Harnesses` and one line to `SessionHost.Create` (`gemini --experimental-acp`, on the existing ACP adapter). It is npm-only, so it also needs the catalog's `npm` kind or a manual install.
 - **Open:** one Windows CI run hung once in the .NET tests and did not recur. CI now names a hung test after 3 minutes.
 
