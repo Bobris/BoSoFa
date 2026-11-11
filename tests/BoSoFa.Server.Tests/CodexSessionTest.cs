@@ -85,6 +85,11 @@ public class CodexSessionTest
                         Send(Respond(new()));
                         _ = Task.Run(PlayCompactionAsync);
                         break;
+                    case "thread/fork": Send(Respond(new() { ["thread"] = new JsonObject { ["id"] = "fork-1" }, ["model"] = "gpt-test" })); break;
+                    case "turn/start" when message.GetProperty("params").GetProperty("threadId").GetString() == "fork-1":
+                        Send(Respond(new() { ["turn"] = new JsonObject { ["id"] = "side-1", ["status"] = "inProgress" } }));
+                        _ = Task.Run(PlaySideTurn);
+                        break;
                     case "turn/start":
                         var turn = ++_turns;
                         Send(Respond(new() { ["turn"] = new JsonObject { ["id"] = $"turn-{turn}", ["status"] = "inProgress" } }));
@@ -117,6 +122,16 @@ public class CodexSessionTest
                 Notify("thread/tokenUsage/updated", new() { ["threadId"] = "thread-1", ["turnId"] = id, ["tokenUsage"] = new JsonObject { ["last"] = new JsonObject { ["inputTokens"] = 100, ["outputTokens"] = 7 } } });
             }
             Notify("turn/completed", new() { ["threadId"] = "thread-1", ["turn"] = Turn("completed") });
+        }
+
+        /// <summary>Answers a side question on the fork; the main thread hears nothing of it.</summary>
+        void PlaySideTurn()
+        {
+            JsonObject Turn(string status) => new() { ["id"] = "side-1", ["status"] = status, ["items"] = new JsonArray(), ["durationMs"] = 300 };
+            Notify("turn/started", new() { ["threadId"] = "fork-1", ["turn"] = Turn("inProgress") });
+            Notify("item/completed", new() { ["threadId"] = "thread-1", ["turnId"] = "turn-9", ["item"] = new JsonObject { ["id"] = "x", ["type"] = "agentMessage", ["text"] = "Not this." } });
+            Notify("item/completed", new() { ["threadId"] = "fork-1", ["turnId"] = "side-1", ["item"] = new JsonObject { ["id"] = "s-1", ["type"] = "agentMessage", ["text"] = "It lists files." } });
+            Notify("turn/completed", new() { ["threadId"] = "fork-1", ["turn"] = Turn("completed") });
         }
 
         /// <summary>Codex compacts in a turn of its own, with a context compaction item.</summary>
@@ -235,6 +250,48 @@ public class CodexSessionTest
         Assert.Contains(sink.Reports.OfType<ItemReport>(), item => item is { Kind: SessionItemKind.Notice, Text: "The conversation was compacted." });
         Assert.IsType<StatusReport>(sink.Reports.Last());
         Assert.Equal(SessionStatus.Idle, ((StatusReport)sink.Reports.Last()).Status);
+    }
+
+    [Fact]
+    public async Task ClearingWaitsForTheRunningTurnAndOpensANewThread()
+    {
+        await using var server = new FakeCodex();
+        var sink = new RecordingSink();
+        var state = new SessionState { SessionId = 1, Harness = Harnesses.Codex, WorkingDirectory = Path.GetTempPath(), PermissionMode = "default" };
+        await using IHarnessSession session = new CodexSession(state, sink, () => Task.FromResult(new CodexLaunch(server.Client, null)), TextWriter.Null);
+        await session.SendAsync("List the files", DispatchMode.Queue);
+        await WaitFor(() => sink.Reports.OfType<ItemReport>().Any(item => item.Kind == SessionItemKind.Notice), "the device code");
+        server.CompleteLogin();
+        await WaitFor(() => sink.Reports.OfType<ApprovalRequestedReport>().Any(), "the approval");
+
+        // Asked during the turn, it waits for that turn to end.
+        await session.ClearAsync();
+        await Task.Delay(200);
+        Assert.Single(server.Received, message => Method(message) == "thread/start");
+        await session.AnswerAsync(sink.Reports.OfType<ApprovalRequestedReport>().Single().Key, true, null);
+        server.FinishTurn();
+        await WaitFor(() => sink.Reports.OfType<ItemReport>().Any(item => item.Kind == SessionItemKind.Cleared), "the clear");
+        Assert.Equal(2, server.Received.Count(message => Method(message) == "thread/start"));
+        Assert.DoesNotContain(server.Received, message => Method(message) == "thread/resume");
+        await WaitFor(() => sink.Reports.Last() is StatusReport { Status: SessionStatus.Idle }, "idle");
+        Assert.Single(sink.Reports.OfType<RunEndedReport>()); // starting over is not a turn
+    }
+
+    [Fact]
+    public async Task ASideQuestionRunsOnAnEphemeralReadOnlyFork()
+    {
+        await using var server = new FakeCodex();
+        var state = new SessionState { SessionId = 1, Harness = Harnesses.Codex, WorkingDirectory = Path.GetTempPath(), PermissionMode = "bypassPermissions", HarnessSessionId = "thread-1", ReasoningEffort = "high" };
+        await using IHarnessSession session = new CodexSession(state, new RecordingSink(), () => Task.FromResult(new CodexLaunch(server.Client, "sk-test")), TextWriter.Null);
+
+        Assert.Equal("It lists files.", await session.AnswerSideQuestionAsync("What does it do?", CancellationToken.None));
+        var fork = server.Received.Single(message => Method(message) == "thread/fork").GetProperty("params");
+        Assert.Equal(("thread-1", true, "read-only", "never"), (fork.GetProperty("threadId").GetString(), fork.GetProperty("ephemeral").GetBoolean(),
+            fork.GetProperty("sandbox").GetString(), fork.GetProperty("approvalPolicy").GetString()));
+        var turn = server.Received.Single(message => Method(message) == "turn/start").GetProperty("params");
+        Assert.Equal("fork-1", turn.GetProperty("threadId").GetString());
+        Assert.Equal("high", turn.GetProperty("effort").GetString()); // the session's level
+        Assert.Contains("What does it do?", turn.GetProperty("input")[0].GetProperty("text").GetString());
     }
 
     static string? Method(JsonElement message) => message.TryGetProperty("method", out var method) ? method.GetString() : null;

@@ -233,6 +233,21 @@ public class SessionCompactRequested : EventWithResult<SessionCommandResult>
     public ulong UserId { get; set; }
 }
 
+/// <summary>The person asked to start the conversation over (/clear).</summary>
+public class SessionClearRequested : EventWithResult<SessionCommandResult>
+{
+    public ulong SessionId { get; set; }
+    public ulong UserId { get; set; }
+}
+
+/// <summary>The person asked a question on the side (/btw).</summary>
+public class SessionSideQuestionAsked : EventWithResult<SessionCommandResult>
+{
+    public ulong SessionId { get; set; }
+    public ulong UserId { get; set; }
+    public string Text { get; set; } = "";
+}
+
 public class SessionStopRequested : EventWithResult<SessionCommandResult>
 {
     public ulong SessionId { get; set; }
@@ -433,13 +448,14 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
             WorkingDirectory = ev.WorkingDirectory.Trim(), Title = Sessions.TitleOf(ev.Prompt),
             PermissionMode = ev.PermissionMode, Model = string.IsNullOrWhiteSpace(ev.Model) ? null : ev.Model.Trim(),
             Status = SessionStatus.Starting, CreatedAt = ev.When, UpdatedAt = ev.When, AccountId = ev.AccountId,
-            ProfileName = ev.ProfileName
+            ProfileName = ev.ProfileName, ReasoningEffort = ev.ReasoningEffort
         };
         Ambient.Relation<ISessionTable>().Insert(session);
         Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, data: Sessions.ImagesData(ev.ImagesJson));
         Sessions.IssueCommand(signals, machine.Id, new StartSessionCommand(session.Id, session.Harness,
             session.WorkingDirectory, ev.Prompt, session.PermissionMode, session.Model,
-            session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree, ev.ProfileName != null, Sessions.Images(ev.ImagesJson)), ev.When);
+            session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree, ev.ProfileName != null, Sessions.Images(ev.ImagesJson),
+            session.ReasoningEffort), ev.When);
         Sessions.Changed(signals, session, ev.When);
         Audit.Record(ev.When, ev.UserId, "session.created", $"session {session.Id}", $"{ev.Harness} in {ev.WorkingDirectory} on machine {ev.MachineId}");
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
@@ -525,6 +541,47 @@ public sealed class SessionCompactRequestedHandler(IDomainSignals signals, BTDB.
         Sessions.AppendItem(session, SessionItemKind.Notice, ev.When, "Compacting the conversation…");
         Sessions.Changed(signals, session, ev.When);
         Audit.Record(ev.When, ev.UserId, "session.compacted", $"session {session.Id}");
+        return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
+    }
+}
+
+public sealed class SessionClearRequestedHandler(IDomainSignals signals) : IEventHandler<SessionClearRequested, SessionCommandResult>
+{
+    public SessionCommandResult? Validate(SessionClearRequested ev) => null;
+
+    public SessionCommandResult Consume(SessionClearRequested ev)
+    {
+        var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId);
+        if (session == null) return new() { Outcome = outcome };
+        // Between turns only: what a running turn did would otherwise land after the line it should precede.
+        if (session.Status is not (SessionStatus.Idle or SessionStatus.Stopped)) return new() { Outcome = CommandOutcome.Invalid };
+        // The server agent's conversation is rebuilt from the transcript, which starts over at this item; a harness on a machine
+        // reports it once it has started over.
+        if (session.Harness == Harnesses.Agent) Sessions.AppendItem(session, SessionItemKind.Cleared, ev.When, "");
+        else Sessions.IssueCommand(signals, machine!.Id, new ClearSessionCommand(session.Id), ev.When);
+        session.ContextTokens = 0;
+        Sessions.Changed(signals, session, ev.When);
+        Audit.Record(ev.When, ev.UserId, "session.cleared", $"session {session.Id}");
+        return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
+    }
+}
+
+public sealed class SessionSideQuestionAskedHandler(IDomainSignals signals, BTDB.BackendActions.BackendActions actions)
+    : IEventHandler<SessionSideQuestionAsked, SessionCommandResult>
+{
+    public SessionCommandResult? Validate(SessionSideQuestionAsked ev) => null;
+
+    public SessionCommandResult Consume(SessionSideQuestionAsked ev)
+    {
+        var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId);
+        if (session == null) return new() { Outcome = outcome };
+        if (session.Status == SessionStatus.Failed || string.IsNullOrWhiteSpace(ev.Text)) return new() { Outcome = CommandOutcome.Invalid };
+        var seq = Sessions.AppendItem(session, SessionItemKind.SideQuestion, ev.When, ev.Text);
+        // Beside any run: the server agent's in an action of its own, a harness's in a process of its own on the machine.
+        if (session.Harness == Harnesses.Agent) SideQuestions.Start(actions, session, seq);
+        else Sessions.IssueCommand(signals, machine!.Id, new SideQuestionCommand(session.Id, SideQuestions.RefOf(seq), ev.Text), ev.When);
+        Sessions.Changed(signals, session, ev.When);
+        Audit.Record(ev.When, ev.UserId, "session.side_question", $"session {session.Id}");
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }
 }

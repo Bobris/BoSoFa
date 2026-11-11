@@ -13,6 +13,7 @@ public static class FileEndpoints
     public static void MapFileEndpoints(this WebApplication app)
     {
         app.MapGet("/api/v1/machines/{id}/codex-usage", CodexUsageAsync).RequireAuthorization();
+        app.MapGet("/api/v1/machines/{id}/models", HarnessModelsAsync).RequireAuthorization();
         var files = app.MapGroup("/api/v1/machines/{id}/files").RequireAuthorization();
         files.MapGet("/roots", RootsAsync);
         files.MapGet("", ListAsync);
@@ -72,6 +73,13 @@ public static class FileEndpoints
 
     static Task<Results<Ok<CodexUsageResult>, NotFound, ForbidHttpResult, BadRequest<string>>> CodexUsageAsync(ulong id, BtdbNode node,
         MachineRpcClient rpc, HttpContext http) => CallAsync<CodexUsageResult>(id, new CodexUsageRequest(), node, rpc, http);
+
+    /// <summary>The models a harness offers on the machine, with the reasoning levels of each.</summary>
+    static Task<Results<Ok<HarnessModelsResult>, NotFound, ForbidHttpResult, BadRequest<string>>> HarnessModelsAsync(ulong id, string harness,
+        BtdbNode node, MachineRpcClient rpc, HttpContext http) =>
+        harness is Harnesses.Claude or Harnesses.Codex or Harnesses.OpenCode
+            ? CallAsync<HarnessModelsResult>(id, new HarnessModelsRequest(harness), node, rpc, http)
+            : Task.FromResult<Results<Ok<HarnessModelsResult>, NotFound, ForbidHttpResult, BadRequest<string>>>(TypedResults.BadRequest("This harness lists no models."));
 
     static Task<Results<Ok<FileRootsResult>, NotFound, ForbidHttpResult, BadRequest<string>>> RootsAsync(ulong id, BtdbNode node,
         MachineRpcClient rpc, HttpContext http) => CallAsync<FileRootsResult>(id, new FileRootsRequest(), node, rpc, http);

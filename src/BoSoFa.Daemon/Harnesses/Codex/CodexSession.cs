@@ -57,7 +57,8 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
             await foreach (var (prompt, mode) in _work.Reader.ReadAllAsync(_stop.Token))
                 try
                 {
-                    if (await EnsureThreadAsync()) await DispatchAsync(prompt, mode);
+                    if (ReferenceEquals(prompt, HarnessPrompt.Clear) && !IsTurnActive()) await StartOverAsync();
+                    else if (await EnsureThreadAsync()) await DispatchAsync(prompt, mode);
                 }
                 catch (Exception exception) when (exception is IOException or JsonRpcException or TimeoutException or
                                                       InvalidOperationException)
@@ -67,6 +68,11 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
                 }
         }
         catch (OperationCanceledException) { }
+    }
+
+    bool IsTurnActive()
+    {
+        lock (_lock) return _turnActive;
     }
 
     async Task DispatchAsync(HarnessPrompt prompt, DispatchMode mode)
@@ -86,7 +92,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
             await StartTurnAsync(prompt);
             return;
         }
-        if (ReferenceEquals(prompt, HarnessPrompt.Compaction))
+        if (ReferenceEquals(prompt, HarnessPrompt.Compaction) || ReferenceEquals(prompt, HarnessPrompt.Clear))
         {
             lock (_lock) _queued.Enqueue(prompt); // never steers: it follows the running turn
             return;
@@ -113,6 +119,13 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         }
     }
 
+    /// <summary>Codex takes the reasoning level with each turn.</summary>
+    JsonObject WithEffort(JsonObject turn)
+    {
+        if (state.ReasoningEffort != null) turn["effort"] = state.ReasoningEffort;
+        return turn;
+    }
+
     // The constructor, not a collection expression: that compiles to JsonArray.Add<T>, which Native AOT rejects.
     static JsonArray Input(HarnessPrompt prompt)
     {
@@ -134,7 +147,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         // Compacting is a turn of its own in Codex, started by its own request.
         var result = ReferenceEquals(prompt, HarnessPrompt.Compaction)
             ? await rpc.RequestAsync("thread/compact/start", new JsonObject { ["threadId"] = state.HarnessSessionId }, RequestTimeout)
-            : await rpc.RequestAsync("turn/start", new JsonObject { ["threadId"] = state.HarnessSessionId, ["input"] = Input(prompt) }, RequestTimeout);
+            : await rpc.RequestAsync("turn/start", WithEffort(new JsonObject { ["threadId"] = state.HarnessSessionId, ["input"] = Input(prompt) }), RequestTimeout);
         // turn/started can arrive before this response; whichever comes first names the turn.
         if (ClaudeJson.Obj(result, "turn") is { } turn)
             lock (_lock) _turnId ??= ClaudeJson.Str(turn, "id");
@@ -214,7 +227,8 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         return false;
     }
 
-    async Task OpenThreadAsync(JsonRpcProcess rpc)
+    /// <param name="status">What the session is doing meanwhile: a new thread usually opens for the turn about to start.</param>
+    async Task OpenThreadAsync(JsonRpcProcess rpc, SessionStatus status = SessionStatus.Running)
     {
         var (approval, sandbox) = Policies();
         var settings = new JsonObject { ["cwd"] = state.WorkingDirectory, ["approvalPolicy"] = approval, ["sandbox"] = sandbox };
@@ -241,7 +255,7 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
         settings["serviceName"] = Brand.Id;
         result = await rpc.RequestAsync("thread/start", settings, RequestTimeout);
         var thread = ClaudeJson.Obj(result, "thread") ?? throw new InvalidOperationException("thread/start returned no thread.");
-        sink.Report(state.SessionId, new StatusReport(SessionStatus.Running, HarnessSessionId: ClaudeJson.Str(thread, "id"),
+        sink.Report(state.SessionId, new StatusReport(status, HarnessSessionId: ClaudeJson.Str(thread, "id"),
             Model: ClaudeJson.Str(result, "model")));
     }
 
@@ -304,6 +318,95 @@ public sealed class CodexSession(SessionState state, ISessionSink sink, Func<Tas
     }
 
     public Task CompactAsync() => SendAsync(HarnessPrompt.Compaction, DispatchMode.Queue);
+
+    /// <summary>A new thread in the same process, after the running turn.</summary>
+    public Task ClearAsync() => SendAsync(HarnessPrompt.Clear, DispatchMode.Queue);
+
+    /// <summary>A second Codex on an ephemeral fork of the thread, read-only and never asking; whatever it asks anyway is declined.</summary>
+    public async Task<string> AnswerSideQuestionAsync(string question, CancellationToken cancellation)
+    {
+        if (!Directory.Exists(state.WorkingDirectory)) throw new IOException($"The working directory {state.WorkingDirectory} does not exist on this machine.");
+        var started = await launch();
+        await using var rpc = started.Rpc;
+        rpc.OnRequest = request => Task.FromResult<JsonNode?>(request.Method switch
+        {
+            "item/commandExecution/requestApproval" or "item/fileChange/requestApproval" => new JsonObject { ["decision"] = "decline" },
+            "item/permissions/requestApproval" => new JsonObject { ["permissions"] = new JsonObject(), ["scope"] = "turn" },
+            "mcpServer/elicitation/request" => new JsonObject { ["action"] = "decline" },
+            _ => throw new NotSupportedException($"{Brand.Name} does not support {request.Method} in a side question.")
+        });
+        var said = new StringBuilder();
+        var finished = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string? threadId = null;
+        var pump = Task.Run(async () =>
+        {
+            await foreach (var message in rpc.Incoming.ReadAllAsync(cancellation))
+                if (message.Reached != null) message.Reached();
+                else if (message.Id != null) rpc.Serve(message);
+                else if (ClaudeJson.Str(message.Params, "threadId") is { } thread && thread == Volatile.Read(ref threadId))
+                    switch (message.Method)
+                    {
+                        case "item/completed" when ClaudeJson.Obj(message.Params, "item") is { } item && ClaudeJson.Str(item, "type") == "agentMessage" &&
+                                                   ClaudeJson.Str(item, "text") is { Length: > 0 } text:
+                            said.Append(said.Length > 0 ? "\n\n" : "").Append(text);
+                            break;
+                        case "turn/completed" when ClaudeJson.Obj(message.Params, "turn") is { } turn:
+                            finished.TrySetResult(ClaudeJson.Str(turn, "status") == "failed"
+                                ? ClaudeJson.Obj(turn, "error") is { } error ? ClaudeJson.Str(error, "message") ?? "The turn failed." : "The turn failed."
+                                : null);
+                            break;
+                    }
+            finished.TrySetException(new IOException($"Codex ended before answering. {rpc.StandardErrorTail}".Trim()));
+        }, cancellation);
+        await rpc.RequestAsync("initialize", new JsonObject
+        {
+            ["clientInfo"] = new JsonObject { ["name"] = Brand.Id, ["title"] = Brand.Name, ["version"] = Cli.Version },
+            ["capabilities"] = new JsonObject { ["experimentalApi"] = false }
+        }, RequestTimeout);
+        await rpc.NotifyAsync("initialized");
+        if (started.ApiKey != null)
+            await rpc.RequestAsync("account/login/start", new JsonObject { ["type"] = "apiKey", ["apiKey"] = started.ApiKey }, RequestTimeout);
+        else
+        {
+            var account = await rpc.RequestAsync("account/read", new JsonObject { ["refreshToken"] = false }, RequestTimeout);
+            if (ClaudeJson.Obj(account, "account") == null && ClaudeJson.Bool(account, "requiresOpenaiAuth"))
+                throw new IOException("Codex is not signed in on this machine.");
+        }
+        var settings = new JsonObject { ["cwd"] = state.WorkingDirectory, ["approvalPolicy"] = "never", ["sandbox"] = "read-only", ["ephemeral"] = true };
+        if (state.Model != null) settings["model"] = state.Model;
+        if (started.Config != null) settings["config"] = started.Config.DeepClone();
+        JsonElement opened;
+        if (state.HarnessSessionId is { } current)
+        {
+            settings["threadId"] = current;
+            settings["excludeTurns"] = true;
+            opened = await rpc.RequestAsync("thread/fork", settings, RequestTimeout);
+        }
+        else
+        {
+            settings["serviceName"] = Brand.Id;
+            opened = await rpc.RequestAsync("thread/start", settings, RequestTimeout);
+        }
+        Volatile.Write(ref threadId, ClaudeJson.Obj(opened, "thread") is { } thread ? ClaudeJson.Str(thread, "id") : null);
+        if (threadId == null) throw new IOException("Codex did not open a thread for the question.");
+        await rpc.RequestAsync("turn/start", WithEffort(new JsonObject { ["threadId"] = threadId, ["input"] = Input(HarnessPrompt.SideQuestion(question)) }), RequestTimeout);
+        if (await finished.Task.WaitAsync(cancellation) is { } failure) throw new IOException(failure);
+        _ = pump;
+        return said.ToString().Trim();
+    }
+
+    async Task StartOverAsync()
+    {
+        // A process that is not running starts a new thread anyway, once it has none to resume.
+        state.HarnessSessionId = null;
+        if (_threadReady && _rpc is { } rpc) await OpenThreadAsync(rpc, SessionStatus.Idle);
+        sink.Report(state.SessionId, new ItemReport(SessionItemKind.Cleared, DateTime.UtcNow, ""));
+        HarnessPrompt? next = null;
+        lock (_lock)
+            if (_queued.Count > 0) next = _queued.Dequeue();
+        if (next != null) _work.Writer.TryWrite((next, DispatchMode.Queue));
+        else sink.Report(state.SessionId, new StatusReport(SessionStatus.Idle));
+    }
 
     public async Task InterruptAsync()
     {

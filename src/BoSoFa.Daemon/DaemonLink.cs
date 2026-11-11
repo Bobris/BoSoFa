@@ -182,6 +182,8 @@ public sealed class DaemonLink(DaemonState state, ECDsa key, TextWriter log, Out
                         ? new RpcFailure("This daemon cannot do that.")
                         : call.Request is CodexUsageRequest
                             ? await _host.CodexUsageAsync()
+                            : call.Request is HarnessModelsRequest models
+                            ? await _host.HarnessModelsAsync(models.Harness)
                             : call.Request is ToolRpc tool
                                 ? await _host.Tools.HandleAsync(tool, _stop.Token)
                                 : await _host.Files.HandleAsync(call.Request, _stop.Token));

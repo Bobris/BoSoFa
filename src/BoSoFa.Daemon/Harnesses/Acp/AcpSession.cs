@@ -77,7 +77,8 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
             await foreach (var prompt in _work.Reader.ReadAllAsync(_stop.Token))
                 try
                 {
-                    if (await EnsureSessionAsync()) await RunTurnAsync(prompt);
+                    if (ReferenceEquals(prompt, HarnessPrompt.Clear)) await StartOverAsync();
+                    else if (await EnsureSessionAsync()) await RunTurnAsync(prompt);
                 }
                 catch (Exception exception) when (exception is IOException or JsonRpcException or TimeoutException or
                                                       InvalidOperationException)
@@ -129,20 +130,23 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
         _acceptsImages = ClaudeJson.Obj(capabilities, "promptCapabilities") is { } promptCapabilities && ClaudeJson.Bool(promptCapabilities, "image");
         if (!await OpenSessionAsync(rpc, canLoad)) return false;
         if (state.Model != null) await SelectModelAsync(rpc);
+        await SelectEffortAsync(rpc);
         _ready = true;
         return true;
     }
 
-    async Task<bool> OpenSessionAsync(JsonRpcProcess rpc, bool canLoad)
+    /// <param name="status">What the session is doing meanwhile: a new session usually opens for the turn about to start.</param>
+    async Task<bool> OpenSessionAsync(JsonRpcProcess rpc, bool canLoad, SessionStatus status = SessionStatus.Running)
     {
         if (state.HarnessSessionId is { } existing && canLoad)
             try
             {
                 _loading = true; // the agent replays the conversation as updates; the transcript already has it
-                await rpc.RequestAsync("session/load", new JsonObject
+                var loaded = await rpc.RequestAsync("session/load", new JsonObject
                 {
                     ["sessionId"] = existing, ["cwd"] = state.WorkingDirectory, ["mcpServers"] = _mcpServers.DeepClone()
                 }, RequestTimeout);
+                if (ClaudeJson.Obj(loaded, "configOptions") is { ValueKind: JsonValueKind.Array } options) _configOptions = options;
                 return true;
             }
             catch (JsonRpcException exception)
@@ -157,7 +161,8 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
             {
                 ["cwd"] = state.WorkingDirectory, ["mcpServers"] = _mcpServers.DeepClone()
             }, RequestTimeout);
-            sink.Report(state.SessionId, new StatusReport(SessionStatus.Running, HarnessSessionId: ClaudeJson.Str(created, "sessionId")));
+            if (ClaudeJson.Obj(created, "configOptions") is { ValueKind: JsonValueKind.Array } options) _configOptions = options;
+            sink.Report(state.SessionId, new StatusReport(status, HarnessSessionId: ClaudeJson.Str(created, "sessionId")));
             return true;
         }
         catch (JsonRpcException exception)
@@ -168,19 +173,50 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
         }
     }
 
+    /// <summary>The session's options as the agent last listed them; a model of its own brings its own reasoning levels.</summary>
+    JsonElement? _configOptions;
+
     async Task SelectModelAsync(JsonRpcProcess rpc)
     {
         try
         {
-            await rpc.RequestAsync("session/set_config_option", new JsonObject
+            var selected = await rpc.RequestAsync("session/set_config_option", new JsonObject
             {
                 ["sessionId"] = state.HarnessSessionId, ["configId"] = "model", ["value"] = state.Model
             }, RequestTimeout);
+            if (ClaudeJson.Obj(selected, "configOptions") is { ValueKind: JsonValueKind.Array } options) _configOptions = options;
         }
         catch (JsonRpcException exception)
         {
             sink.Report(state.SessionId, new ItemReport(SessionItemKind.Notice, DateTime.UtcNow,
                 $"The agent did not accept the model {state.Model}: {exception.Message}"));
+        }
+    }
+
+    /// <summary>The reasoning level, through the option the agent files under <c>thought_level</c>.</summary>
+    async Task SelectEffortAsync(JsonRpcProcess rpc)
+    {
+        if (state.ReasoningEffort == null) return;
+        var option = _configOptions is { } options
+            ? options.EnumerateArray().FirstOrDefault(candidate => ClaudeJson.Str(candidate, "category") == "thought_level")
+            : default;
+        if (option.ValueKind != JsonValueKind.Object || ClaudeJson.Str(option, "id") is not { } id)
+        {
+            sink.Report(state.SessionId, new ItemReport(SessionItemKind.Notice, DateTime.UtcNow,
+                $"The agent offers no reasoning levels for this model, so {state.ReasoningEffort} was left out."));
+            return;
+        }
+        try
+        {
+            await rpc.RequestAsync("session/set_config_option", new JsonObject
+            {
+                ["sessionId"] = state.HarnessSessionId, ["configId"] = id, ["value"] = state.ReasoningEffort
+            }, RequestTimeout);
+        }
+        catch (JsonRpcException exception)
+        {
+            sink.Report(state.SessionId, new ItemReport(SessionItemKind.Notice, DateTime.UtcNow,
+                $"The agent did not accept the reasoning level {state.ReasoningEffort}: {exception.Message}"));
         }
     }
 
@@ -302,6 +338,82 @@ public sealed class AcpSession(SessionState state, ISessionSink sink, Func<Task<
 
     /// <summary>The agent's /compact command (OpenCode's summary), as a prompt after the running turn.</summary>
     public Task CompactAsync() => SendAsync(HarnessPrompt.Compaction, DispatchMode.Queue);
+
+    /// <summary>A new ACP session in the same process, after the running turn.</summary>
+    public Task ClearAsync() => SendAsync(HarnessPrompt.Clear, DispatchMode.Queue);
+
+    /// <summary>A second agent process on a fork of the session; everything it asks to do is refused, and the fork is closed after.</summary>
+    public async Task<string> AnswerSideQuestionAsync(string question, CancellationToken cancellation)
+    {
+        if (!Directory.Exists(state.WorkingDirectory)) throw new IOException($"The working directory {state.WorkingDirectory} does not exist on this machine.");
+        var started = await launch();
+        await using var rpc = started.Rpc;
+        rpc.OnRequest = request => request.Method == "session/request_permission"
+            ? Task.FromResult<JsonNode?>(new JsonObject { ["outcome"] = new JsonObject { ["outcome"] = "cancelled" } })
+            : throw new NotSupportedException($"{Brand.Name} does not support {request.Method}.");
+        var said = new StringBuilder();
+        string? sessionId = null;
+        var listening = false;
+        var pump = Task.Run(async () =>
+        {
+            await foreach (var message in rpc.Incoming.ReadAllAsync(cancellation))
+                if (message.Reached != null) message.Reached();
+                else if (message.Id != null) rpc.Serve(message);
+                else if (message.Method == "session/update" && Volatile.Read(ref listening) && ClaudeJson.Str(message.Params, "sessionId") == Volatile.Read(ref sessionId) &&
+                         ClaudeJson.Obj(message.Params, "update") is { } update && ClaudeJson.Str(update, "sessionUpdate") == "agent_message_chunk" &&
+                         Chunk(update) is { Length: > 0 } text)
+                    said.Append(text);
+        }, cancellation);
+        var initialized = await rpc.RequestAsync("initialize", new JsonObject
+        {
+            ["protocolVersion"] = 1,
+            ["clientCapabilities"] = new JsonObject { ["fs"] = new JsonObject { ["readTextFile"] = false, ["writeTextFile"] = false }, ["terminal"] = false },
+            ["clientInfo"] = new JsonObject { ["name"] = Brand.Id, ["version"] = Cli.Version }
+        }, RequestTimeout);
+        var capabilities = ClaudeJson.Obj(initialized, "agentCapabilities") ?? ClaudeJson.Empty;
+        var canFork = ClaudeJson.Obj(capabilities, "sessionCapabilities") is { } sessions && ClaudeJson.Obj(sessions, "fork") != null;
+        if (state.HarnessSessionId != null && !canFork) throw new InvalidOperationException("This agent cannot answer on the side: it cannot fork a session.");
+        var opened = state.HarnessSessionId is { } current
+            ? await rpc.RequestAsync("session/fork", new JsonObject { ["sessionId"] = current, ["cwd"] = state.WorkingDirectory, ["mcpServers"] = new JsonArray() }, RequestTimeout)
+            : await rpc.RequestAsync("session/new", new JsonObject { ["cwd"] = state.WorkingDirectory, ["mcpServers"] = new JsonArray() }, RequestTimeout);
+        Volatile.Write(ref sessionId, ClaudeJson.Str(opened, "sessionId") ?? throw new IOException("The agent did not open a session for the question."));
+        if (state.Model != null)
+            try
+            {
+                await rpc.RequestAsync("session/set_config_option", new JsonObject { ["sessionId"] = sessionId, ["configId"] = "model", ["value"] = state.Model }, RequestTimeout);
+            }
+            catch (JsonRpcException) { /* the session's own model then */ }
+        await rpc.DrainAsync(); // a fork may replay the conversation first
+        Volatile.Write(ref listening, true);
+        var result = await rpc.RequestAsync("session/prompt", new JsonObject
+        {
+            ["sessionId"] = sessionId, ["prompt"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = HarnessPrompt.SideQuestion(question) })
+        }, TurnTimeout, cancellation);
+        await rpc.DrainAsync();
+        try { await rpc.RequestAsync("session/close", new JsonObject { ["sessionId"] = sessionId }, RequestTimeout); }
+        catch (JsonRpcException) { /* an agent without it keeps the fork */ }
+        _ = pump;
+        if (ClaudeJson.Str(result, "stopReason") is "refusal") throw new IOException("The agent refused to answer.");
+        return said.ToString().Trim();
+    }
+
+    async Task StartOverAsync()
+    {
+        // A process that is not running starts with a new session anyway, once it has none to load.
+        state.HarnessSessionId = null;
+        if (_ready && _rpc is { } rpc)
+        {
+            if (!await OpenSessionAsync(rpc, canLoad: false, SessionStatus.Idle)) return;
+            if (state.Model != null) await SelectModelAsync(rpc);
+            await SelectEffortAsync(rpc);
+        }
+        sink.Report(state.SessionId, new ItemReport(SessionItemKind.Cleared, DateTime.UtcNow, ""));
+        HarnessPrompt? next = null;
+        lock (_lock)
+            if (_queued.Count > 0) next = _queued.Dequeue();
+        if (next != null) _work.Writer.TryWrite(next);
+        else sink.Report(state.SessionId, new StatusReport(SessionStatus.Idle));
+    }
 
     async Task InterruptAsync(bool clearQueue)
     {

@@ -17,6 +17,7 @@ namespace BoSoFa.Protocol;
 [JsonDerivedType(typeof(TerminalResizeRequest), "terminalResize")]
 [JsonDerivedType(typeof(TerminalCloseRequest), "terminalClose")]
 [JsonDerivedType(typeof(CodexUsageRequest), "codexUsage")]
+[JsonDerivedType(typeof(HarnessModelsRequest), "harnessModels")]
 [JsonDerivedType(typeof(MachineResourcesRequest), "resources")]
 [JsonDerivedType(typeof(ToolRunRequest), "toolRun")]
 [JsonDerivedType(typeof(ToolCancelRequest), "toolCancel")]
@@ -36,11 +37,24 @@ public abstract record MachineRpc;
 [JsonDerivedType(typeof(TerminalListResult), "terminalList")]
 [JsonDerivedType(typeof(TerminalAttachResult), "terminalAttach")]
 [JsonDerivedType(typeof(CodexUsageResult), "codexUsage")]
+[JsonDerivedType(typeof(HarnessModelsResult), "harnessModels")]
 [JsonDerivedType(typeof(MachineResourcesResult), "resources")]
 [JsonDerivedType(typeof(ToolRunResult), "toolRun")]
 [JsonDerivedType(typeof(ToolDiffResult), "toolDiff")]
 [JsonDerivedType(typeof(McpToolsResult), "mcpTools")]
 public abstract record MachineRpcResult;
+
+/// <summary>The models a harness offers on this machine, as it reports them with its own sign-in there.</summary>
+public sealed record HarnessModelsRequest(string Harness) : MachineRpc;
+
+/// <param name="Id">What the harness takes as its model.</param>
+/// <param name="ReasoningEfforts">The levels the model can think at, as the harness names them; none when it has no such choice.</param>
+/// <param name="DefaultEffort">The level used when none is chosen, when the harness says.</param>
+/// <param name="IsDefault">The harness's own choice when no model is named.</param>
+public sealed record HarnessModelDto(string Id, string Name, string? Description, string[] ReasoningEfforts, string? DefaultEffort = null,
+    bool IsDefault = false);
+
+public sealed record HarnessModelsResult(HarnessModelDto[] Models) : MachineRpcResult;
 
 /// <summary>Measure the computer now: free memory and disk change all the time, so they are asked for, not reported.</summary>
 public sealed record MachineResourcesRequest : MachineRpc;

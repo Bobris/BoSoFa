@@ -29,6 +29,10 @@ public sealed class SessionState
     public string WorkingDirectory { get; set; } = "";
     public string PermissionMode { get; set; } = "default";
     public string? Model { get; set; }
+
+    /// <summary>How hard the model thinks, as the harness names the level; null for its default.</summary>
+    public string? ReasoningEffort { get; set; }
+
     public string? HarnessSessionId { get; set; }
     public SessionStatus Status { get; set; }
 
@@ -177,6 +181,96 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         }
     }
 
+    static readonly TimeSpan ModelsKeptFor = TimeSpan.FromMinutes(10);
+    readonly ConcurrentDictionary<string, (DateTime At, HarnessModelDto[] Models)> _models = new();
+
+    /// <summary>The models a harness offers here, with their reasoning levels. Asking starts the harness, so answers are kept a while.</summary>
+    public async Task<MachineRpcResult> HarnessModelsAsync(string harness)
+    {
+        if (_models.TryGetValue(harness, out var known) && DateTime.UtcNow - known.At < ModelsKeptFor) return new HarnessModelsResult(known.Models);
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(75));
+            var models = harness switch
+            {
+                HarnessNames.Claude => await ClaudeModelsAsync(),
+                HarnessNames.Codex => await CodexModelsAsync(),
+                HarnessNames.OpenCode => await OpenCodeModelsAsync(timeout.Token),
+                _ => null
+            };
+            if (models == null) return new RpcFailure($"The {harness} harness lists no models.");
+            _models[harness] = (DateTime.UtcNow, models);
+            return new HarnessModelsResult(models);
+        }
+        catch (Exception exception) when (exception is IOException or TimeoutException or InvalidOperationException or JsonRpcException or
+                                              OperationCanceledException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            return new RpcFailure($"The models of {harness} could not be listed: {exception.Message}");
+        }
+    }
+
+    async Task<HarnessModelDto[]> ClaudeModelsAsync()
+    {
+        var executable = ClaudeProcess.FindExecutable(_options.ClaudeExecutable ?? Installer.Find(HarnessNames.Claude)) ??
+                         throw new IOException("Claude Code is not installed on this machine.");
+        await using var transport = ClaudeProcess.Start(executable, new ClaudeLaunch(_dataDirectory, "default", null, null, SideQuestion: true));
+        return HarnessModels.FromClaudeInitialize(await transport.InitializeAsync(TimeSpan.FromSeconds(60)));
+    }
+
+    async Task<HarnessModelDto[]> CodexModelsAsync()
+    {
+        var executable = FindCodex() ?? throw new IOException("Codex is not installed on this machine.");
+        var home = Path.Combine(_dataDirectory, "profiles", "machine", "codex");
+        Directory.CreateDirectory(home);
+        await File.WriteAllTextAsync(Path.Combine(home, "config.toml"), CodexConfig);
+        var environment = HarnessEnvironment.Clean();
+        environment["CODEX_HOME"] = home;
+        await using var rpc = JsonRpcProcess.Start(executable, ["app-server"], home, environment, includeVersion: false);
+        var pump = Task.Run(async () =>
+        {
+            await foreach (var message in rpc.Incoming.ReadAllAsync())
+                if (message.Reached != null) message.Reached();
+        });
+        await rpc.RequestAsync("initialize", new JsonObject
+        {
+            ["clientInfo"] = new JsonObject { ["name"] = Brand.Id, ["title"] = Brand.Name, ["version"] = Cli.Version },
+            ["capabilities"] = new JsonObject { ["experimentalApi"] = false }
+        }, TimeSpan.FromSeconds(30));
+        await rpc.NotifyAsync("initialized");
+        var models = HarnessModels.FromCodexList(await rpc.RequestAsync("model/list", new JsonObject { ["includeHidden"] = false, ["limit"] = 100 },
+            TimeSpan.FromSeconds(45)));
+        _ = pump;
+        return models;
+    }
+
+    async Task<HarnessModelDto[]> OpenCodeModelsAsync(CancellationToken cancellation)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var executable = HarnessEnvironment.FindExecutable(Installer.Find("opencode"), OperatingSystem.IsWindows() ? ["opencode.exe"] : ["opencode"],
+                             Path.Combine(home, ".opencode", "bin"), "/opt/homebrew/bin", "/usr/local/bin") ??
+                         throw new IOException("OpenCode is not installed on this machine.");
+        var start = new System.Diagnostics.ProcessStartInfo(executable)
+        {
+            WorkingDirectory = _dataDirectory, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false
+        };
+        foreach (var argument in new[] { "models", "--verbose" }) start.ArgumentList.Add(argument);
+        start.Environment.Clear();
+        foreach (var (name, value) in HarnessEnvironment.Clean()) start.Environment[name] = value;
+        using var process = System.Diagnostics.Process.Start(start) ?? throw new IOException("OpenCode did not start.");
+        var errors = process.StandardError.ReadToEndAsync(cancellation);
+        try
+        {
+            var output = await process.StandardOutput.ReadToEndAsync(cancellation);
+            await process.WaitForExitAsync(cancellation);
+            if (process.ExitCode != 0) throw new IOException($"OpenCode failed (code {process.ExitCode}): {(await errors).Trim()}");
+            return HarnessModels.FromOpenCodeVerbose(output);
+        }
+        finally
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+        }
+    }
+
     const string CodexConfig = """
         cli_auth_credentials_store = "file"
         mcp_oauth_credentials_store = "file"
@@ -300,7 +394,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                 var state = new SessionState
                 {
                     SessionId = start.SessionId, StartIssuedAt = issuedAt, Harness = start.Harness, WorkingDirectory = start.WorkingDirectory,
-                    PermissionMode = start.PermissionMode, Model = start.Model, Status = SessionStatus.Starting,
+                    PermissionMode = start.PermissionMode, Model = start.Model, ReasoningEffort = start.ReasoningEffort, Status = SessionStatus.Starting,
                     AccountId = start.AccountId, HasProfile = start.HasProfile
                 };
                 if (start.UseWorktree && !PrepareWorktree(state, start.Prompt)) break;
@@ -321,6 +415,14 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                 if (session == null) Report(compact.SessionId, new StatusReport(SessionStatus.Failed, Error: "Unknown session."));
                 else await session.CompactAsync();
                 break;
+            case SideQuestionCommand side:
+                if (session == null) Report(side.SessionId, new ItemReport(SessionItemKind.SideAnswer, DateTime.UtcNow, "Unknown session.", IsError: true, Ref: side.Ref));
+                else _ = Task.Run(() => AnswerSideQuestionAsync(session, side)); // beside the session's own commands, which must not wait for it
+                break;
+            case ClearSessionCommand clear:
+                if (session == null) Report(clear.SessionId, new StatusReport(SessionStatus.Failed, Error: "Unknown session."));
+                else await session.ClearAsync();
+                break;
             case AnswerApprovalCommand answer:
                 if (Mcp.TryAnswer(answer.Key, answer.Allow, answer.Message)) break;
                 if (session != null) await session.AnswerAsync(answer.Key, answer.Allow, answer.Message);
@@ -331,6 +433,29 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         }
         _journal.Add(commandId, issuedAt);
         return true;
+    }
+
+    static readonly TimeSpan SideQuestionTimeout = TimeSpan.FromMinutes(10);
+
+    async Task AnswerSideQuestionAsync(IHarnessSession session, SideQuestionCommand side)
+    {
+        string text;
+        var isError = false;
+        try
+        {
+            using var timeout = new CancellationTokenSource(SideQuestionTimeout);
+            text = await session.AnswerSideQuestionAsync(side.Text, timeout.Token);
+        }
+        catch (OperationCanceledException) { (text, isError) = ("No answer came in time.", true); }
+        catch (Exception exception)
+        {
+            (text, isError) = (exception is IOException or InvalidOperationException or JsonRpcException or TimeoutException or FileNotFoundException
+                ? exception.Message
+                : "The question could not be answered.", true);
+            _log.WriteLine($"Session {side.SessionId}: a side question failed: {exception.Message}");
+        }
+        Report(side.SessionId, new ItemReport(SessionItemKind.SideAnswer, DateTime.UtcNow,
+            text.Length <= ItemReport.InlineLimit ? text : text[..ItemReport.InlineLimit] + "…", IsError: isError, Ref: side.Ref));
     }
 
     /// <summary>The prompt with its images fetched to this machine; null, reported, when one cannot be had. Sending the

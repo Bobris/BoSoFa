@@ -76,10 +76,24 @@ public class AcpSessionTest
                 switch (method)
                 {
                     case "initialize":
-                        Send(new JsonObject { ["id"] = requestId, ["result"] = new JsonObject { ["protocolVersion"] = 1, ["agentCapabilities"] = new JsonObject { ["loadSession"] = true, ["promptCapabilities"] = new JsonObject { ["image"] = AcceptsImages } } } });
+                        Send(new JsonObject { ["id"] = requestId, ["result"] = new JsonObject { ["protocolVersion"] = 1, ["agentCapabilities"] = new JsonObject { ["loadSession"] = true, ["promptCapabilities"] = new JsonObject { ["image"] = AcceptsImages }, ["sessionCapabilities"] = new JsonObject { ["fork"] = new JsonObject(), ["close"] = new JsonObject() } } } });
                         break;
                     case "session/new":
                         Send(new JsonObject { ["id"] = requestId, ["result"] = new JsonObject { ["sessionId"] = "s-1" } });
+                        break;
+                    case "session/fork":
+                        Send(new JsonObject { ["id"] = requestId, ["result"] = new JsonObject { ["sessionId"] = "s-2" } });
+                        break;
+                    case "session/close":
+                        Send(new JsonObject { ["id"] = requestId, ["result"] = new JsonObject() });
+                        break;
+                    case "session/prompt" when message.GetProperty("params").GetProperty("sessionId").GetString() == "s-2":
+                        Send(new JsonObject
+                        {
+                            ["method"] = "session/update",
+                            ["params"] = new JsonObject { ["sessionId"] = "s-2", ["update"] = new JsonObject { ["sessionUpdate"] = "agent_message_chunk", ["content"] = new JsonObject { ["type"] = "text", ["text"] = "On the side." } } }
+                        });
+                        Send(new JsonObject { ["id"] = requestId, ["result"] = new JsonObject { ["stopReason"] = "end_turn" } });
                         break;
                     case "session/prompt":
                         var number = ++_prompts;
@@ -196,5 +210,43 @@ public class AcpSessionTest
         Assert.Equal(["cancelled", "completed", "completed"], sink.Reports.OfType<RunEndedReport>().Select(run => run.Outcome));
         await WaitFor(() => sink.Reports.OfType<StatusReport>().Last().Status == SessionStatus.Idle, "idle");
         Assert.All(agent.Received, message => Assert.Equal("2.0", message.GetProperty("jsonrpc").GetString()));
+    }
+
+    [Fact]
+    public async Task ASideQuestionForksTheSessionAndClosesTheFork()
+    {
+        await using var agent = new FakeAgent();
+        var state = new SessionState { SessionId = 1, Harness = Harnesses.OpenCode, WorkingDirectory = Path.GetTempPath(), PermissionMode = "default", HarnessSessionId = "s-1" };
+        await using IHarnessSession session = new AcpSession(state, new RecordingSink(), () => Task.FromResult(new AcpLaunch(agent.Client, new JsonArray())), TextWriter.Null);
+
+        Assert.Equal("On the side.", await session.AnswerSideQuestionAsync("What next?", CancellationToken.None));
+        string? Method(JsonElement message) => message.TryGetProperty("method", out var m) ? m.GetString() : null;
+        Assert.Equal("s-1", agent.Received.Single(message => Method(message) == "session/fork").GetProperty("params").GetProperty("sessionId").GetString());
+        Assert.Equal("s-2", agent.Received.Single(message => Method(message) == "session/close").GetProperty("params").GetProperty("sessionId").GetString());
+        Assert.Empty(agent.Prompts); // the main session heard nothing
+    }
+
+    [Fact]
+    public async Task ClearingWaitsItsTurnAndOpensANewSession()
+    {
+        await using var agent = new FakeAgent();
+        var sink = new RecordingSink();
+        var state = new SessionState { SessionId = 1, Harness = Harnesses.OpenCode, WorkingDirectory = Path.GetTempPath(), PermissionMode = "bypassPermissions" };
+        await using IHarnessSession session = new AcpSession(state, sink, () => Task.FromResult(new AcpLaunch(agent.Client, new JsonArray())), TextWriter.Null);
+
+        await session.SendAsync("first", DispatchMode.Queue);
+        await WaitFor(() => sink.Reports.OfType<ItemReport>().Any(item => item is { Kind: SessionItemKind.ToolResult }), "the tool result");
+        await session.ClearAsync();
+        await session.SendAsync("after", DispatchMode.Queue);
+        await session.SendAsync("now", DispatchMode.Steer);
+
+        await WaitFor(() => sink.Reports.OfType<RunEndedReport>().Count() == 3, "all three turns");
+        Assert.Equal(["first", "now", "after"], agent.Prompts);
+        Assert.Equal(2, agent.Received.Count(message => message.TryGetProperty("method", out var m) && m.GetString() == "session/new"));
+        // The line falls between the turns it separates.
+        var order = sink.Reports.Where(report => report is RunEndedReport or ItemReport { Kind: SessionItemKind.Cleared })
+            .Select(report => report is RunEndedReport ? "run" : "cleared");
+        Assert.Equal(["run", "run", "cleared", "run"], order);
+        await WaitFor(() => sink.Reports.OfType<StatusReport>().Last().Status == SessionStatus.Idle, "idle");
     }
 }

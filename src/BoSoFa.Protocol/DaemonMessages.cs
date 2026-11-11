@@ -76,6 +76,8 @@ public sealed record OutboxAck(ulong SessionId, long Seq);
 [JsonDerivedType(typeof(SendMessageCommand), "sendMessage")]
 [JsonDerivedType(typeof(InterruptCommand), "interrupt")]
 [JsonDerivedType(typeof(CompactSessionCommand), "compact")]
+[JsonDerivedType(typeof(ClearSessionCommand), "clear")]
+[JsonDerivedType(typeof(SideQuestionCommand), "sideQuestion")]
 [JsonDerivedType(typeof(AnswerApprovalCommand), "answerApproval")]
 [JsonDerivedType(typeof(StopSessionCommand), "stopSession")]
 [JsonDerivedType(typeof(InstallHarnessCommand), "installHarness")]
@@ -86,7 +88,7 @@ public abstract record MachineCommand(ulong SessionId);
 /// (<c>POST /api/daemon/v1/accounts/{id}/lease</c>); null runs on the machine's own sign-in.</summary>
 public sealed record StartSessionCommand(ulong SessionId, string Harness, string WorkingDirectory, string Prompt,
     string PermissionMode, string? Model, ulong? AccountId = null, bool UseWorktree = false, bool HasProfile = false,
-    PromptImage[]? Images = null) : MachineCommand(SessionId);
+    PromptImage[]? Images = null, string? ReasoningEffort = null) : MachineCommand(SessionId);
 
 public sealed record SendMessageCommand(ulong SessionId, string Text, DispatchMode Mode = DispatchMode.Queue, PromptImage[]? Images = null)
     : MachineCommand(SessionId);
@@ -95,6 +97,13 @@ public sealed record InterruptCommand(ulong SessionId) : MachineCommand(SessionI
 
 /// <summary>Summarize the conversation so far, to free the context: after the running turn, if there is one.</summary>
 public sealed record CompactSessionCommand(ulong SessionId) : MachineCommand(SessionId);
+
+/// <summary>Start the conversation over: the harness forgets everything so far. After the running turn, if there is one.</summary>
+public sealed record ClearSessionCommand(ulong SessionId) : MachineCommand(SessionId);
+
+/// <summary>Answer <paramref name="Text"/> from the conversation so far, beside any running turn and without adding to the
+/// conversation; the answer comes back as a <see cref="SessionItemKind.SideAnswer"/> item with <paramref name="Ref"/>.</summary>
+public sealed record SideQuestionCommand(ulong SessionId, string Ref, string Text) : MachineCommand(SessionId);
 
 public sealed record AnswerApprovalCommand(ulong SessionId, string Key, bool Allow, string? Message)
     : MachineCommand(SessionId);

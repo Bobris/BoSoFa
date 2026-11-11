@@ -39,7 +39,16 @@ public enum SessionItemKind
     Instructions,
 
     /// <summary>A summary that stands in for everything before it, so a long conversation fits the model.</summary>
-    Compaction
+    Compaction,
+
+    /// <summary>The conversation starts over here (/clear): the harness no longer sees anything before it.</summary>
+    Cleared,
+
+    /// <summary>A question asked on the side (/btw): answered from the conversation so far, which it never becomes part of.</summary>
+    SideQuestion,
+
+    /// <summary>The answer to a <see cref="SideQuestion"/>, whose sequence number is its <c>Ref</c>.</summary>
+    SideAnswer
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<RuntimeRequestStatus>))]
@@ -141,6 +150,9 @@ public enum DispatchMode
 }
 
 /// <param name="Images">SHA-256 hashes of images already uploaded as blobs.</param>
+/// <summary>A question on the side (/btw): the harness answers it from the conversation so far without adding either to it.</summary>
+public sealed record SideQuestionRequest(string Text);
+
 public sealed record SendMessageRequest(string Text, DispatchMode? Mode = null, string[]? Images = null);
 
 /// <summary>An image of a prompt, in the blob store. The server read <c>MediaType</c> from the content.</summary>
@@ -200,6 +212,9 @@ public static class Harnesses
 
     /// <summary>Every level some provider knows; a model that lacks one answers with an error the person sees.</summary>
     public static readonly string[] ReasoningEfforts = ["low", "medium", "high", "xhigh", "max"];
+
+    /// <summary>A harness on a machine names its own levels (Codex has "minimal", OpenCode "default"…), so only their form is checked.</summary>
+    public static bool IsEffortName(string effort) => effort.Length is > 0 and <= 24 && effort.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '-' or '_');
 
     /// <summary>How a profile's system prompt combines with the built-in one.</summary>
     public static readonly string[] SystemPromptModes = ["append", "replace"];

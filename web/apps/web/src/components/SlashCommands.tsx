@@ -5,10 +5,12 @@ import { For } from "solid-js";
 export type SlashCommand = {
   name: string;
   description: string;
+  /** It needs the text written after its name, as in `/btw what was that?`. */
+  takesText?: boolean;
   /** Whether this session can take it. */
   available: (session: Session) => boolean;
   /** What went wrong, if anything. */
-  run: (session: Session) => Promise<string | undefined>;
+  run: (session: Session, text: string) => Promise<string | undefined>;
 };
 
 export const slashCommands: SlashCommand[] = [
@@ -22,7 +24,38 @@ export const slashCommands: SlashCommand[] = [
       return response.ok ? undefined : typeof error === "string" ? error : `Compacting failed (${response.status}).`;
     },
   },
+  {
+    name: "clear",
+    description: "Start the conversation over; what is above stays here to read",
+    available: (session) => session.harness !== "replay" && session.status !== "Failed",
+    async run(session) {
+      if (session.status !== "Idle" && session.status !== "Stopped") return "Clear once this turn has ended, or stop it first.";
+      const { response, error } = await api.POST("/api/v1/sessions/{id}/clear", { params: { path: { id: Number(session.id) } } });
+      return response.ok ? undefined : typeof error === "string" ? error : `Clearing failed (${response.status}).`;
+    },
+  },
+  {
+    name: "btw",
+    description: "Ask a side question; neither it nor the answer joins the conversation",
+    takesText: true,
+    available: (session) => session.harness !== "replay" && session.status !== "Failed",
+    async run(session, text) {
+      const { response, error } = await api.POST("/api/v1/sessions/{id}/side-questions", {
+        params: { path: { id: Number(session.id) } },
+        body: { text },
+      });
+      return response.ok ? undefined : typeof error === "string" ? error : `Asking failed (${response.status}).`;
+    },
+  },
 ];
+
+/** A command that takes text, written out with some: what Enter runs instead of sending a message. */
+export function invokedCommand(text: string, session: Session | undefined): { command: SlashCommand; argument: string } | undefined {
+  const match = /^\/(\S+)\s+([\s\S]*\S[\s\S]*)$/.exec(text);
+  if (!session || !match) return undefined;
+  const command = slashCommands.find((candidate) => candidate.takesText && candidate.name === match[1].toLowerCase() && candidate.available(session));
+  return command ? { command, argument: match[2].trim() } : undefined;
+}
 
 /** The commands whose name starts with what is typed after the slash; none once the text is more than a command. */
 export function matchingCommands(text: string, session: Session | undefined): SlashCommand[] {

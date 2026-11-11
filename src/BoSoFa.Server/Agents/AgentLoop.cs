@@ -326,6 +326,54 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             response.Usage, Math.Max(1, summary.Length / 4), environment, stopping);
     }
 
+    const string SideQuestionInstruction = """
+        The person asks this on the side, while the work goes on. Answer it from what you know so far, briefly. Do not call tools, and do not
+        continue the work: this question and your answer are not kept in the conversation.
+
+        """;
+
+    const string StillRunning = "This call is still running.";
+
+    /// <summary>Answers a side question (/btw) from the conversation before it, beside any run: one call without tools, which only the
+    /// action's outcome records. What is expected to go wrong comes back as an answer marked as an error.</summary>
+    public async Task<AgentSideAnswer> AnswerSideQuestionAsync(long questionSeq, CancellationToken stopping)
+    {
+        Session session;
+        List<SessionItem> items;
+        using (Publisher.StartQuery())
+        {
+            if (Ambient.Relation<ISessionTable>().FindByIdOrDefault(sessionId) is not { } found) return Unanswered("The session no longer exists.");
+            session = found;
+            items = Ambient.Relation<ISessionItemTable>().ListById(sessionId, new AdvancedEnumeratorParam<long>(EnumerationOrder.Ascending, 0,
+                KeyProposition.Excluded, questionSeq, KeyProposition.Included)).ToList();
+        }
+        if (items.LastOrDefault() is not { Kind: SessionItemKind.SideQuestion } question || question.Seq != questionSeq) return Unanswered("The question is missing.");
+        var view = new AgentView(session, new AgentRunner(), items, [], false);
+        await ResolveReplaysAsync(view, stopping);
+        var state = AgentConversation.Rebuild(items);
+        AgentEnvironment environment;
+        try { (environment, _) = await context.OpenEnvironmentAsync(session, stopping); }
+        catch (AgentSetupException problem) { return Unanswered(problem.Message); }
+        var instructions = InstructionsOf(view) ??
+                           new AgentInstructionsRecord(environment.SharedInstructions, AgentInstructions.Session(environment.RuntimeContext, null, null, session.SystemPrompt));
+        // A call that is still running has no result yet, and the providers want one before anything else is said.
+        var conversation = state.Conversation.Concat(state.OpenCalls.Select(call => new ToolResult(call.Id, StillRunning)))
+            .Append(new UserMessage(SideQuestionInstruction + question.Text)).ToList();
+        var (history, imageData) = await WithImagesAsync(conversation, environment, stopping);
+        var request = new TurnRequest(session.Model!, instructions.Shared, history, environment.Tools.SpecsFor(session.PermissionMode), sessionId.ToString(),
+            instructions.Session, session.ReasoningEffort, environment.MaxOutputTokens, NoToolUse: true, ImageData: imageData);
+        TurnResponse response;
+        try { response = await environment.Executor.ExecuteAsync(request, _ => ValueTask.CompletedTask, stopping); }
+        catch (ModelProviderException problem) { return Unanswered(problem.Message); }
+        var answer = string.Concat(response.Output.OfType<AssistantMessage>().Select(message => message.Text)).Trim();
+        var cost = environment.Model?.CostOf(response.Usage) ?? 0;
+        return answer.Length == 0
+            ? new() { Text = "The model gave no answer.", IsError = true, CostUsd = cost }
+            : new() { Text = answer.Length <= ItemReport.InlineLimit ? answer : answer[..ItemReport.InlineLimit] + "…", CostUsd = cost };
+    }
+
+    static AgentSideAnswer Unanswered(string why) => new() { Text = why, IsError = true };
+
     /// <summary>Without reasoning and images, and with long tool results cut.</summary>
     static IReadOnlyList<ConversationItem> Shortened(IReadOnlyList<ConversationItem> conversation) => WithoutImages(conversation.Where(item => item is not ReasoningItem)
         .Select(item => item is ToolResult { Text.Length: > CompactedToolResult } result ? result with { Text = result.Text[..CompactedToolResult] + " [cut]" } : item).ToList(),

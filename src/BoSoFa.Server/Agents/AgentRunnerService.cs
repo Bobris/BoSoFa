@@ -119,6 +119,15 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
         }
     }
 
+    /// <summary>Answers a server agent session's side question (/btw); <see cref="SideQuestions.Finished"/> records the answer.</summary>
+    internal async Task<AgentSideAnswer> AnswerSideQuestionAsync(AgentSideQuestion input, IActionContext action)
+    {
+        var publisher = await node.Ready.WaitAsync(action.Cancellation);
+        var context = new AgentLoopContext(publisher, presence.NodeId, action.Id.ActionId, action.Attempt, false, blobs, logger, PublishDelta,
+            OpenEnvironmentAsync, MachineOf);
+        return await new AgentLoop(context, input.SessionId).AnswerSideQuestionAsync(input.QuestionSeq, action.Cancellation);
+    }
+
     void PublishDelta(LiveDelta delta)
     {
         hub.Delta(delta);

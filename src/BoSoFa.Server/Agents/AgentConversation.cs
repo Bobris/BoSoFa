@@ -26,6 +26,16 @@ public static class AgentConversation
         var runOpen = false;
         UserMessage? lastUser = null;
         var justCompacted = false;
+        var clearAtRunEnd = false;
+
+        void Clear()
+        {
+            conversation.Clear();
+            open.Clear();
+            steering.Clear();
+            lastUser = null;
+            justCompacted = false;
+        }
 
         void Steer(UserMessage message)
         {
@@ -51,6 +61,11 @@ public static class AgentConversation
                     if (lastUser != null && runOpen) conversation.Add(lastUser);
                     justCompacted = true;
                     break;
+                case SessionItemKind.Cleared:
+                    // /clear: the model sees nothing from before. Asked for during a run, it waits for that run's end.
+                    if (runOpen) clearAtRunEnd = true;
+                    else Clear();
+                    break;
                 case SessionItemKind.Assistant:
                     justCompacted = false;
                     conversation.Add(Stored<AssistantMessage>(item) ?? new AssistantMessage(item.Text));
@@ -74,6 +89,8 @@ public static class AgentConversation
                     }
                     break;
                 case SessionItemKind.RunEnded:
+                    if (clearAtRunEnd) Clear();
+                    clearAtRunEnd = false;
                     runOpen = queued.Count > 0;
                     conversation.AddRange(queued);
                     if (queued.Count > 0) lastUser = queued[^1];

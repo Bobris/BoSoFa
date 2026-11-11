@@ -81,6 +81,53 @@ public class HarnessTest
         Assert.Equal("completed", sink.Reports.OfType<RunEndedReport>().Single().Outcome);
     }
 
+    /// <summary>Claude Code takes /clear as a prompt, says it reset the conversation and goes on as a new session.</summary>
+    [Fact]
+    public async Task ClearingClaudeSendsItsCommandAndMarksTheNewStart()
+    {
+        var transport = new RecordingTransport();
+        var sink = new RecordingSink();
+        var state = new SessionState { SessionId = 1, Harness = Harnesses.Claude, WorkingDirectory = Path.GetTempPath(), PermissionMode = "default", HarnessSessionId = "old" };
+        await using IHarnessSession session = new ClaudeSession(state, sink, _ => Task.FromResult<IClaudeTransport>(transport), TextWriter.Null);
+
+        await session.ClearAsync();
+        Assert.Equal(["user:/clear"], transport.Calls);
+        transport.Emit("""{"type":"conversation_reset","new_conversation_id":"c-2","trigger":"clear","session_id":"old"}""");
+        transport.Emit("""{"type":"system","subtype":"init","session_id":"new","model":"claude-haiku-5-5"}""");
+        transport.Emit("""{"type":"result","subtype":"success","is_error":false,"num_turns":0,"session_id":"new"}""");
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!sink.Reports.OfType<RunEndedReport>().Any() && DateTime.UtcNow < deadline) await Task.Delay(10);
+        Assert.Contains(sink.Reports.OfType<ItemReport>(), item => item.Kind == SessionItemKind.Cleared);
+        Assert.Contains(sink.Reports, report => report is StatusReport { HarnessSessionId: "new" });
+        Assert.Equal(SessionStatus.Idle, sink.Reports.OfType<StatusReport>().Last().Status);
+    }
+
+    /// <summary>A side question goes to a second Claude Code on an unsaved fork of the conversation, without tools.</summary>
+    [Fact]
+    public async Task ASideQuestionForksClaudeWithoutToolsOrSaving()
+    {
+        var side = new RecordingTransport();
+        ClaudeLaunch? launched = null;
+        var state = new SessionState { SessionId = 1, Harness = Harnesses.Claude, WorkingDirectory = Path.GetTempPath(), PermissionMode = "acceptEdits", Model = "claude-haiku-5-5", HarnessSessionId = "main" };
+        await using IHarnessSession session = new ClaudeSession(state, new NullSink(), launch =>
+        {
+            launched = launch;
+            return Task.FromResult<IClaudeTransport>(side);
+        }, TextWriter.Null);
+        side.Emit("""{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"periwinkle"}]}}""");
+        side.Emit("""{"type":"result","subtype":"success","is_error":false,"result":"periwinkle"}""");
+
+        Assert.Equal("periwinkle", await session.AnswerSideQuestionAsync("What was the code word?", CancellationToken.None));
+        Assert.Equal(("main", true, "default"), (launched!.ResumeSessionId, launched.SideQuestion, launched.PermissionMode));
+        Assert.Contains("What was the code word?", Assert.Single(side.Calls));
+        var arguments = ClaudeProcess.Arguments(launched with { AllowedTools = ["mcp__bosofa__notify"], McpConfigJson = "{}" });
+        Assert.Contains("--fork-session", arguments);
+        Assert.Contains("--no-session-persistence", arguments);
+        Assert.Contains("--tools=", arguments);
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("--allowedTools", StringComparison.Ordinal) || argument == "--mcp-config");
+    }
+
     [Fact]
     public async Task SteeringARunningClaudeTurnInterruptsItBeforeSending()
     {

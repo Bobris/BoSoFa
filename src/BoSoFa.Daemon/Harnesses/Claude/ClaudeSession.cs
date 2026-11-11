@@ -55,6 +55,43 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
     /// <summary>Claude Code's own /compact, which it queues behind a running turn.</summary>
     public Task CompactAsync() => SendAsync(HarnessPrompt.Compaction);
 
+    /// <summary>Claude Code's own /clear: it says so with <c>conversation_reset</c>, then goes on as a new session.</summary>
+    public Task ClearAsync() => SendAsync(HarnessPrompt.Clear);
+
+    /// <summary>A second Claude Code on a fork of the conversation that is never saved, without tools; whatever else it asks to run is
+    /// refused.</summary>
+    public async Task<string> AnswerSideQuestionAsync(string question, CancellationToken cancellation)
+    {
+        if (!Directory.Exists(state.WorkingDirectory)) throw new IOException($"The working directory {state.WorkingDirectory} does not exist on this machine.");
+        await using var transport = await launch(new(state.WorkingDirectory, "default", state.Model, state.HarnessSessionId, SideQuestion: true,
+            Effort: state.ReasoningEffort));
+        var refusal = JsonSerializer.SerializeToElement(new PermissionResult("deny", Message: "Tools are off for a side question: answer from the conversation."),
+            ClaudeJson.Default.PermissionResult);
+        transport.OnControlRequest = (id, subtype, _) => subtype switch
+        {
+            "can_use_tool" => transport.RespondAsync(id, refusal),
+            "hook_callback" => transport.RespondAsync(id, ClaudeJson.Empty),
+            _ => transport.RespondErrorAsync(id, $"{Brand.Name} does not support {subtype} in a side question.")
+        };
+        await transport.InitializeAsync(ControlTimeout);
+        await transport.SendUserAsync(HarnessPrompt.SideQuestion(question));
+        var said = new StringBuilder();
+        await foreach (var line in transport.Messages.ReadAllAsync(cancellation))
+            switch (ClaudeJson.Str(line, "type"))
+            {
+                case "assistant" when ClaudeJson.Obj(line, "message") is { } message && ClaudeJson.Obj(message, "content") is { ValueKind: JsonValueKind.Array } content:
+                    foreach (var block in content.EnumerateArray())
+                        if (ClaudeJson.Str(block, "type") == "text" && ClaudeJson.Str(block, "text") is { Length: > 0 } text)
+                            said.Append(said.Length > 0 ? "\n\n" : "").Append(text);
+                    break;
+                case "result":
+                    var result = ClaudeJson.Str(line, "result");
+                    if (ClaudeJson.Bool(line, "is_error")) throw new IOException(result is { Length: > 0 } ? result : "Claude Code could not answer.");
+                    return result is { Length: > 0 } ? result.Trim() : said.ToString().Trim();
+            }
+        throw new IOException($"Claude Code ended before answering. {transport.StandardErrorTail}".Trim());
+    }
+
     public async Task InterruptAsync()
     {
         if (_transport is not { } transport) return;
@@ -105,7 +142,7 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
         IClaudeTransport transport;
         try
         {
-            transport = await launch(new(state.WorkingDirectory, state.PermissionMode, state.Model, state.HarnessSessionId));
+            transport = await launch(new(state.WorkingDirectory, state.PermissionMode, state.Model, state.HarnessSessionId, Effort: state.ReasoningEffort));
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or
                                               System.ComponentModel.Win32Exception or FileNotFoundException or
@@ -185,6 +222,9 @@ public sealed class ClaudeSession(SessionState state, ISessionSink sink, Func<Cl
         var now = DateTime.UtcNow;
         switch (ClaudeJson.Str(line, "type"))
         {
+            case "conversation_reset":
+                sink.Report(state.SessionId, new ItemReport(SessionItemKind.Cleared, now, ""));
+                break;
             case "system":
                 switch (ClaudeJson.Str(line, "subtype"))
                 {

@@ -25,6 +25,7 @@ public sealed class MachineRpcClient(DaemonConnections connections, LiveRelay re
         FileFetchRequest or FileStoreRequest => TimeSpan.FromMinutes(15),
         ToolRunRequest run => TimeSpan.FromSeconds(run.TimeoutSeconds + 30), // the daemon ends the tool first, and says so
         ToolDiffRequest or McpToolsRequest => TimeSpan.FromMinutes(3),
+        HarnessModelsRequest => TimeSpan.FromSeconds(90), // the harness starts to say what it has
         _ => TimeSpan.FromSeconds(30)
     };
 

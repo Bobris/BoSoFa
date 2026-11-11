@@ -410,6 +410,23 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
     - Server agent: the run summarizes once nothing else is left (`AgentRunner.CompactRequested`).
     - Codex: `thread/compact/start`, a turn of its own.
     - Claude Code and OpenCode: their own `/compact`, sent as a prompt. Claude Code's summary shows as a Compaction item.
+  - `/clear` starts the conversation over (`POST /api/v1/sessions/{id}/clear`), between turns only. The transcript stays;
+    a `Cleared` item marks where the harness starts again.
+    - Server agent: the conversation is rebuilt from after that item.
+    - Claude Code: its own `/clear` (it answers with `conversation_reset` and goes on as a new session).
+    - Codex and OpenCode: a new thread or ACP session in the same process.
+  - `/btw <question>` asks on the side (`POST /api/v1/sessions/{id}/side-questions`), also during a turn. The answer comes
+    from the conversation so far without tools, and neither joins it: a `SideQuestion` item and a `SideAnswer` whose ref is
+    the question's sequence number.
+    - Server agent: the `agent-side-question` backend action makes one model call; its `OnFinished` records the answer.
+    - Claude Code: a second process with `--resume --fork-session --no-session-persistence --tools=`; permission prompts are refused.
+    - Codex: a second app-server on an ephemeral, read-only `thread/fork`. OpenCode: a second process on ACP `session/fork`,
+      closed after (OpenCode keeps the fork in its own list).
+  - The composer's model chooser (`web/apps/web/src/components/ModelPicker.tsx`) lists the models with their reasoning levels:
+    the server agent's from its account, a machine's harness's from `GET /api/v1/machines/{id}/models?harness=` (machine RPC
+    `HarnessModelsRequest`, kept 10 minutes on the daemon). Claude Code: `initialize`'s `models`; Codex: `model/list`; OpenCode:
+    `opencode models --verbose` (its variants are the levels). The level reaches Claude Code as `--effort`, Codex with each
+    `turn/start`, OpenCode as the session option filed under `thought_level`.
 - **Rules for agents** (go into `AGENTS.md`):
   - Solid 2 docs: `https://v2.solidjs.com/llms-small.txt` (the primer), `/llms.txt`, and `/llms-full.txt`.
   - Read `node_modules/solid-js/CHEATSHEET.md`, `solid-js/skills/solid-2.0/SKILL.md` and `@solidjs/diagnostics/skills/agent-loops/SKILL.md`.

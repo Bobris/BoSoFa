@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Match, onSettled, Show, Switch, untrack } from "solid-js";
 import { StatusBadge } from "../components/StatusBadge";
 import { ArrowUpIcon, StopIcon } from "../components/icons";
-import { matchingCommands, SlashMenu, type SlashCommand } from "../components/SlashCommands";
+import { invokedCommand, matchingCommands, SlashMenu, type SlashCommand } from "../components/SlashCommands";
 import { createLiveSession, isThinking, isToolOutput, type Draft } from "../live";
 import { paths } from "../router";
 import { fetchMe } from "../session";
@@ -113,7 +113,8 @@ type ToolView = {
   running: () => boolean;
 };
 
-/** Each result goes with the latest call of its id: some models use the same id at every step. */
+/** Each result goes with the latest call of its id: some models use the same id at every step. A side question's answer goes
+ * with the question its ref names. */
 function pairTools(items: readonly SessionItem[]): { results: Map<number, SessionItem>; paired: Set<number> } {
   const open = new Map<string, number>();
   const results = new Map<number, SessionItem>();
@@ -124,6 +125,10 @@ function pairTools(items: readonly SessionItem[]): { results: Map<number, Sessio
       results.set(open.get(item.toolUseId)!, item);
       paired.add(Number(item.seq));
       open.delete(item.toolUseId);
+    }
+    if (item.kind === "SideAnswer" && item.ref && !results.has(Number(item.ref))) {
+      results.set(Number(item.ref), item);
+      paired.add(Number(item.seq));
     }
   }
   return { results, paired };
@@ -226,6 +231,23 @@ function ToolCard(props: { item: SessionItem; result?: SessionItem; draft?: Draf
   );
 }
 
+/** A question asked on the side (/btw) with its answer, set apart: neither is part of the conversation. */
+function SideQuestionCard(props: { item: SessionItem; answer?: SessionItem }) {
+  return (
+    <div class="rounded-lg border border-dashed border-line px-3 py-2 text-sm">
+      <p class="select-none text-xs text-muted">By the way · not part of the conversation</p>
+      <p class="mt-1 whitespace-pre-wrap font-medium">{props.item.text}</p>
+      <div class="mt-2 border-t border-line pt-2">
+        <Show when={props.answer} fallback={<p class="animate-pulse text-muted">Answering…</p>}>
+          {(answer) => (
+            <p class={["whitespace-pre-wrap leading-relaxed", { "text-red-600": answer().isError }]}>{answer().text}</p>
+          )}
+        </Show>
+      </div>
+    </div>
+  );
+}
+
 function Item(props: { item: SessionItem; tools?: ToolView }) {
   return (
     <Switch>
@@ -245,6 +267,19 @@ function Item(props: { item: SessionItem; tools?: ToolView }) {
           <summary class="cursor-pointer select-none">Earlier conversation summarized</summary>
           <div class="mt-1 whitespace-pre-wrap">{props.item.text}</div>
         </details>
+      </Match>
+      <Match when={props.item.kind === "SideQuestion"}>
+        <SideQuestionCard item={props.item} answer={props.tools?.results.get(Number(props.item.seq))} />
+      </Match>
+      <Match when={props.item.kind === "SideAnswer" && !props.tools?.paired.has(Number(props.item.seq))}>
+        <p class={["text-sm whitespace-pre-wrap", props.item.isError ? "text-red-600" : "text-muted"]}>{props.item.text}</p>
+      </Match>
+      <Match when={props.item.kind === "Cleared"}>
+        <div class="flex select-none items-center gap-3 text-xs text-muted">
+          <span class="h-px flex-1 bg-line" />
+          Conversation cleared: nothing above is sent from here on
+          <span class="h-px flex-1 bg-line" />
+        </div>
       </Match>
       <Match when={props.item.kind === "Instructions"}>
         <details class="text-sm text-muted">
@@ -377,7 +412,14 @@ function SessionBar(props: { session: Session }) {
   const project = () => props.session.workingDirectory.split(/[\\/]/).filter(Boolean).slice(-2).join("/");
   return (
     <div class="mb-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md bg-[#17181f] px-3 py-1.5 font-mono text-xs text-white/85">
-      <Show when={props.session.model}>{(model) => <span>{model()}</span>}</Show>
+      <Show when={props.session.model}>
+        {(model) => (
+          <span>
+            {model()}
+            <Show when={props.session.reasoningEffort}>{(effort) => <span class="text-white/55"> · {effort()}</span>}</Show>
+          </span>
+        )}
+      </Show>
       <Show when={context()}>
         {(fill) => (
           <>
@@ -508,9 +550,15 @@ function Composer(props: { sessionId: number; disabled: boolean; stopped: boolea
   const [dismissed, setDismissed] = createSignal(false);
   const commands = createMemo(() => (dismissed() ? [] : matchingCommands(text(), props.session)));
 
-  async function runCommand(command: SlashCommand) {
+  /** A command that takes text is first written out, then runs with what follows its name. */
+  async function runCommand(command: SlashCommand, argument?: string) {
     if (!props.session) return;
-    const problem = await command.run(props.session);
+    if (command.takesText && argument === undefined) {
+      setText(`/${command.name} `);
+      textarea?.focus();
+      return;
+    }
+    const problem = await command.run(props.session, argument ?? "");
     if (problem) return setError(problem);
     setText("");
     setError(undefined);
@@ -520,6 +568,8 @@ function Composer(props: { sessionId: number; disabled: boolean; stopped: boolea
 
   /** Queue waits for the running turn; Steer redirects it now. */
   async function send(mode: "Queue" | "Steer" = "Queue") {
+    const invoked = invokedCommand(text(), props.session);
+    if (invoked) return runCommand(invoked.command, invoked.argument);
     const value = text().trim();
     if (!value || attachments.uploading()) return;
     const { response, error: problem } = await api.POST("/api/v1/sessions/{id}/messages", {
@@ -593,7 +643,8 @@ function Composer(props: { sessionId: number; disabled: boolean; stopped: boolea
               }
               if (event.key === "Tab") {
                 event.preventDefault();
-                setText(`/${offered[picked()]?.name ?? offered[0].name}`);
+                const chosen = offered[picked()] ?? offered[0];
+                setText(`/${chosen.name}${chosen.takesText ? " " : ""}`);
                 return;
               }
               if (event.key === "Enter" && !event.shiftKey) {
@@ -718,6 +769,7 @@ function SessionView(props: { id: number }) {
             <p class="text-sm text-muted">
               {session().machineName || "No machine"} · {session().harness}
               <Show when={session().model}>{(model) => <> · {model()}</>}</Show>
+              <Show when={session().reasoningEffort}>{(effort) => <> · {effort()} reasoning</>}</Show>
               <Show when={session().accountLabel}>{(account) => <> · {account()}</>}</Show>
               <Show when={session().profileName}>{(profile) => <> · {profile()}</>}</Show>
               <Show when={session().branch}>{(branch) => <> · <span class="font-mono">{branch()}</span></>}</Show> ·{" "}

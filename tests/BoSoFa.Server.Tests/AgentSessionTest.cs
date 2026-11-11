@@ -239,6 +239,62 @@ public class AgentSessionTest
     }
 
     [Fact]
+    public async Task ClearingStartsTheConversationOverButOnlyBetweenTurns()
+    {
+        await using var h = await Harness.StartAsync();
+        h.Backend.Hang("Thinking out loud");
+        var session = await h.StartSessionAsync(profile: null);
+        await h.Backend.WaitForModelCallAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, (await h.Boris.PostAsync($"/api/v1/sessions/{session.Id}/clear", null)).StatusCode);
+        (await h.Boris.PostAsync($"/api/v1/sessions/{session.Id}/interrupt", null)).EnsureSuccessStatusCode();
+        await h.RunEndedAsync(session.Id);
+        await h.IdleAsync(session.Id);
+
+        (await h.Boris.PostAsync($"/api/v1/sessions/{session.Id}/clear", null)).EnsureSuccessStatusCode();
+        Assert.Equal(SessionItemKind.Cleared, (await h.ItemsAsync(session.Id))[^1].Kind);
+        Assert.Empty(await h.ActionsAsync(session.Id)); // nothing to run
+
+        h.Backend.Answer("Hello again.");
+        await h.SendAsync(session.Id, "And now?");
+        await h.RunEndedAsync(session.Id, 2);
+        var next = Input(h.Backend.ModelRequests.Last()).ToJsonString();
+        Assert.DoesNotContain("What is the answer?", next);
+        Assert.Contains("And now?", next);
+    }
+
+    [Fact]
+    public async Task ASideQuestionIsAnsweredDuringARunAndStaysOutOfTheConversation()
+    {
+        await using var h = await Harness.StartAsync();
+        var release = new TaskCompletionSource();
+        h.Backend.Hang("Working on it", release.Task);
+        var session = await h.StartSessionAsync(profile: null);
+        await h.Backend.WaitForModelCallAsync();
+
+        h.Backend.Answer("It is about the answer.");
+        (await h.Boris.PostAsJsonAsync($"/api/v1/sessions/{session.Id}/side-questions", new SideQuestionRequest("What is this about?"))).EnsureSuccessStatusCode();
+        var items = await Eventually(() => h.ItemsAsync(session.Id), all => all.Any(item => item.Kind == SessionItemKind.SideAnswer));
+        var question = items.Single(item => item.Kind == SessionItemKind.SideQuestion);
+        var answer = items.Single(item => item.Kind == SessionItemKind.SideAnswer);
+        Assert.Equal(("It is about the answer.", question.Seq.ToString()), (answer.Text, answer.Ref));
+        var asked = Input(h.Backend.ModelRequests.Last()).ToJsonString();
+        Assert.Contains("What is the answer?", asked); // the conversation so far
+        Assert.Contains("What is this about?", asked);
+        Assert.Equal(SessionStatus.Running, (await h.Boris.GetFromJsonAsync<SessionDto>($"/api/v1/sessions/{session.Id}"))!.Status); // the run goes on
+
+        release.SetResult();
+        await h.RunEndedAsync(session.Id);
+        await h.IdleAsync(session.Id);
+        h.Backend.Answer("Fine.");
+        await h.SendAsync(session.Id, "Go on");
+        await h.RunEndedAsync(session.Id, 2);
+        var next = Input(h.Backend.ModelRequests.Last()).ToJsonString();
+        Assert.DoesNotContain("What is this about?", next);
+        Assert.DoesNotContain("It is about the answer.", next);
+        Assert.Contains("Go on", next);
+    }
+
+    [Fact]
     public async Task AnInterruptDuringAToolReportsItToTheModel()
     {
         await using var h = await Harness.StartAsync();

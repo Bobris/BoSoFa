@@ -43,6 +43,8 @@ public static class SessionEndpoints
         api.MapPost("/sessions/{id}/messages", SendMessageAsync);
         api.MapPost("/sessions/{id}/interrupt", InterruptAsync);
         api.MapPost("/sessions/{id}/compact", CompactAsync);
+        api.MapPost("/sessions/{id}/clear", ClearAsync);
+        api.MapPost("/sessions/{id}/side-questions", AskSideQuestionAsync);
         api.MapPost("/sessions/{id}/stop", StopAsync);
         api.MapPost("/sessions/{id}/requests/{requestId}/answer", AnswerAsync);
         api.Map(LiveSocket.Path["/api/v1".Length..], LiveAsync);
@@ -140,8 +142,9 @@ public static class SessionEndpoints
         var (imagesJson, problem) = await ImagesJsonAsync(request.Images, blobs, http.RequestAborted);
         if (problem != null) return TypedResults.BadRequest(problem);
         var isAgent = request.Harness == Harnesses.Agent;
-        if (!isAgent && (request.SystemPrompt != null || request.ReasoningEffort != null || request.ToolGroup != null))
-            return TypedResults.BadRequest("Only the server agent takes a system prompt, an effort or a tool group.");
+        if (!isAgent && (request.SystemPrompt != null || request.ToolGroup != null))
+            return TypedResults.BadRequest("Only the server agent takes a system prompt or a tool group.");
+        if (!isAgent && request.ReasoningEffort != null && !Harnesses.IsEffortName(request.ReasoningEffort)) return TypedResults.BadRequest("Unknown reasoning effort.");
         if (isAgent && request.ReasoningEffort != null && !Harnesses.ReasoningEfforts.Contains(request.ReasoningEffort)) return TypedResults.BadRequest("Unknown reasoning effort.");
         if (isAgent && request.ToolGroup != null && !AgentToolGroups.All.Contains(request.ToolGroup)) return TypedResults.BadRequest("Unknown tool group.");
         if (isAgent && request.UseWorktree) return TypedResults.BadRequest("The server agent cannot use a worktree yet.");
@@ -206,6 +209,17 @@ public static class SessionEndpoints
     static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> CompactAsync(ulong id,
         BtdbNode node, HttpContext http) =>
         RunAsync(node, http, new SessionCompactRequested { SessionId = id, UserId = http.User.UserId() ?? 0 });
+
+    /// <summary>Starts the conversation over (/clear): the harness forgets everything so far, while the transcript stays. Only between turns.</summary>
+    static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> ClearAsync(ulong id,
+        BtdbNode node, HttpContext http) =>
+        RunAsync(node, http, new SessionClearRequested { SessionId = id, UserId = http.User.UserId() ?? 0 });
+
+    /// <summary>Asks a question on the side (/btw), answered from the conversation so far beside any running turn; neither becomes
+    /// part of the conversation. The answer arrives as a SideAnswer item whose ref is the question's sequence number.</summary>
+    static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> AskSideQuestionAsync(ulong id,
+        SideQuestionRequest request, BtdbNode node, HttpContext http) =>
+        RunAsync(node, http, new SessionSideQuestionAsked { SessionId = id, UserId = http.User.UserId() ?? 0, Text = request.Text.Trim() });
 
     static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> StopAsync(ulong id,
         BtdbNode node, HttpContext http) =>

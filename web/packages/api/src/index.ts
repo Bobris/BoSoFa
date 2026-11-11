@@ -17,6 +17,7 @@ export type CreateSession = components["schemas"]["CreateSessionRequest"];
 export type HarnessAccount = components["schemas"]["HarnessAccountDto"];
 export type AccountKind = HarnessAccount["kind"];
 export type AgentModel = components["schemas"]["AgentModelDto"];
+export type HarnessModel = components["schemas"]["HarnessModelDto"];
 /** As stored in a user item's data: the generated schema has it only inside that JSON. */
 export type PromptImage = { sha256: string; mediaType: string; size: number };
 export type AccountUsage = components["schemas"]["AccountUsageDto"];
