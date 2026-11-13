@@ -42,3 +42,16 @@ body {
 ::selection {
   background: color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
+
+/* Mermaid diagrams drawn by Pele follow the app's colors in both themes. */
+.pele-host .pele {
+  --pele-bg: var(--color-canvas); /* also behind edge labels */
+  --pele-fg: var(--color-ink);
+  --pele-muted: var(--color-muted);
+  --pele-line: var(--color-muted);
+  --pele-surface: var(--color-panel);
+  --pele-surface-alt: var(--color-canvas);
+  --pele-border: var(--color-line);
+  --pele-accent: var(--color-accent);
+  --pele-radius: 6px;
+}

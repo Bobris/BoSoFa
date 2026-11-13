@@ -2,6 +2,7 @@ import { AttachmentStrip, createAttachments, SentImages } from "../components/Pr
 import { api, getPlatform, type RuntimeRequest, type Session, type SessionItem } from "@bosofa/api";
 import { useNavigate, useParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Match, onSettled, Show, Switch, untrack } from "solid-js";
+import { TextWithDiagrams } from "../components/Mermaid";
 import { StatusBadge } from "../components/StatusBadge";
 import { ArrowUpIcon, StopIcon } from "../components/icons";
 import { invokedCommand, matchingCommands, SlashMenu, type SlashCommand } from "../components/SlashCommands";
@@ -240,7 +241,9 @@ function SideQuestionCard(props: { item: SessionItem; answer?: SessionItem }) {
       <div class="mt-2 border-t border-line pt-2">
         <Show when={props.answer} fallback={<p class="animate-pulse text-muted">Answering…</p>}>
           {(answer) => (
-            <p class={["whitespace-pre-wrap leading-relaxed", { "text-red-600": answer().isError }]}>{answer().text}</p>
+            <div class={["whitespace-pre-wrap leading-relaxed", { "text-red-600": answer().isError }]}>
+              <TextWithDiagrams text={answer().text} />
+            </div>
           )}
         </Show>
       </div>
@@ -260,7 +263,9 @@ function Item(props: { item: SessionItem; tools?: ToolView }) {
         </div>
       </Match>
       <Match when={props.item.kind === "Assistant"}>
-        <div class="whitespace-pre-wrap leading-relaxed">{props.item.text}</div>
+        <div class="whitespace-pre-wrap leading-relaxed">
+          <TextWithDiagrams text={props.item.text} />
+        </div>
       </Match>
       <Match when={props.item.kind === "Compaction"}>
         <details class="text-sm text-muted">
