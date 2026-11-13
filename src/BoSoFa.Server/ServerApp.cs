@@ -138,6 +138,7 @@ public static class ServerApp
         app.MapAccountEndpoints();
         app.MapApiTokenEndpoints();
         app.MapSecretEndpoints();
+        app.MapEnvironmentEndpoints();
         BoSoFa.Server.Desktop.DesktopEndpoints.MapDesktopEndpoints(app);
         app.MapAuditEndpoints();
         app.MapCatalogEndpoints();

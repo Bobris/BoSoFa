@@ -127,7 +127,7 @@ public static partial class CatalogEndpoints
         using var query = publisher.StartQuery();
         return Ambient.Relation<IProfileTable>().Select(profile => new ProfileDto(profile.Name, profile.Model, profile.PermissionMode,
             Strings(profile.McpServers), Skills(profile.Skills), profile.SystemPrompt, profile.SystemPromptMode, profile.MaxToolGroup,
-            Values(profile.Environment))).ToArray();
+            Values(profile.Environment), profile.EnvironmentName)).ToArray();
     }
 
     static async Task<Results<NoContent, NotFound, ForbidHttpResult, BadRequest<string>>> SaveProfileAsync(ProfileDto request,
@@ -144,10 +144,14 @@ public static partial class CatalogEndpoints
         // What the admin sees as host-only is refused now; a person's own host-only secret of that name, at their session's start.
         using (publisher.StartQuery())
         {
+            var named = string.IsNullOrWhiteSpace(request.EnvironmentName) ? null : SecretEnvironments.Find(request.EnvironmentName.Trim());
+            if (!string.IsNullOrWhiteSpace(request.EnvironmentName) && named == null)
+                return TypedResults.BadRequest($"There is no environment {request.EnvironmentName.Trim()}.");
             var secrets = Ambient.Relation<ISecretTable>();
             var userId = http.User.UserId() ?? 0;
             if (environment.Values.SelectMany(SecretReferences.In).Where(reference => reference.Kind == SecretKind.Secret)
-                    .FirstOrDefault(reference => (secrets.FindByIdOrDefault(userId, reference.Name) ?? secrets.FindByIdOrDefault(0, reference.Name)) is { HostOnly: true })
+                    .FirstOrDefault(reference => ((named == null ? null : secrets.FindByIdOrDefault(named.Id, reference.Name)) ??
+                        secrets.FindByIdOrDefault(userId, reference.Name) ?? secrets.FindByIdOrDefault(0, reference.Name)) is { HostOnly: true })
                 is { Name: not null } hostOnly)
                 return TypedResults.BadRequest($"{hostOnly.Name} is for MCP servers only: it cannot be in the environment of a session.");
         }
@@ -156,7 +160,8 @@ public static partial class CatalogEndpoints
             UserId = http.User.UserId() ?? 0, Name = request.Name, Model = request.Model, PermissionMode = request.PermissionMode,
             McpServers = Json(request.McpServers),
             Skills = JsonSerializer.Serialize(request.Skills, ProtocolJsonContext.Default.SkillRefArray), SystemPrompt = request.SystemPrompt,
-            SystemPromptMode = request.SystemPromptMode, MaxToolGroup = request.MaxToolGroup, Environment = Json(environment)
+            SystemPromptMode = request.SystemPromptMode, MaxToolGroup = request.MaxToolGroup, Environment = Json(environment),
+            EnvironmentName = string.IsNullOrWhiteSpace(request.EnvironmentName) ? null : request.EnvironmentName.Trim()
         }, http.RequestAborted));
     }
 
@@ -194,7 +199,7 @@ public static partial class CatalogEndpoints
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         SessionProfileResponse response;
         Session session;
-        string? used;
+        SecretResolver resolver;
         using (publisher.StartQuery())
         {
             if (Ambient.Relation<ISessionTable>().FindByIdOrDefault(id) is not { } found) return TypedResults.NotFound();
@@ -202,18 +207,17 @@ public static partial class CatalogEndpoints
             if (session.MachineId != http.User.MachineId() || session.Status == SessionStatus.Stopped) return TypedResults.Forbid();
             if (session.ProfileName is not { } name || Ambient.Relation<IProfileTable>().FindByIdOrDefault(name) is not { } profile)
                 return TypedResults.NotFound();
-            var resolver = new SecretResolver(session.CreatedById, protection);
+            var (secretEnvironment, problem) = SecretEnvironments.Admit(session, profile);
+            if (problem != null) return TypedResults.Conflict(problem);
+            resolver = new SecretResolver(session.CreatedById, protection, session.MachineId, secretEnvironment);
             var (servers, environment) = Resolve(profile, resolver, protection);
             try { resolver.ThrowIfMissing(); }
             catch (MissingSecretsException missing) { return TypedResults.Conflict(missing.Message); }
-            used = resolver.Used;
             var skills = Skills(profile.Skills).Select(skill => Ambient.Relation<ISkillBundleTable>().FindByIdOrDefault(skill.Name, skill.Version))
                 .Where(skill => skill != null).Select(skill => new ResolvedSkill(skill!.Name, skill.Version, skill.Sha256)).ToArray();
             response = new SessionProfileResponse(servers, skills, environment, resolver.Secrets);
         }
-        if (used != null)
-            await AuditEndpoints.RecordAsync(publisher, session.CreatedById, "secret.used", $"session {session.Id}",
-                $"on machine {session.MachineId}: {used}", loggers.CreateLogger("BoSoFa.Server.Secrets"));
+        await resolver.RecordAsync(publisher, session, loggers.CreateLogger("BoSoFa.Server.Secrets"));
         return TypedResults.Ok(response);
     }
 }

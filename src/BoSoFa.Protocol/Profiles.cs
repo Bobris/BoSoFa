@@ -32,8 +32,10 @@ public sealed record SkillRef(string Name, string Version);
 /// <param name="SystemPrompt">For server agent sessions, with <c>SystemPromptMode</c> saying whether it extends or replaces the built-in one.</param>
 /// <param name="MaxToolGroup">The most of a machine's tools a server agent session of this profile may have; null for all.</param>
 /// <param name="Environment">Variables of the session's harness and of the commands its agent runs, references allowed.</param>
+/// <param name="EnvironmentName">The environment (a named set of secrets with rules, <see cref="EnvironmentDto"/>) its sessions
+/// use; null for none.</param>
 public sealed record ProfileDto(string Name, string? Model, string? PermissionMode, string[] McpServers, SkillRef[] Skills, string? SystemPrompt = null,
-    string? SystemPromptMode = null, string? MaxToolGroup = null, Dictionary<string, string>? Environment = null);
+    string? SystemPromptMode = null, string? MaxToolGroup = null, Dictionary<string, string>? Environment = null, string? EnvironmentName = null);
 
 /// <summary>Daemon → server, just in time: everything a session's profile resolves to, secrets included. <c>Environment</c>
 /// is for the harness process (and so the agent's shell); <c>Mask</c> lists the values in it that are secrets, which the

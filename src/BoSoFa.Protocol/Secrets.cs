@@ -11,23 +11,65 @@ public enum SecretKind
     Variable
 }
 
-/// <summary>Whose sessions a value is for: its owner's (<c>Personal</c>), or every member's (<c>Shared</c>, set by an admin).
-/// A person's own value wins over a shared one of the same name.</summary>
+/// <summary>Whose sessions a value is for: its owner's (<c>Personal</c>), every member's (<c>Shared</c>, set by an admin), or
+/// those whose profile names an environment (<c>Environment</c>, set by an admin). The environment's value of a name wins, then
+/// a person's own, then the shared one.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<SecretScope>))]
 public enum SecretScope
 {
     Personal,
-    Shared
+    Shared,
+    Environment
 }
 
 /// <summary>A secret or a variable as people see it. <c>Value</c> is set for variables only; a secret shows its
-/// <c>Hint</c>, never its value. A <c>HostOnly</c> secret goes to MCP servers, never to an agent's shell (docs/secrets.md §6).</summary>
+/// <c>Hint</c>, never its value. A <c>HostOnly</c> secret goes to MCP servers, never to an agent's shell (docs/secrets.md §6).
+/// <c>Machines</c> limits it to sessions on those machines (empty: any); <c>RotateBy</c> is when it is due for rotation, and
+/// <c>RotationReason</c> says why it should be rotated now. <c>UsedOn</c> is for whoever manages it, null for others.</summary>
 public sealed record SecretDto(SecretKind Kind, SecretScope Scope, string Name, int Version, string? Hint, string? Value, string SetBy,
-    DateTime SetAt, bool HostOnly = false);
+    DateTime SetAt, bool HostOnly = false, string? Environment = null, ulong[]? Machines = null, int RotateEveryDays = 0,
+    DateTime? RotateBy = null, string? RotationReason = null, SecretUseDto[]? UsedOn = null);
+
+/// <summary>The last time a value went to a machine; <c>MachineId</c> 0 is the server itself (a server agent session without a
+/// machine).</summary>
+public sealed record SecretUseDto(ulong MachineId, string Machine, int Version, DateTime At);
 
 /// <summary>Sets a value, or rotates it: a name keeps its kind, so turning a secret into a variable means deleting it first.
-/// <c>HostOnly</c> is for secrets only, and each version says it again.</summary>
-public sealed record SetSecretRequest(SecretKind Kind, string Value, bool HostOnly = false);
+/// <c>HostOnly</c> is for secrets only, and each version says it again; <c>Machines</c> and <c>RotateEveryDays</c> keep what
+/// the name had when null.</summary>
+public sealed record SetSecretRequest(SecretKind Kind, string Value, bool HostOnly = false, ulong[]? Machines = null, int? RotateEveryDays = null);
+
+/// <summary>Changes how a value is used without a new version of it.</summary>
+public sealed record SecretSettingsRequest(bool HostOnly, ulong[] Machines, int RotateEveryDays);
+
+/// <summary>Someone, or a machine, as a name to show.</summary>
+public sealed record NamedRef(ulong Id, string Name);
+
+/// <summary>
+/// A named set of secrets and variables with rules of its own (docs/secrets.md §10), such as <c>production</c>: a profile names
+/// it, and its values win over a person's and the shared ones. <c>Reviewers</c>: one of them, not the session's creator, approves
+/// each session that uses it before it starts (empty: none needed). <c>Machines</c>: the only machines its sessions run on
+/// (empty: any).
+/// </summary>
+public sealed record EnvironmentDto(string Name, string Description, NamedRef[] Reviewers, NamedRef[] Machines, SecretDto[] Values,
+    string ChangedBy, DateTime ChangedAt);
+
+public sealed record SaveEnvironmentRequest(string Description, ulong[] Reviewers, ulong[] Machines);
+
+[JsonConverter(typeof(JsonStringEnumConverter<EnvironmentApprovalStatus>))]
+public enum EnvironmentApprovalStatus
+{
+    Pending,
+    Approved,
+    Rejected
+}
+
+/// <summary>A session that waits for a reviewer of its environment. It names where and how the session runs, never its prompt
+/// or title: those stay its creator's.</summary>
+public sealed record EnvironmentApprovalDto(ulong SessionId, string Environment, string RequestedBy, string Machine, string Harness,
+    string? Profile, string WorkingDirectory, DateTime RequestedAt);
+
+public sealed record AnswerEnvironmentApprovalRequest(bool Approve);
 
 public static partial class SecretNames
 {

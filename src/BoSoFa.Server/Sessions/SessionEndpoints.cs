@@ -162,6 +162,8 @@ public static class SessionEndpoints
             if (isAgent && request.MachineId == 0 && profile != null && JsonSerializer.Deserialize(profile.McpServers, ProtocolJsonContext.Default.StringArray)!
                     .Any(server => Ambient.Relation<IMcpServerTable>().FindByIdOrDefault(server)?.Transport != McpTransport.Http))
                 return TypedResults.BadRequest("This profile has MCP servers that run on a machine, and this session has none.");
+            if (SecretEnvironments.Refuses(profile, request.MachineId))
+                return TypedResults.BadRequest($"This profile uses the {profile!.EnvironmentName} environment, which is not for this machine.");
         }
         if (isAgent && string.IsNullOrWhiteSpace(model)) return TypedResults.BadRequest("The server agent needs a model.");
         if (isAgent && request.AccountId is null or 0) return TypedResults.BadRequest("The server agent needs a provider account.");

@@ -1,4 +1,4 @@
-import { api, type MachineTerminal, type Session, type SessionDraft, type User } from "@bosofa/api";
+import { api, type EnvironmentApproval, type MachineTerminal, type Session, type SessionDraft, type User } from "@bosofa/api";
 import { createContext, createMemo, createSignal, onSettled, refresh, useContext } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { fetchMe } from "./session";
@@ -16,6 +16,10 @@ function workspace() {
   const drafts = createMemo(async (): Promise<SessionDraft[]> => (me() ? ((await api.GET("/api/v1/drafts")).data ?? []) : []));
   const terminals = createMemo(async (): Promise<MachineTerminal[]> =>
     me() ? ((await api.GET("/api/v1/terminals")).data ?? []).filter((entry) => !entry.terminal.exited) : [],
+  );
+  // Sessions of others that wait for this person, as a reviewer of their environment.
+  const approvals = createMemo(async (): Promise<EnvironmentApproval[]> =>
+    me() ? ((await api.GET("/api/v1/environment-approvals")).data ?? []) : [],
   );
   const activity = createMemo((): Activity[] => {
     const entries: Activity[] = [
@@ -53,6 +57,7 @@ function workspace() {
     const slow = setInterval(() => {
       refresh(terminals);
       refresh(drafts);
+      refresh(approvals);
     }, 15_000);
     return () => {
       clearInterval(quick);
@@ -65,12 +70,14 @@ function workspace() {
     sessions,
     drafts,
     terminals,
+    approvals,
     activity,
     fresh,
     newSession: () => setFresh((count) => count + 1),
     refreshSessions: () => refresh(sessions),
     refreshDrafts: () => refresh(drafts),
     refreshTerminals: () => refresh(terminals),
+    refreshApprovals: () => refresh(approvals),
   };
 }
 

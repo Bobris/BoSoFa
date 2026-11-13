@@ -1,4 +1,4 @@
-import { api, uploadBlob, type McpServer, type Profile, type SkillBundle } from "@bosofa/api";
+import { api, uploadBlob, type Environment, type McpServer, type Profile, type SkillBundle } from "@bosofa/api";
 import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, refresh, Show } from "solid-js";
 import { paths } from "../router";
@@ -45,6 +45,7 @@ export default function Catalog() {
   const servers = createMemo(async (): Promise<McpServer[]> => (me() ? ((await api.GET("/api/v1/mcp-servers")).data ?? []) : []));
   const skills = createMemo(async (): Promise<SkillBundle[]> => (me() ? ((await api.GET("/api/v1/skills")).data ?? []) : []));
   const profiles = createMemo(async (): Promise<Profile[]> => (me() ? ((await api.GET("/api/v1/profiles")).data ?? []) : []));
+  const environments = createMemo(async (): Promise<Environment[]> => (me() ? ((await api.GET("/api/v1/environments")).data ?? []) : []));
   const isAdmin = () => me()?.role === "Admin";
   const [error, setError] = createSignal<string>();
 
@@ -104,6 +105,7 @@ export default function Catalog() {
   const [profilePromptMode, setProfilePromptMode] = createSignal("append");
   const [profileTools, setProfileTools] = createSignal("");
   const [profileEnvironment, setProfileEnvironment] = createSignal("");
+  const [profileEnvironmentName, setProfileEnvironmentName] = createSignal("");
   const [chosenServers, setChosenServers] = createSignal<string[]>([]);
   const [chosenSkills, setChosenSkills] = createSignal<string[]>([]);
   const toggle = (list: string[], value: string, on: boolean) => (on ? [...list, value] : list.filter((item) => item !== value));
@@ -119,6 +121,7 @@ export default function Catalog() {
         maxToolGroup: profileTools() || null,
         mcpServers: chosenServers(),
         environment: parseValues(profileEnvironment()),
+        environmentName: profileEnvironmentName() || null,
         skills: chosenSkills().map((key) => {
           const [name, version] = key.split("@");
           return { name, version };
@@ -130,6 +133,7 @@ export default function Catalog() {
       setProfilePrompt("");
       setProfileTools("");
       setProfileEnvironment("");
+      setProfileEnvironmentName("");
       setChosenServers([]);
       setChosenSkills([]);
       refresh(profiles);
@@ -149,6 +153,9 @@ export default function Catalog() {
               {(profile) => (
                 <li>
                   {profile().name}{" "}
+                  <Show when={profile().environmentName}>
+                    <span class="rounded bg-hover px-1.5 text-xs text-muted">{profile().environmentName}</span>{" "}
+                  </Show>
                   <span class="text-muted">
                     {[...profile().mcpServers, ...profile().skills.map((skill) => `${skill.name}@${skill.version}`)].join(", ")}
                   </span>
@@ -184,6 +191,15 @@ export default function Catalog() {
                 onInput={(e) => setProfileEnvironment(e.currentTarget.value)}
               />
               <p class="text-xs text-muted">{valuesHelp} The agent's commands see these variables.</p>
+              <select class={field} value={profileEnvironmentName()} onChange={(e) => setProfileEnvironmentName(e.currentTarget.value)}>
+                <option value="">No environment</option>
+                <For each={environments()} keyed={(environment) => environment.name}>
+                  {(environment) => <option value={environment().name}>Environment: {environment().name}</option>}
+                </For>
+              </select>
+              <p class="text-xs text-muted">
+                An environment's secrets and variables come first, and its rules apply: its machines, and a reviewer's approval of each session.
+              </p>
               <For each={servers()} keyed={(server) => server.name}>
                 {(server) => (
                   <label class="flex items-center gap-2 text-sm">

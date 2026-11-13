@@ -339,6 +339,7 @@ public sealed class MachineRemovedHandler(IDomainSignals signals, BTDB.BackendAc
             Sessions.AppendItem(session, SessionItemKind.Notice, ev.When, $"The machine {machine.Name} was removed, so this session stopped.");
             Sessions.Changed(signals, session, ev.When);
         }
+        Secrets.MachineRemoved(machine.Id, machine.Name);
         Ambient.Relation<IMachineCommandTable>().RemoveById(machine.Id);
         Ambient.Relation<IMachineHarnessTable>().RemoveById(machine.Id);
         Ambient.Relation<IMachinePresenceTable>().RemoveById(machine.Id);

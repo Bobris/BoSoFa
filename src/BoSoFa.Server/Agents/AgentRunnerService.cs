@@ -154,8 +154,9 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
         AccountKind kind;
         ResolvedMcpServer[] servers;
         Dictionary<string, string> environment;
-        string? os = null, profilePrompt = null, profileMode = null, used;
+        string? os = null, profilePrompt = null, profileMode = null;
         string[] mask;
+        SecretResolver resolver;
         using (publisher.StartQuery())
         {
             if (Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId) is not { } account || account.OwnerId != session.CreatedById)
@@ -164,18 +165,18 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
             if (session.MachineId != 0) os = Ambient.Relation<IMachineTable>().FindByIdOrDefault(session.MachineId)?.Os ?? "an unknown operating system";
             secret = AccountEndpoints.SecretOf(account, protection);
             var profile = session.ProfileName == null ? null : Ambient.Relation<IProfileTable>().FindByIdOrDefault(session.ProfileName);
-            // The references of the profile, resolved for the session's creator; what is missing stops the run with its names.
-            var resolver = new SecretResolver(session.CreatedById, protection);
+            // The references of the profile, resolved for the session's creator on its machine and in its environment; what is
+            // missing stops the run with its names.
+            var (secretEnvironment, problem) = profile != null ? SecretEnvironments.Admit(session, profile) : (null, null);
+            if (problem != null) throw new AgentSetupException(problem);
+            resolver = new SecretResolver(session.CreatedById, protection, session.MachineId, secretEnvironment);
             (servers, environment) = profile != null ? CatalogEndpoints.Resolve(profile, resolver, protection) : ([], []);
             try { resolver.ThrowIfMissing(); }
             catch (MissingSecretsException missing) { throw new AgentSetupException(missing.Message); }
-            used = resolver.Used;
             mask = resolver.Secrets;
             (profilePrompt, profileMode) = (profile?.SystemPrompt, profile?.SystemPromptMode);
         }
-        if (used != null)
-            await AuditEndpoints.RecordAsync(publisher, session.CreatedById, "secret.used", $"session {session.Id}",
-                session.MachineId == 0 ? used : $"on machine {session.MachineId}: {used}", logger);
+        await resolver.RecordAsync(publisher, session, logger);
         var machine = session.MachineId == 0 ? null : new AgentMachine(rpc, session.MachineId, session.WorkingDirectory, session.Id, time, environment, mask);
         IModelTurnExecutor executor = kind switch
         {

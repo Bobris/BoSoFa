@@ -1,6 +1,7 @@
 # Secrets and variables
 
-Status: steps 1 to 5 of §8 (the store, the masker, references and resolution, masking, host-only secrets) are done; step 6 is planned. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
+Status: all six steps of §8 are done (the store, the masker, references and resolution, masking, host-only secrets, and
+machine limits, rotation reminders and environments, §10). Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
 live on the server, protected by .NET Data Protection, as harness accounts already are (plan §5.4.1). No external secret
 store (Key Vault secrets, Vault, 1Password) is supported.
 
@@ -30,13 +31,15 @@ masking (§5).
 | `Version` | 1, +1 on every rotation | +1 on every change |
 | Value | `ProtectedValue`: Data Protection ciphertext | `Value`, in clear |
 | `HostOnly` | MCP servers only, never the shell | n/a |
+| `Machines` | the only machines whose sessions get it; empty for any (§10.1) | same |
+| `RotateEveryDays` | due for rotation that long after it was set; 0 for never (§10.3) | same |
 | Metadata | `Hint` (`…` and the last 4 characters of a value longer than 12, as accounts), `SetById`, `SetAt` | `SetById`, `SetAt` |
 
 - **Resolution**: a session's creator's personal value wins over the shared one of the same name. So one shared MCP
   server definition (`Authorization: Bearer ${secret:GRAFANA_TOKEN}`) gives every person their own token, and falls
   back to the team's.
-- **Relations** (`BoSoFa.Server.Domain/Secrets.cs`, generation 15): `SecretEntry` keyed by `(OwnerId, Name)`, with
-  `OwnerId = 0` for shared, holding secrets and variables alike (`Kind`), and `SecretVersion` for the protected values a
+- **Relations** (`BoSoFa.Server.Domain/Secrets.cs`, generation 15, 18 with §10): `SecretEntry` keyed by `(OwnerId, Name)`, with
+  `OwnerId = 0` for shared and an environment's id for its values, holding secrets and variables alike (`Kind`), and `SecretVersion` for the protected values a
   rotation or a deletion replaced, kept 30 days and at most 16 per secret, for masking only (§5.3). (`Secret` would clash
   with `Microsoft.AspNetCore.DataProtection.Secret` wherever values are protected.)
 - **Events**: `SecretSet` and `SecretDeleted`, for both kinds. The endpoint reads the current row, makes the ciphertext for
@@ -102,8 +105,9 @@ Done. At save time (`CatalogEndpoints`):
   instead.
 - The server agent resolves the same way inside its backend action (its HTTP MCP servers on the server, its stdio ones
   sent over machine RPC as today).
-- **Audit**: one `secret.used` record per resolution (session, machine, names, versions and scopes, never values): per
-  start of a harness, and per run of the server agent. The Secrets page showing recent uses is still to come.
+- **Audit**: one `SecretsUsed` event per resolution (session, machine, names, versions and scopes, never values): per
+  start of a harness, and per run of the server agent. Its handler writes the `secret.used` record and the `SecretUse` row of
+  each value and machine, which the Secrets page shows to whoever manages the value (§10.3).
 - Rotation reaches new sessions and newly started MCP servers. A running harness keeps the value it started with
   until it is restarted.
 
@@ -222,9 +226,9 @@ in the UI until machines have a sandbox.
 - **Secrets and variables** page (`/secrets`, in the settings menu): the caller's values, then the shared ones (editable by
   admins). Each row shows the name, the reference (a click copies it), the hint or the variable's value, the version, and
   who set it and when; **Rotate** (or **Edit**) opens a write-only field in place, and delete asks beside its row. Done.
-  A secret can be **For MCP servers only** (§6). Still to come: where a value is used, and recent uses.
-- The profile editor gets an **Environment** section; MCP server editors accept references and warn about a missing
-  one.
+  A secret can be **For MCP servers only** (§6). **Settings** sets a value's machines and rotation interval without a new
+  version; each row shows where the value last went, and what is due for rotation (§10).
+- The profile editor has an **Environment** section for variables, and picks the environment (§10.2) its sessions use.
 - Never hard-code the product name in what people see (`Brand`).
 
 ## 8. Steps
@@ -245,8 +249,12 @@ in the UI until machines have a sandbox.
 5. **Host-only** (done): the flag and the refusals (the daemon's MCP gateway for harness sessions is done). Test: a Claude Code (replay) and
    a server agent session reach a host-only HTTP MCP server, and neither the harness's command line, its config files
    nor the shell's environment contain the value.
-6. **Later**: environments with approvals and machine labels (CodeAlta's `environment = "production"`), a machine
-   allow-list per secret, and rotation reminders.
+6. **Machines, rotation and environments** (done, §10): a machine list per value, where values went and rotation reminders,
+   and environments with reviewers and machines. `EnvironmentTest`: a value goes to its machines only (a wider one serves the
+   others), settings change without a version, a removed machine flags what it held until rotated; an environment's session
+   waits with nothing sent to its machine, only a reviewer other than its creator sees and answers it, approval starts it
+   and its values win, rejection fails it, a stop withdraws it, its machines are enforced at start and resolution, and an
+   environment a profile names cannot be deleted.
 
 ## 9. Limits
 
@@ -256,3 +264,52 @@ in the UI until machines have a sandbox.
 - The person's own terminals on a machine are theirs and are not masked.
 - The server can read every value (it holds the key ring). This is the deliberate trade against CodeAlta's sealing:
   a value set before a machine enrolls works on it, and no device has to approve a new machine.
+
+## 10. Machines, rotation and environments
+
+Done. Generation 18 (`SecretUse`, `SecretEnvironment`, `EnvironmentApproval`; new fields of `SecretEntry` and `Profile`).
+
+### 10.1 A value's machines
+
+- `SecretEntry.Machines`: the machines whose sessions get the value; empty for any. A person picks among their own machines,
+  an admin among all for shared values and those of environments (`SecretSettingsRequest`, `PUT …/{name}/settings`, or with
+  the value in `SetSecretRequest`; a rotation that names none keeps them).
+- Resolution skips a value that is not for the session's machine and goes on to the next scope, so a personal token kept to
+  `build-mac` lets the team's shared one serve the laptop. With nothing left, the start names it: "the secret X is not for
+  this machine".
+- A server agent session without a machine keeps every value on the server, so any limited value serves it.
+- Ids of removed machines stay in the list (ids are never reused), so removing a machine never widens a value to every
+  machine.
+
+### 10.2 Environments
+
+A named set of secrets and variables (`SecretEnvironment`, CodeAlta's and GitHub's environments), such as `production`, that
+admins keep under **Environment** on the Secrets page (`/api/v1/environments`):
+
+- **Values** are `SecretEntry` rows owned by the environment's id (people and environments get ids from the same allocator),
+  so masking, rotation, retired versions and the audit work as for the others. A profile names the environment
+  (`ProfileDto.EnvironmentName`), and its value of a name comes first, then the person's, then the shared one.
+- **Machines**: its sessions start only on them (empty: any); creating a session elsewhere is refused with a message, and
+  resolution checks again, so narrowing an environment stops later starts of sessions already approved.
+- **Reviewers**: when it has any, `SessionCreated` holds the session (`EnvironmentApproval`, `Pending`, with the machine's
+  start command, or nothing for a server agent, whose loop is then not claimed): its status stays `Starting`, nothing goes
+  to its machine, it takes no message, and a notice names who may approve it. A reviewer other than the session's creator
+  approves (the command is issued, or the loop claimed) or rejects (the session fails, saying so) under **Waiting for your
+  approval** on the Secrets page; the sidebar says when something waits (`/api/v1/environment-approvals`, polled with the
+  other lists). A stop withdraws the request. The approval holds for the session's life, restarts included; resolution
+  refuses a session that lacks one, so reviewers added later stop sessions started without them.
+- The reviewer sees who asks, the profile, harness, machine and folder, never the prompt or title: those stay the creator's.
+- An environment a profile names, or a session waits for, cannot be deleted; deleting one retires its values like a delete.
+- Audit: `environment.created`, `environment.changed`, `environment.deleted`, `environment.requested`,
+  `environment.approved`, `environment.rejected`.
+
+Not done: approvals bound to branches or automations (there are none yet), and a reviewer seeing more of the session.
+
+### 10.3 Where values went, and rotation
+
+- `SecretUse (OwnerId, Name, MachineId)` keeps the last version and time each value went to each machine. Its owner, or an
+  admin for shared and environment values, sees it on the value's row.
+- `RotateEveryDays` makes a value due that long after it was set (`SecretDto.RotateBy`); the page marks it
+  **rotation due** and counts what is due at the top.
+- Removing a machine flags every secret whose current version it got (`RotationReason`: "It was given to laptop, which was
+  removed."), and forgets its `SecretUse` rows. A new version clears the flag.

@@ -2922,6 +2922,13 @@ export interface paths {
                         "application/json": string;
                     };
                 };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Conflict */
                 409: {
                     headers: {
@@ -2962,6 +2969,415 @@ export interface paths {
                 };
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/secrets/{scope}/{name}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    scope: components["schemas"]["SecretScope"];
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SecretSettingsRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SecretDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/environments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EnvironmentDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/environments/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SaveEnvironmentRequest"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/environments/{environment}/secrets/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    environment: string;
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetSecretRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SecretDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    environment: string;
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/environments/{environment}/secrets/{name}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    environment: string;
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SecretSettingsRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SecretDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/environment-approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EnvironmentApprovalDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/environment-approvals/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sessionId: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AnswerEnvironmentApprovalRequest"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3560,6 +3976,9 @@ export interface components {
             /** @default true */
             acceptsImages: boolean;
         };
+        AnswerEnvironmentApprovalRequest: {
+            approve: boolean;
+        };
         AnswerRuntimeRequest: {
             allow: boolean;
             message: null | string;
@@ -3742,6 +4161,28 @@ export interface components {
         };
         /** @enum {unknown} */
         EnrollStatus: "Pending" | "Approved" | "Expired";
+        EnvironmentApprovalDto: {
+            /** Format: uint64 */
+            sessionId: number | string;
+            environment: string;
+            requestedBy: string;
+            machine: string;
+            harness: string;
+            profile: null | string;
+            workingDirectory: string;
+            /** Format: date-time */
+            requestedAt: string;
+        };
+        EnvironmentDto: {
+            name: string;
+            description: string;
+            reviewers: components["schemas"]["NamedRef"][];
+            machines: components["schemas"]["NamedRef"][];
+            values: components["schemas"]["SecretDto"][];
+            changedBy: string;
+            /** Format: date-time */
+            changedAt: string;
+        };
         FileEntry: {
             name: string;
             path: string;
@@ -4078,6 +4519,11 @@ export interface components {
         };
         /** @enum {unknown} */
         McpTransport: "Stdio" | "Http";
+        NamedRef: {
+            /** Format: uint64 */
+            id: number | string;
+            name: string;
+        };
         ProductDownload: {
             product: string;
             version: string;
@@ -4095,6 +4541,7 @@ export interface components {
             environment?: null | {
                 [key: string]: string;
             };
+            environmentName?: null | string;
         };
         PublishHarnessRelease: {
             harness: string;
@@ -4154,6 +4601,11 @@ export interface components {
         };
         /** @enum {unknown} */
         RuntimeRequestStatus: "Pending" | "Allowed" | "Denied" | "Cancelled";
+        SaveEnvironmentRequest: {
+            description: string;
+            reviewers: (number | string)[];
+            machines: (number | string)[];
+        };
         SaveSessionDraftRequest: {
             prompt: string;
             settings: string;
@@ -4171,11 +4623,37 @@ export interface components {
             setAt: string;
             /** @default false */
             hostOnly: boolean;
+            environment?: null | string;
+            machines?: null | (number | string)[];
+            /**
+             * Format: int32
+             * @default 0
+             */
+            rotateEveryDays: number | string;
+            /** Format: date-time */
+            rotateBy?: null | string;
+            rotationReason?: null | string;
+            usedOn?: null | components["schemas"]["SecretUseDto"][];
         };
         /** @enum {unknown} */
         SecretKind: "Secret" | "Variable";
         /** @enum {unknown} */
-        SecretScope: "Personal" | "Shared";
+        SecretScope: "Personal" | "Shared" | "Environment";
+        SecretSettingsRequest: {
+            hostOnly: boolean;
+            machines: (number | string)[];
+            /** Format: int32 */
+            rotateEveryDays: number | string;
+        };
+        SecretUseDto: {
+            /** Format: uint64 */
+            machineId: number | string;
+            machine: string;
+            /** Format: int32 */
+            version: number | string;
+            /** Format: date-time */
+            at: string;
+        };
         SendMessageRequest: {
             text: string;
             mode?: null | components["schemas"]["DispatchMode"];
@@ -4261,6 +4739,9 @@ export interface components {
             value: string;
             /** @default false */
             hostOnly: boolean;
+            machines?: null | (number | string)[];
+            /** Format: int32 */
+            rotateEveryDays?: null | number | string;
         };
         SideQuestionRequest: {
             text: string;

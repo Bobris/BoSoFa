@@ -315,13 +315,13 @@ static class Sessions
         ? text
         : text[..ItemReport.InlineLimit] + $"\n… ({text.Length - ItemReport.InlineLimit} more characters)";
 
-    public static void IssueCommand(IDomainSignals signals, ulong machineId, MachineCommand command, DateTime when)
+    public static void IssueCommand(IDomainSignals signals, ulong machineId, MachineCommand command, DateTime when) =>
+        IssueCommand(signals, machineId, JsonSerializer.Serialize(command, ProtocolJsonContext.Default.MachineCommand), when);
+
+    /// <summary>A command serialized earlier (one held for an environment's approval).</summary>
+    public static void IssueCommand(IDomainSignals signals, ulong machineId, string command, DateTime when)
     {
-        Ambient.Relation<IMachineCommandTable>().Insert(new()
-        {
-            MachineId = machineId, Id = Ambient.AllocateId(),
-            Command = JsonSerializer.Serialize(command, ProtocolJsonContext.Default.MachineCommand), IssuedAt = when
-        });
+        Ambient.Relation<IMachineCommandTable>().Insert(new() { MachineId = machineId, Id = Ambient.AllocateId(), Command = command, IssuedAt = when });
         Ambient.RegisterPostCommit(() => signals.MachineCommandsIssued(machineId));
     }
 
@@ -350,11 +350,13 @@ static class Sessions
     }
 
     /// <summary>The session and its machine when the user may control it: their own session, on a machine they may still use.
-    /// Someone else's session is not found, so its existence does not show.</summary>
-    public static (Session? Session, Machine? Machine, CommandOutcome Outcome) Controlled(ulong sessionId, ulong userId)
+    /// Someone else's session is not found, so its existence does not show.
+    /// A session that waits for its environment's reviewer takes nothing but a stop (<paramref name="evenWaiting"/>).</summary>
+    public static (Session? Session, Machine? Machine, CommandOutcome Outcome) Controlled(ulong sessionId, ulong userId, bool evenWaiting = false)
     {
         var session = Ambient.Relation<ISessionTable>().FindByIdOrDefault(sessionId);
         if (session == null || !SessionAccess.CanSee(userId, session)) return (null, null, CommandOutcome.NotFound);
+        if (!evenWaiting && SecretEnvironments.IsWaiting(session.Id)) return (null, null, CommandOutcome.Invalid);
         if (session.Harness == Harnesses.Agent && session.MachineId == 0) return (session, null, CommandOutcome.Ok);
         var machine = Ambient.Relation<IMachineTable>().FindByIdOrDefault(session.MachineId);
         if (machine == null) return (null, null, CommandOutcome.NotFound);
@@ -404,6 +406,7 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
             if (ev.MachineId == 0 && JsonSerializer.Deserialize(profile.McpServers, ProtocolJsonContext.Default.StringArray)!
                 .Any(name => servers.FindByIdOrDefault(name) is not { Transport: McpTransport.Http }))
                 return new() { Outcome = CommandOutcome.Invalid };
+            if (SecretEnvironments.Refuses(profile, ev.MachineId)) return new() { Outcome = CommandOutcome.Invalid };
         }
         var session = new Session
         {
@@ -415,7 +418,7 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
         };
         Ambient.Relation<ISessionTable>().Insert(session);
         Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, data: Sessions.ImagesData(ev.ImagesJson), replay: AgentRunners.UserReplay(ev.Prompt, false));
-        AgentRunners.Claim(signals, actions, session, ev.When);
+        if (!SecretEnvironments.Hold(session, profile, "", ev.When)) AgentRunners.Claim(signals, actions, session, ev.When);
         Sessions.Changed(signals, session, ev.When);
         Audit.Record(ev.When, ev.UserId, "session.created", $"session {session.Id}", $"{ev.Harness} with {session.Model}");
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
@@ -443,8 +446,13 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
             if (account.OwnerId != ev.UserId) return new() { Outcome = CommandOutcome.Forbidden };
             if (AccountSecrets.HarnessOf(account.Kind) != harness) return new() { Outcome = CommandOutcome.Invalid };
         }
-        if (ev.ProfileName != null && Ambient.Relation<IProfileTable>().FindByIdOrDefault(ev.ProfileName) == null)
-            return new() { Outcome = CommandOutcome.NotFound };
+        Profile? profile = null;
+        if (ev.ProfileName != null)
+        {
+            profile = Ambient.Relation<IProfileTable>().FindByIdOrDefault(ev.ProfileName);
+            if (profile == null) return new() { Outcome = CommandOutcome.NotFound };
+            if (SecretEnvironments.Refuses(profile, machine.Id)) return new() { Outcome = CommandOutcome.Invalid };
+        }
         var session = new Session
         {
             Id = Ambient.AllocateId(), MachineId = machine.Id, CreatedById = ev.UserId, Harness = ev.Harness,
@@ -455,10 +463,11 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
         };
         Ambient.Relation<ISessionTable>().Insert(session);
         Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, data: Sessions.ImagesData(ev.ImagesJson));
-        Sessions.IssueCommand(signals, machine.Id, new StartSessionCommand(session.Id, session.Harness,
+        var start = JsonSerializer.Serialize<MachineCommand>(new StartSessionCommand(session.Id, session.Harness,
             session.WorkingDirectory, ev.Prompt, session.PermissionMode, session.Model,
             session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree, ev.ProfileName != null, Sessions.Images(ev.ImagesJson),
-            session.ReasoningEffort), ev.When);
+            session.ReasoningEffort), ProtocolJsonContext.Default.MachineCommand);
+        if (!SecretEnvironments.Hold(session, profile, start, ev.When)) Sessions.IssueCommand(signals, machine.Id, start, ev.When);
         Sessions.Changed(signals, session, ev.When);
         Audit.Record(ev.When, ev.UserId, "session.created", $"session {session.Id}", $"{ev.Harness} in {ev.WorkingDirectory} on machine {ev.MachineId}");
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
@@ -596,9 +605,9 @@ public sealed class SessionStopRequestedHandler(IDomainSignals signals, BTDB.Bac
 
     public SessionCommandResult Consume(SessionStopRequested ev)
     {
-        var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId);
+        var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId, evenWaiting: true);
         if (session == null) return new() { Outcome = outcome };
-        if (session.Harness == Harnesses.Agent)
+        if (session.Harness == Harnesses.Agent || SecretEnvironments.Withdraw(session)) // a session that waited never reached its machine
         {
             AgentRunners.Release(signals, actions, session);
             Sessions.CancelPending(session, ev.When);

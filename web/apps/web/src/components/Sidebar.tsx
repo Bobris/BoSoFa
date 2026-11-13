@@ -350,6 +350,22 @@ export default function Sidebar(props: { onNavigate: () => void; onCollapse: () 
           </div>
         </Loading>
       </Show>
+      <Loading fallback={null}>
+        <Show when={workspace.approvals().length}>
+          {(count) => (
+            <div class="px-3 pb-1">
+              <a
+                href="/secrets#approvals"
+                onClick={() => props.onNavigate()}
+                class="flex items-center gap-2 rounded-lg bg-amber-500/15 px-2.5 py-1.5 text-sm text-amber-800 hover:bg-amber-500/25 dark:text-amber-200"
+              >
+                <LockIcon class="size-4" />
+                {count() === 1 ? "A session waits for your approval" : `${count()} sessions wait for your approval`}
+              </a>
+            </div>
+          )}
+        </Show>
+      </Loading>
       <div class="border-t border-line p-2">
         <Loading fallback={<div class="h-12" />}>
           <UserMenu onNavigate={props.onNavigate} />

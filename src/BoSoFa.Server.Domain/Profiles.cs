@@ -58,6 +58,9 @@ public class Profile
 
     /// <summary>Variables of the session's harness and its agent's commands as JSON, references allowed; null in older rows.</summary>
     public string? Environment { get; set; }
+
+    /// <summary>The <see cref="SecretEnvironment"/> its sessions use (docs/secrets.md §10.2); null for none.</summary>
+    public string? EnvironmentName { get; set; }
 }
 
 public interface IProfileTable : IRelation<Profile>
@@ -124,6 +127,7 @@ public class ProfileSaved : EventWithResult<SessionCommandResult>
     public string? SystemPromptMode { get; set; }
     public string? MaxToolGroup { get; set; }
     public string Environment { get; set; } = "";
+    public string? EnvironmentName { get; set; }
 }
 
 static class Catalog
@@ -214,13 +218,14 @@ public sealed class ProfileSavedHandler : IEventHandler<ProfileSaved, SessionCom
         var servers = Ambient.Relation<IMcpServerTable>();
         var skills = Ambient.Relation<ISkillBundleTable>();
         if (JsonSerializer.Deserialize(ev.McpServers, ProtocolJsonContext.Default.StringArray)!.Any(name => servers.FindByIdOrDefault(name) == null) ||
-            JsonSerializer.Deserialize(ev.Skills, ProtocolJsonContext.Default.SkillRefArray)!.Any(skill => skills.FindByIdOrDefault(skill.Name, skill.Version) == null))
+            JsonSerializer.Deserialize(ev.Skills, ProtocolJsonContext.Default.SkillRefArray)!.Any(skill => skills.FindByIdOrDefault(skill.Name, skill.Version) == null) ||
+            (ev.EnvironmentName != null && SecretEnvironments.Find(ev.EnvironmentName) == null))
             return new() { Outcome = CommandOutcome.NotFound };
         Ambient.Relation<IProfileTable>().Upsert(new()
         {
             Name = ev.Name, Model = ev.Model, PermissionMode = ev.PermissionMode, McpServers = ev.McpServers, Skills = ev.Skills,
             SystemPrompt = string.IsNullOrWhiteSpace(ev.SystemPrompt) ? null : ev.SystemPrompt, SystemPromptMode = ev.SystemPromptMode, MaxToolGroup = ev.MaxToolGroup,
-            Environment = ev.Environment.Length > 0 ? ev.Environment : null
+            Environment = ev.Environment.Length > 0 ? ev.Environment : null, EnvironmentName = ev.EnvironmentName
         });
         Audit.Record(ev.When, ev.UserId, "profile.saved", ev.Name);
         return new() { Outcome = CommandOutcome.Ok };
