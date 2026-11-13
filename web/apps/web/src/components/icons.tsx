@@ -133,13 +133,6 @@ export const UsersIcon = (props: IconProps) => (
     <path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5" />
   </Icon>
 );
-export const RocketIcon = (props: IconProps) => (
-  <Icon {...props}>
-    <path d="M5 15c-1.5 1.3-2 5-2 5s3.7-.5 5-2" />
-    <path d="M9 15 6 12c1.5-4 4.5-8 12-9-1 7.5-5 10.5-9 12Z" />
-    <circle cx="14.5" cy="9.5" r="1.5" />
-  </Icon>
-);
 export const ListIcon = (props: IconProps) => (
   <Icon {...props}>
     <path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />

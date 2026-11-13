@@ -16,7 +16,6 @@ import {
   MachineIcon,
   NewIcon,
   PackageIcon,
-  RocketIcon,
   SearchIcon,
   SidebarIcon,
   SignOutIcon,
@@ -170,7 +169,6 @@ function UserMenu(props: { onNavigate: () => void }) {
             <Show when={isAdmin(user())}>
               <p class="mt-1 border-t border-line px-2.5 pb-1 pt-2 text-xs font-medium text-muted">Administration</p>
               <MenuLink href="/people" icon={<UsersIcon class="size-4 text-muted" />} label="People" onPick={pick} />
-              <MenuLink href="/releases" icon={<RocketIcon class="size-4 text-muted" />} label="Releases" onPick={pick} />
               <MenuLink href="/audit" icon={<ListIcon class="size-4 text-muted" />} label="Audit" onPick={pick} />
             </Show>
             <div class="mt-1 border-t border-line pt-1">

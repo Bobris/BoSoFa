@@ -2,7 +2,6 @@ import { api, getPlatform, type ProductDownload } from "@bosofa/api";
 import { createMemo, For, Show } from "solid-js";
 import Command from "../components/Command";
 import { paths } from "../router";
-import { branding } from "../branding";
 
 const platformNames: Record<string, string> = {
   "osx-arm64": "macOS, Apple silicon",
@@ -18,7 +17,7 @@ function Product(props: { title: string; script: string; release: ProductDownloa
     <section class="rounded-lg border border-line bg-panel">
       <div class="px-4 py-3 border-b border-line flex items-center justify-between gap-3">
         <h2 class="text-sm font-medium">{props.title}</h2>
-        <span class="text-xs text-muted">{props.release ? `version ${props.release.version}` : "not published yet"}</span>
+        <span class="text-xs text-muted">{props.release ? `version ${props.release.version}` : "not in this build"}</span>
       </div>
       <div class="px-4 py-3 space-y-3 text-sm">
         {props.children as never}
@@ -26,7 +25,8 @@ function Product(props: { title: string; script: string; release: ProductDownloa
           when={props.release}
           fallback={
             <p class="text-muted">
-              An admin publishes it with <code class="font-mono text-xs">{branding().daemon} release-publish</code>.
+              This server was built without it. A server built with <code class="font-mono text-xs">dotnet publish</code> carries
+              both for every platform.
             </p>
           }
         >
@@ -72,7 +72,7 @@ export default function Install() {
           <a class="text-accent hover:underline" href={paths.enroll()}>
             enroll page
           </a>{" "}
-          and the computer becomes one of your machines. New versions reach it through rollouts.
+          and the computer becomes one of your machines. When this server gets a newer build, the daemon follows on its own.
         </p>
       </Product>
       <Product title="Desktop app" script="desktop" release={release("desktop")} origin={origin}>

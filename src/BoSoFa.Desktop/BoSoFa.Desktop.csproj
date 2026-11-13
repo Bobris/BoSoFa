@@ -14,21 +14,20 @@
     <!-- The executable's icon on Windows, which its windows and the taskbar show. -->
     <ApplicationIcon>$(BrandIcons)icon.ico</ApplicationIcon>
   </PropertyGroup>
-  <ItemGroup Condition="'$(BoSoFaReleasePublicKey)' != ''">
-    <!-- The key that signs releases of the daemon and of this app, as in the daemon itself. -->
-    <AssemblyMetadata Include="BoSoFaReleasePublicKey" Value="$(BoSoFaReleasePublicKey)" />
-  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
     <PackageReference Include="NeoAstra" />
     <!-- The Dock icon of an app run outside its bundle (dotnet run); a bundle has it in Contents/Resources. -->
     <None Include="$(BrandIcons)AppIcon.icns" Link="AppIcon.icns" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
-  <!-- dotnet publish src/BoSoFa.Desktop -c Release -r osx-arm64 -p:BoSoFaPackage=true -p:Version=1.2.3 -p:BoSoFaReleasePublicKey=...
-       writes artifacts/package/<brand id>-desktop-osx-arm64.tar.gz (a .zip on Windows), ready for release-publish with product desktop. -->
+  <!-- dotnet publish src/BoSoFa.Desktop -c Release -r osx-arm64 -p:BoSoFaPackage=true -p:Version=1.2.3 writes
+       artifacts/package/<brand id>-desktop-osx-arm64.tar.gz (a .zip on Windows), or into BoSoFaPackageDirectory. The server's
+       publish does this for every platform and carries the archives (src/BoSoFa.Server/ClientBundle.targets). -->
   <Target Name="PackageDesktop" AfterTargets="Publish" Condition="'$(BoSoFaPackage)' == 'true'">
     <PropertyGroup>
-      <_PackageParent>$(MSBuildThisFileDirectory)../../artifacts/package/</_PackageParent>
+      <_PackageParent>$(BoSoFaPackageDirectory)</_PackageParent>
+      <_PackageParent Condition="'$(_PackageParent)' == ''">$(MSBuildThisFileDirectory)../../artifacts/package/</_PackageParent>
+      <_PackageParent>$([MSBuild]::EnsureTrailingSlash('$(_PackageParent)'))</_PackageParent>
       <_PackageStage>$(_PackageParent)$(RuntimeIdentifier)/</_PackageStage>
       <_PackageMac>$(RuntimeIdentifier.StartsWith('osx'))</_PackageMac>
       <_PackageWindows>$(RuntimeIdentifier.StartsWith('win'))</_PackageWindows>

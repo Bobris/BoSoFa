@@ -31,8 +31,8 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 echo "Downloading the desktop app for $rid from $server"
-if ! curl -fsSL -D "$work/headers" -o "$work/app.tar.gz" "$server/api/v1/downloads/desktop/latest/$rid"; then
-  echo "This server has no desktop release for $rid." >&2
+if ! curl -fsSL -D "$work/headers" -o "$work/app.tar.gz" "$server/api/v1/downloads/desktop/$rid"; then
+  echo "This server carries no desktop app for $rid." >&2
   exit 1
 fi
 expected=$(tr -d '\r' <"$work/headers" | awk 'tolower($1) == "x-bosofa-sha256:" { print $2 }')

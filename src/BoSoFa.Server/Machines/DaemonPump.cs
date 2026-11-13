@@ -11,7 +11,7 @@ namespace BoSoFa.Server.Machines;
 /// <summary>Serves one connected daemon, over whichever transport it came: registers its presence, feeds it commands,
 /// stores its reports and relays what is live.</summary>
 public sealed class DaemonPump(DaemonConnections connections, BtdbNode node, LiveHub hub, MachinePresenceService presence, LiveRelay relay,
-    TimeProvider time, ILoggerFactory loggers)
+    ClientBundle bundle, TimeProvider time, ILoggerFactory loggers)
 {
     /// <summary>Null when this daemon may connect, else why not.</summary>
     public static string? RefusalOf(HelloMessage hello) => hello.ProtocolVersion == ProtocolVersion.Current
@@ -48,7 +48,8 @@ public sealed class DaemonPump(DaemonConnections connections, BtdbNode node, Liv
         Task? commands = null;
         try
         {
-            await connection.SendAsync(new WelcomeMessage(machineId, Api.Version), cancellation);
+            // A daemon older than this server's build switches to it; a node of an older build tells it nothing.
+            await connection.SendAsync(new WelcomeMessage(machineId, Api.Version, bundle.UpdateFor(hello)), cancellation);
             commands = MachineEndpoints.SendCommandsAsync(connection, publisher, stop.Token);
             while (await channel.ReceiveAsync(cancellation) is { } message)
                 switch (message)

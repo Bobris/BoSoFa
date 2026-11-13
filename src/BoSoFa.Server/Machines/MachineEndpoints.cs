@@ -302,6 +302,13 @@ public static class MachineEndpoints
 
     /// <summary>Sends inbox commands in ID order: all of them after connecting, then each new one once. The daemon
     /// acknowledges what it applied; the rest is sent again on the next connection.</summary>
+    /// <summary>Null for a kind of command this build no longer has (an old daemon update): it stays unsent.</summary>
+    static MachineCommand? Readable(string json)
+    {
+        try { return JsonSerializer.Deserialize(json, ProtocolJsonContext.Default.MachineCommand); }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException) { return null; }
+    }
+
     internal static async Task SendCommandsAsync(DaemonConnections.Connection connection, EventPublisher publisher,
         CancellationToken cancellation)
     {
@@ -313,13 +320,12 @@ public static class MachineEndpoints
                 pending = Ambient.Relation<IMachineCommandTable>()
                     .ListById(connection.MachineId, new AdvancedEnumeratorParam<ulong>(EnumerationOrder.Ascending, sent,
                         KeyProposition.Excluded, 0, KeyProposition.Ignored))
-                    .Select(entry => new CommandMessage(entry.Id,
-                        JsonSerializer.Deserialize(entry.Command, ProtocolJsonContext.Default.MachineCommand)!, entry.IssuedAt))
+                    .Select(entry => new CommandMessage(entry.Id, Readable(entry.Command)!, entry.IssuedAt))
                     .ToList();
             foreach (var command in pending)
             {
-                await connection.SendAsync(command, cancellation);
                 sent = command.Id;
+                if (command.Command != null) await connection.SendAsync(command, cancellation);
             }
             await connection.WaitForCommandsAsync(TimeSpan.FromSeconds(30), cancellation);
         }

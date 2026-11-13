@@ -14,8 +14,8 @@
     try {
         $file = Join-Path $work 'app.zip'
         Write-Host "Downloading the desktop app for $rid from $server"
-        try { $response = Invoke-WebRequest -UseBasicParsing -Uri "$server/api/v1/downloads/desktop/latest/$rid" -OutFile $file -PassThru }
-        catch { throw "This server has no desktop release for $rid." }
+        try { $response = Invoke-WebRequest -UseBasicParsing -Uri "$server/api/v1/downloads/desktop/$rid" -OutFile $file -PassThru }
+        catch { throw "This server carries no desktop app for $rid." }
         $expected = [string]($response.Headers['X-BoSoFa-Sha256'] | Select-Object -First 1)
         $stream = [IO.File]::OpenRead($file)
         try { $actual = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }

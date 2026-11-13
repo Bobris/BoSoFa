@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -46,15 +45,12 @@ public sealed class ProcessCommandRunner : ICommandRunner
 
 /// <summary>
 /// The daemon of this computer, as the "enable this machine" button sees it. It is driven through its own command line;
-/// its binary comes signed from the server's releases, and the person's signed-in app approves its enrollment.
+/// its binary is the build the server carries, and the person's signed-in app approves its enrollment.
 /// </summary>
-public sealed partial class LocalDaemon(DesktopAccount account, string dataRoot, string daemonDirectory, ICommandRunner runner, HttpClient http, string? releaseKey,
+public sealed partial class LocalDaemon(DesktopAccount account, string dataRoot, string daemonDirectory, ICommandRunner runner, HttpClient http,
     string? configuredExecutable = null, string[]? extraInstallArguments = null)
 {
     static string ExecutableName => OperatingSystem.IsWindows() ? Brand.Daemon + ".exe" : Brand.Daemon;
-
-    public static string? EmbeddedReleaseKey => typeof(LocalDaemon).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-        .FirstOrDefault(attribute => attribute.Key == "BoSoFaReleasePublicKey")?.Value;
 
     /// <summary>The per-user folder the daemon uses by default.</summary>
     public static string DefaultDirectory() => Brand.DataFolder();
@@ -84,30 +80,22 @@ public sealed partial class LocalDaemon(DesktopAccount account, string dataRoot,
         return new(machineId != null, installed, machineId, server);
     }
 
-    /// <summary>A daemon binary to run: the one in use, or a signed release from the server. The text when there is none.</summary>
+    /// <summary>A daemon binary to run: the one in use, or the server's build. The text when there is none.</summary>
     async Task<(string? Executable, string? Problem)> FindExecutableAsync(CancellationToken cancellation)
     {
         if (configuredExecutable != null) return (configuredExecutable, null);
         var installed = Path.Combine(daemonDirectory, ExecutableName);
         if (File.Exists(installed)) return (installed, null);
-        if (releaseKey == null) return (null, "This build of the app cannot check daemon releases.");
-        if (account.Server == null || await account.AccessTokenAsync(cancellation) is not { } tokens) return (null, "Sign in first.");
+        if (account.Server is not { } server) return (null, "Sign in first.");
         var rid = CurrentRid();
-        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(new Uri(account.Server), $"/api/v1/daemon-releases/latest?rid={rid}"));
-        request.Headers.Authorization = new("Bearer", tokens.AccessToken);
-        using var response = await http.SendAsync(request, cancellation);
-        if (!response.IsSuccessStatusCode) return (null, $"The server has no daemon release for {rid}.");
-        var release = (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.SignedRelease, cancellation))!;
-        if (!Releases.Verify(releaseKey, release.Manifest, release.Signature)) return (null, "The server's daemon release is not properly signed.");
-        var manifest = JsonSerializer.Deserialize(release.Manifest, ProtocolJsonContext.Default.ReleaseManifest);
-        if (manifest?.Artifacts.FirstOrDefault(artifact => artifact.Rid == rid) is not { } artifact || !Releases.IsValidVersion(manifest.Version) || !Releases.IsFor(manifest, Releases.Daemon))
-            return (null, $"The server has no daemon release for {rid}.");
-        var directory = Path.Combine(dataRoot, "daemon", manifest.Version);
+        var downloads = await http.GetFromJsonAsync(new Uri(new Uri(server), "/api/v1/downloads"), ProtocolJsonContext.Default.ProductDownloadArray, cancellation) ?? [];
+        var offered = downloads.FirstOrDefault(download => download.Product == Releases.Daemon);
+        if (offered?.Files.FirstOrDefault(file => file.Rid == rid) is not { } artifact || !Releases.IsValidVersion(offered.Version))
+            return (null, $"The server has no daemon for {rid}.");
+        var directory = Path.Combine(dataRoot, "daemon", offered.Version);
         var target = Path.Combine(directory, ExecutableName);
         Directory.CreateDirectory(directory);
-        using var download = new HttpRequestMessage(HttpMethod.Get, new Uri(new Uri(account.Server), "/api/v1/blobs/" + artifact.Sha256));
-        download.Headers.Authorization = new("Bearer", tokens.AccessToken);
-        using var content = await http.SendAsync(download, HttpCompletionOption.ResponseHeadersRead, cancellation);
+        using var content = await http.GetAsync(new Uri(new Uri(server), artifact.Url), HttpCompletionOption.ResponseHeadersRead, cancellation);
         content.EnsureSuccessStatusCode();
         var temporary = target + ".tmp";
         await using (var file = File.Create(temporary)) await content.Content.CopyToAsync(file, cancellation);
@@ -117,7 +105,7 @@ public sealed partial class LocalDaemon(DesktopAccount account, string dataRoot,
         if (hash != artifact.Sha256)
         {
             File.Delete(temporary);
-            return (null, "The downloaded daemon does not match its release.");
+            return (null, "The downloaded daemon does not match what the server offered.");
         }
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         File.Move(temporary, target, true);

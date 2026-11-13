@@ -25,8 +25,9 @@ public abstract record DaemonMessage;
 public sealed record HelloMessage(string DaemonVersion, int ProtocolVersion, string Os, string Arch, string HostName,
     Guid? InstanceId = null, MachineResources? Resources = null) : DaemonMessage;
 
-/// <summary>The server's answer to <see cref="HelloMessage"/>. Every unacknowledged command follows it.</summary>
-public sealed record WelcomeMessage(ulong MachineId, string ServerVersion) : DaemonMessage;
+/// <summary>The server's answer to <see cref="HelloMessage"/>. Every unacknowledged command follows it. <c>Update</c> is
+/// the daemon build this server carries, when it is newer than the one that said hello.</summary>
+public sealed record WelcomeMessage(ulong MachineId, string ServerVersion, DaemonUpdate? Update = null) : DaemonMessage;
 
 /// <summary>Keepalive from either side; the other answers with <see cref="PongMessage"/>.</summary>
 public sealed record PingMessage(long Sequence) : DaemonMessage;
@@ -81,7 +82,6 @@ public sealed record OutboxAck(ulong SessionId, long Seq);
 [JsonDerivedType(typeof(AnswerApprovalCommand), "answerApproval")]
 [JsonDerivedType(typeof(StopSessionCommand), "stopSession")]
 [JsonDerivedType(typeof(InstallHarnessCommand), "installHarness")]
-[JsonDerivedType(typeof(UpdateDaemonCommand), "updateDaemon")]
 public abstract record MachineCommand(ulong SessionId);
 
 /// <summary>Starts a session. <c>AccountId</c> names the harness account whose secret the daemon leases just in time
@@ -112,9 +112,6 @@ public sealed record StopSessionCommand(ulong SessionId) : MachineCommand(Sessio
 
 /// <summary>Not about a session (<c>SessionId</c> 0): download, verify and install this harness version.</summary>
 public sealed record InstallHarnessCommand(string Harness, string Version, HarnessArtifact Artifact) : MachineCommand(0);
-
-/// <summary>Not about a session: switch to this release if its signature holds.</summary>
-public sealed record UpdateDaemonCommand(string Version, string Manifest, string Signature) : MachineCommand(0);
 
 /// <summary>A durable fact a daemon reports about one of its sessions, kind in <c>k</c>.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "k")]

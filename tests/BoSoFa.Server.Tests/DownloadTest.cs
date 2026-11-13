@@ -5,39 +5,35 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using BoSoFa.Desktop;
 using BoSoFa.Protocol;
 
 namespace BoSoFa.Server.Tests;
 
-/// <summary>Releases published by an admin and fetched by computers that have not signed in.</summary>
-static class ReleaseFixture
+/// <summary>What the server's publish leaves beside it: the daemon and desktop builds and <c>bundle.json</c>.</summary>
+static class BundleFixture
 {
-    public static readonly ECDsa Key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-    public static string PublicKey => Convert.ToBase64String(Key.ExportSubjectPublicKeyInfo());
-
-    public static async Task<HttpClient> AdminAsync(TestServer server)
+    /// <summary>A bundle folder with these files; their hashes in upper case, as MSBuild writes them.</summary>
+    public static string Write(string version, params (string Product, string Rid, byte[] Content)[] files)
     {
-        var browser = server.Client(new CookieContainer());
-        (await browser.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("admin@example.com", null))).EnsureSuccessStatusCode();
-        return browser;
-    }
-
-    public static async Task<HttpResponseMessage> PublishAsync(HttpClient admin, string product, string version, (string Rid, byte[] Content)[] files,
-        string channel = Releases.Stable, string? manifestProduct = "", ECDsa? key = null)
-    {
-        var artifacts = new List<ReleaseArtifact>();
-        foreach (var (rid, content) in files)
+        var directory = Directory.CreateTempSubdirectory("bosofa-bundle-").FullName;
+        var entries = new List<string>();
+        foreach (var (product, rid, content) in files)
         {
-            var blob = await (await admin.PostAsync("/api/v1/blobs", new ByteArrayContent(content))).Content.ReadFromJsonAsync<BlobRef>();
-            artifacts.Add(new(rid, blob!.Sha256, blob.Size));
+            var path = $"{product}/{rid}/{Releases.FileName(product, rid)}";
+            Directory.CreateDirectory(Path.Combine(directory, product, rid));
+            File.WriteAllBytes(Path.Combine(directory, path), content);
+            entries.Add($$"""{"product":"{{product}}","rid":"{{rid}}","path":"{{path}}","sha256":"{{Convert.ToHexString(SHA256.HashData(content))}}"}""");
         }
-        var named = manifestProduct == "" ? product == Releases.Daemon ? null : product : manifestProduct;
-        var manifest = JsonSerializer.Serialize(new ReleaseManifest(version, artifacts.ToArray(), named), ProtocolJsonContext.Default.ReleaseManifest);
-        var signature = Convert.ToBase64String((key ?? Key).SignData(Encoding.UTF8.GetBytes(manifest), HashAlgorithmName.SHA256));
-        return await admin.PostAsJsonAsync($"/api/v1/{product}-releases", new PublishRelease(manifest, signature, channel));
+        File.WriteAllText(Path.Combine(directory, "bundle.json"), $$"""{"version":"{{version}}","files":[{{string.Join(",", entries)}}]}""");
+        return directory;
     }
+
+    /// <summary>A server that carries these builds.</summary>
+    public static Task<TestServer> StartAsync(string version, params (string Product, string Rid, byte[] Content)[] files) =>
+        TestServer.StartAsync(extraArgs: ["--BoSoFa:BundleDirectory", Write(version, files)]);
+
+    public static string FileOf(TestServer server, string product, string rid) => server.Service<BoSoFa.Server.Machines.ClientBundle>().Find(product, rid)!.FullPath;
 
     /// <summary>A packaged app as the build makes it: one folder with <c>release.json</c> and the executable.</summary>
     public static byte[] AppArchive(string version, string rid, string root, bool zip, string executable = "#!/bin/sh\n")
@@ -66,58 +62,67 @@ static class ReleaseFixture
 public class DownloadTest
 {
     [Fact]
-    public async Task PublishedReleasesCanBeDownloadedWithoutSigningIn()
+    public async Task TheBundledBuildsCanBeDownloadedWithoutSigningIn()
     {
-        await using var server = await TestServer.StartAsync();
+        await using (var bare = await TestServer.StartAsync())
+        using (var nobody = bare.Client())
+        {
+            Assert.Empty((await nobody.GetFromJsonAsync<ProductDownload[]>("/api/v1/downloads"))!);
+            Assert.Equal(HttpStatusCode.NotFound, (await nobody.GetAsync("/api/v1/downloads/daemon/linux-x64")).StatusCode);
+        }
+
+        await using var server = await BundleFixture.StartAsync("2.0", (Releases.Daemon, "linux-x64", "linux one"u8.ToArray()),
+            (Releases.Daemon, "win-x64", "windows one"u8.ToArray()), (Releases.Desktop, "osx-arm64", "mac app"u8.ToArray()));
         using var anonymous = server.Client();
-        Assert.Empty((await anonymous.GetFromJsonAsync<ProductDownload[]>("/api/v1/downloads"))!);
-        Assert.Equal(HttpStatusCode.NotFound, (await anonymous.GetAsync("/api/v1/downloads/daemon/latest/linux-x64")).StatusCode);
-
-        using var admin = await ReleaseFixture.AdminAsync(server);
-        (await ReleaseFixture.PublishAsync(admin, Releases.Daemon, "1.0", [("linux-x64", "linux one"u8.ToArray()), ("win-x64", "windows one"u8.ToArray())])).EnsureSuccessStatusCode();
-        (await ReleaseFixture.PublishAsync(admin, Releases.Daemon, "2.0", [("linux-x64", "linux two"u8.ToArray())])).EnsureSuccessStatusCode();
-        (await ReleaseFixture.PublishAsync(admin, Releases.Daemon, "3.0-beta", [("linux-x64", "linux beta"u8.ToArray())], Releases.Beta)).EnsureSuccessStatusCode();
-        (await ReleaseFixture.PublishAsync(admin, Releases.Desktop, "1.5", [("osx-arm64", "mac app"u8.ToArray())])).EnsureSuccessStatusCode();
-
         var downloads = (await anonymous.GetFromJsonAsync<ProductDownload[]>("/api/v1/downloads"))!;
         var daemon = Assert.Single(downloads, download => download.Product == Releases.Daemon);
-        Assert.Equal("2.0", daemon.Version); // the newest stable one, not the beta
-        Assert.Equal(("linux-x64", Brand.Daemon, "/api/v1/downloads/daemon/2.0/linux-x64"), (daemon.Files.Single().Rid, daemon.Files.Single().FileName, daemon.Files.Single().Url));
+        Assert.Equal("2.0", daemon.Version);
+        var linux = daemon.Files.Single(file => file.Rid == "linux-x64");
+        Assert.Equal((Brand.Daemon, "/api/v1/downloads/daemon/linux-x64", 9L), (linux.FileName, linux.Url, linux.Size));
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData("linux one"u8)), linux.Sha256);
+        Assert.Equal(Brand.Daemon + ".exe", daemon.Files.Single(file => file.Rid == "win-x64").FileName);
         var desktop = Assert.Single(downloads, download => download.Product == Releases.Desktop);
-        Assert.Equal(("1.5", $"{Brand.Desktop}-osx-arm64.tar.gz"), (desktop.Version, desktop.Files.Single().FileName));
+        Assert.Equal(("2.0", $"{Brand.Desktop}-osx-arm64.tar.gz"), (desktop.Version, desktop.Files.Single().FileName));
 
-        using var latest = await anonymous.GetAsync("/api/v1/downloads/daemon/latest/linux-x64");
-        Assert.Equal("linux two", await latest.Content.ReadAsStringAsync());
-        Assert.Equal("2.0", latest.Headers.GetValues("X-BoSoFa-Version").Single());
-        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData("linux two"u8)), latest.Headers.GetValues("X-BoSoFa-Sha256").Single());
-        Assert.Equal(Brand.Daemon, latest.Content.Headers.ContentDisposition?.FileName);
-        // The newest stable build for a platform, even when a later release left that platform out.
-        Assert.Equal("windows one", await anonymous.GetStringAsync("/api/v1/downloads/daemon/latest/win-x64"));
-        Assert.Equal("linux beta", await anonymous.GetStringAsync("/api/v1/downloads/daemon/3.0-beta/linux-x64"));
-        foreach (var missing in new[] { "/api/v1/downloads/daemon/latest/plan9-mips", "/api/v1/downloads/daemon/9.9/linux-x64", "/api/v1/downloads/nothing/latest/linux-x64" })
+        using var file = await anonymous.GetAsync("/api/v1/downloads/daemon/linux-x64");
+        Assert.Equal("linux one", await file.Content.ReadAsStringAsync());
+        Assert.Equal("2.0", file.Headers.GetValues("X-BoSoFa-Version").Single());
+        Assert.Equal(linux.Sha256, file.Headers.GetValues("X-BoSoFa-Sha256").Single());
+        Assert.Equal(Brand.Daemon, file.Content.Headers.ContentDisposition?.FileName);
+        Assert.Equal("mac app", await anonymous.GetStringAsync("/api/v1/downloads/desktop/osx-arm64"));
+        foreach (var missing in new[] { "/api/v1/downloads/daemon/plan9-mips", "/api/v1/downloads/desktop/linux-x64", "/api/v1/downloads/nothing/linux-x64" })
             Assert.Equal(HttpStatusCode.NotFound, (await anonymous.GetAsync(missing)).StatusCode);
-
-        var signed = (await anonymous.GetFromJsonAsync<SignedRelease>("/api/v1/downloads/desktop/latest?rid=osx-arm64"))!;
-        Assert.True(Releases.Verify(ReleaseFixture.PublicKey, signed.Manifest, signed.Signature));
-        // Other blobs still need a sign-in.
-        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/v1/blobs/" + daemon.Files.Single().Sha256)).StatusCode);
     }
 
     [Fact]
-    public async Task AReleaseOfOneProductCannotBePublishedAsTheOther()
+    public void ABundleNeverReachesOutsideItsFolder()
     {
-        await using var server = await TestServer.StartAsync();
-        using var admin = await ReleaseFixture.AdminAsync(server);
-        var asDesktop = await ReleaseFixture.PublishAsync(admin, Releases.Desktop, "1.0", [("linux-x64", "x"u8.ToArray())], manifestProduct: null);
-        Assert.Equal(HttpStatusCode.BadRequest, asDesktop.StatusCode);
-        Assert.Contains("not for the desktop", await asDesktop.Content.ReadAsStringAsync());
-        Assert.Equal(HttpStatusCode.BadRequest,
-            (await ReleaseFixture.PublishAsync(admin, Releases.Daemon, "1.0", [("linux-x64", "x"u8.ToArray())], manifestProduct: Releases.Desktop)).StatusCode);
-        // A member may not publish.
-        using var member = server.Client(new CookieContainer());
-        (await member.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("member@example.com", null))).EnsureSuccessStatusCode();
-        Assert.Equal(HttpStatusCode.Forbidden, (await ReleaseFixture.PublishAsync(member, Releases.Desktop, "1.0", [("linux-x64", "x"u8.ToArray())])).StatusCode);
+        var directory = BundleFixture.Write("1.0", (Releases.Daemon, "linux-x64", "x"u8.ToArray()));
+        File.WriteAllText(Path.Combine(directory, "bundle.json"), """
+            {"version":"1.0","files":[{"product":"daemon","rid":"linux-x64","path":"../secret","sha256":"00"},
+            {"product":"other","rid":"linux-x64","path":"daemon/linux-x64/bosofad","sha256":"00"},
+            {"product":"daemon","rid":"win-x64","path":"daemon/win-x64/missing.exe","sha256":"00"}]}
+            """);
+        Assert.Empty(BoSoFa.Server.Machines.ClientBundle.Load(directory).Files);
+        File.WriteAllText(Path.Combine(directory, "bundle.json"), """{"version":"../1.0","files":[]}""");
+        Assert.Null(BoSoFa.Server.Machines.ClientBundle.Load(directory).Version);
+        Assert.Null(BoSoFa.Server.Machines.ClientBundle.Load(Path.Combine(directory, "nothing")).Version);
+        Directory.Delete(directory, true);
     }
+
+    [Theory]
+    [InlineData("1.1", "1.0", true)]
+    [InlineData("1.10", "1.9", true)]
+    [InlineData("1.0", "1.0", false)]
+    [InlineData("0.9", "1.0", false)]
+    [InlineData("1.0", "1.0-beta", true)]
+    [InlineData("1.0-beta", "1.0", false)]
+    [InlineData("1.0-beta.10", "1.0-beta.9", true)]
+    [InlineData("1.0-beta.1", "1.0-alpha.2", true)]
+    [InlineData("1.0+def", "1.0+abc", false)] // the same version from another commit
+    [InlineData("0.2.0", "0.1.0+d86c23c", true)]
+    [InlineData("dev-b", "dev-a", false)]
+    public void OnlyNewerVersionsCount(string candidate, string current, bool newer) => Assert.Equal(newer, Releases.IsNewer(candidate, current));
 
     [Fact]
     public async Task InstallScriptsNameThisServer()
@@ -157,12 +162,10 @@ public class DownloadTest
     public async Task TheDaemonScriptEnrollsAndInstallsWhatTheServerOffers()
     {
         if (OperatingSystem.IsWindows()) return; // the PowerShell script is checked below
-        await using var server = await TestServer.StartAsync();
-        using var admin = await ReleaseFixture.AdminAsync(server);
         var work = Directory.CreateTempSubdirectory("bosofa-script-").FullName;
         var log = Path.Combine(work, "calls");
         // A stand-in that writes down how it was called.
-        (await ReleaseFixture.PublishAsync(admin, Releases.Daemon, "1.0", [(Rid, Encoding.UTF8.GetBytes($"#!/bin/sh\necho \"$*\" >> '{log}'\n"))])).EnsureSuccessStatusCode();
+        await using var server = await BundleFixture.StartAsync("1.0", (Releases.Daemon, Rid, Encoding.UTF8.GetBytes($"#!/bin/sh\necho \"$*\" >> '{log}'\n")));
         var origin = server.BaseAddress.GetLeftPart(UriPartial.Authority);
         var (code, output) = await RunAsync("sh", ["-c", $"curl -fsSL {origin}/install/daemon.sh | sh"],
             new() { ["BOSOFA_DATA_DIR"] = Path.Combine(work, "data"), ["BOSOFA_INSTALL_ARGS"] = "--scope user --dry-run" });
@@ -175,10 +178,8 @@ public class DownloadTest
     public async Task TheDesktopScriptUnpacksTheApp()
     {
         if (OperatingSystem.IsWindows()) return;
-        await using var server = await TestServer.StartAsync();
-        using var admin = await ReleaseFixture.AdminAsync(server);
         var root = OperatingSystem.IsMacOS() ? Brand.Name + ".app" : Brand.Desktop;
-        (await ReleaseFixture.PublishAsync(admin, Releases.Desktop, "1.0", [(Rid, ReleaseFixture.AppArchive("1.0", Rid, root, zip: false))])).EnsureSuccessStatusCode();
+        await using var server = await BundleFixture.StartAsync("1.0", (Releases.Desktop, Rid, BundleFixture.AppArchive("1.0", Rid, root, zip: false)));
         var work = Directory.CreateTempSubdirectory("bosofa-script-").FullName;
         var target = Path.Combine(work, "Apps", root);
         Directory.CreateDirectory(target);
@@ -199,8 +200,8 @@ public class DownloadTest
     public async Task ThePowerShellScriptsParseAndTheDesktopOneUnpacksTheApp()
     {
         if (PowerShell() is not { } shell) return;
-        await using var server = await TestServer.StartAsync();
-        using var admin = await ReleaseFixture.AdminAsync(server);
+        var rid = OperatingSystem.IsWindows() ? Rid : "win-x64"; // what the script asks for off Windows
+        await using var server = await BundleFixture.StartAsync("1.0", (Releases.Desktop, rid, BundleFixture.AppArchive("1.0", rid, Brand.Name, zip: true)));
         var origin = server.BaseAddress.GetLeftPart(UriPartial.Authority);
         using var anonymous = server.Client();
         var work = Directory.CreateTempSubdirectory("bosofa-script-").FullName;
@@ -210,8 +211,6 @@ public class DownloadTest
             $"$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile('{daemonScript}', [ref]$null, [ref]$errors); if ($errors) {{ $errors; exit 1 }}"], []);
         Assert.True(parsed == 0, parseOutput);
 
-        var rid = OperatingSystem.IsWindows() ? Rid : "win-x64"; // what the script asks for off Windows
-        (await ReleaseFixture.PublishAsync(admin, Releases.Desktop, "1.0", [(rid, ReleaseFixture.AppArchive("1.0", rid, Brand.Name, zip: true))])).EnsureSuccessStatusCode();
         var target = Path.Combine(work, "Programs", Brand.Name);
         var (code, output) = await RunAsync(shell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $"irm {origin}/install/desktop.ps1 | iex"],
             new() { ["BOSOFA_APP_DIR"] = target, ["BOSOFA_NO_LAUNCH"] = "1" });

@@ -32,11 +32,11 @@ using var account = new DesktopAccount(dataRoot, new SafeStorageVault(NeoSafeSto
 // The install script starts the app with the server it came from.
 if (args is ["--server", var installedFrom]) account.Preset(installedFrom);
 using var daemonHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
-var updater = new DesktopUpdater(InstalledApp.FromBaseDirectory(AppContext.BaseDirectory), dataRoot, () => account.Server, daemonHttp, LocalDaemon.EmbeddedReleaseKey);
+var updater = new DesktopUpdater(InstalledApp.FromBaseDirectory(AppContext.BaseDirectory), dataRoot, () => account.Server, daemonHttp);
 using var stopUpdates = new CancellationTokenSource();
 var localDaemon = new LocalDaemon(account, dataRoot,
     Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON_DATA") is { Length: > 0 } daemonData ? Path.GetFullPath(daemonData) : LocalDaemon.DefaultDirectory(),
-    new ProcessCommandRunner(), daemonHttp, LocalDaemon.EmbeddedReleaseKey, Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON") is { Length: > 0 } daemonPath ? daemonPath : null,
+    new ProcessCommandRunner(), daemonHttp, Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON") is { Length: > 0 } daemonPath ? daemonPath : null,
     Environment.GetEnvironmentVariable("BOSOFA_DESKTOP_DAEMON_INSTALL_ARGS")?.Split(' ', StringSplitOptions.RemoveEmptyEntries));
 return NeoApplication.Run(new NeoApplicationOptions { ApplicationName = Brand.Name, ShutdownMode = NeoApplicationShutdownMode.Explicit }, async application =>
 {

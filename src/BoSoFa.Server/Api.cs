@@ -51,6 +51,7 @@ public sealed record Branding(string Name, string Tagline, string Daemon);
 [JsonSerializable(typeof(DevLoginRequest))]
 [JsonSerializable(typeof(AuthProviders))]
 [JsonSerializable(typeof(Branding))]
+[JsonSerializable(typeof(BoSoFa.Server.Machines.BundleManifest))]
 [JsonSerializable(typeof(BoSoFa.Server.Agents.ConversationItem))]
 [JsonSerializable(typeof(BoSoFa.Server.Agents.AgentInstructionsRecord))]
 [JsonSerializable(typeof(Microsoft.AspNetCore.Mvc.ProblemDetails))]

@@ -71,7 +71,7 @@ public static class ServerApp
         builder.Services.AddSingleton<LongPollChannels>();
         builder.Services.AddSingleton<PollEndpoints>();
         builder.Services.AddHostedService(services => services.GetRequiredService<PollEndpoints>());
-        builder.Services.AddHostedService<DaemonRolloutTicker>();
+        builder.Services.AddSingleton(ClientBundle.Load(Path.GetFullPath(options.BundleDirectory, AppContext.BaseDirectory)));
         builder.Services.AddSingleton<IDomainSignals, DomainSignals>();
 
         // BTDB: one replicated database plus the EventLog (see NodeStorage).
@@ -129,7 +129,6 @@ public static class ServerApp
         app.MapApiEndpoints(options);
         app.MapMachineEndpoints();
         app.MapFileEndpoints();
-        app.MapReleaseEndpoints();
         app.MapDownloadEndpoints();
         app.MapSessionEndpoints();
         app.MapDraftEndpoints();

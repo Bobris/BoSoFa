@@ -341,7 +341,6 @@ public sealed class MachineRemovedHandler(IDomainSignals signals, BTDB.BackendAc
         }
         Ambient.Relation<IMachineCommandTable>().RemoveById(machine.Id);
         Ambient.Relation<IMachineHarnessTable>().RemoveById(machine.Id);
-        Ambient.Relation<IMachineUpdatePolicyTable>().RemoveById(machine.Id);
         Ambient.Relation<IMachinePresenceTable>().RemoveById(machine.Id);
         machines.RemoveById(machine.Id);
         Audit.Record(ev.When, ev.UserId, "machine.removed", machine.Name, $"machine {machine.Id}");

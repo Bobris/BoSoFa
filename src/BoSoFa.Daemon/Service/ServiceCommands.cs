@@ -82,8 +82,7 @@ public static class ServiceCommands
         var versions = new VersionStore(target.DataDirectory);
         Directory.CreateDirectory(Path.Combine(target.DataDirectory, "logs"));
         versions.Add(Cli.Version, executable);
-        var state = versions.Load();
-        versions.Save(state with { Current = Cli.Version, Previous = state.Current != Cli.Version ? state.Current : state.Previous, TrialStartedAt = null });
+        versions.Save(new(Cli.Version));
         // Replaced by moving: a launcher that is running keeps its old file.
         var launcher = target.Launcher;
         var temporary = launcher + ".new";
@@ -128,7 +127,6 @@ public static class ServiceCommands
         Line(enrolled != null, enrolled != null ? $"enrolled as machine {enrolled.MachineId} on {enrolled.Server}" : $"not enrolled: {Brand.Daemon} enroll --server <url>");
         var versions = new VersionStore(Path.GetFullPath(store.Directory)).Load();
         Line(versions.Current != null, versions.Current != null ? $"launcher runs version {versions.Current}" : $"not installed as a service: {Brand.Daemon} install");
-        if (versions.Failed.Length > 0) Line(false, $"versions rolled back: {string.Join(", ", versions.Failed)}");
         Line(HarnessEnvironment.FindExecutable(null, ["git", "git.exe"]) != null, "git is on the PATH");
         foreach (var (name, executables) in new[] { ("Claude Code", new[] { "claude", "claude.exe", "claude.cmd" }), ("Codex", new[] { "codex", "codex.exe", "codex.cmd" }) })
             Line(HarnessEnvironment.FindExecutable(null, executables) != null, $"{name} on the PATH");

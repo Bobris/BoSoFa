@@ -4,8 +4,8 @@ using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon.Service;
 
-/// <summary>Which version the launcher runs. A new one is on trial until it has reached the server.</summary>
-public sealed record VersionState(string? Current, string? Previous, DateTime? TrialStartedAt, string[] Failed);
+/// <summary>Which version the launcher runs.</summary>
+public sealed record VersionState(string? Current);
 
 [JsonSerializable(typeof(VersionState))]
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
@@ -16,7 +16,6 @@ public sealed class VersionStore(string dataDirectory)
 {
     public string Root { get; } = Path.Combine(dataDirectory, "versions");
     string StatePath => Path.Combine(Root, "state.json");
-    string ConfirmedPath => Path.Combine(Root, "confirmed");
 
     public static string ExecutableName => OperatingSystem.IsWindows() ? Brand.Daemon + ".exe" : Brand.Daemon;
 
@@ -24,7 +23,7 @@ public sealed class VersionStore(string dataDirectory)
 
     public VersionState Load() => File.Exists(StatePath)
         ? JsonSerializer.Deserialize(File.ReadAllText(StatePath), VersionJsonContext.Default.VersionState)!
-        : new(null, null, null, []);
+        : new(null);
 
     public void Save(VersionState state)
     {
@@ -47,12 +46,13 @@ public sealed class VersionStore(string dataDirectory)
         File.Move(temporary, target, true);
     }
 
-    /// <summary>The running version has reached the server. Its own file: the launcher owns the state.</summary>
-    public void Confirm(string version)
+    /// <summary>Deletes every version but <paramref name="keep"/>. One that cannot be deleted (still running, on Windows) goes next time.</summary>
+    public void RemoveAllBut(string keep)
     {
-        Directory.CreateDirectory(Root);
-        File.WriteAllText(ConfirmedPath, version);
+        if (!Directory.Exists(Root)) return;
+        foreach (var directory in Directory.GetDirectories(Root))
+            if (Path.GetFileName(directory) != keep)
+                try { Directory.Delete(directory, true); }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
     }
-
-    public bool IsConfirmed(string version) => File.Exists(ConfirmedPath) && File.ReadAllText(ConfirmedPath) == version;
 }

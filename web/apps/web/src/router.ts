@@ -9,7 +9,6 @@ export const Router = createRouter({
     { path: "/install", component: lazy(() => import("./pages/Install")) },
     { path: "/catalog", component: lazy(() => import("./pages/Catalog")) },
     { path: "/desktop/authorize", component: lazy(() => import("./pages/DesktopAuthorize")) },
-    { path: "/releases", component: lazy(() => import("./pages/Releases")) },
     { path: "/audit", component: lazy(() => import("./pages/Audit")) },
     { path: "/tokens", component: lazy(() => import("./pages/Tokens")) },
     { path: "/accounts", component: lazy(() => import("./pages/Accounts")) },

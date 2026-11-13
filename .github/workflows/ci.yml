@@ -41,72 +41,9 @@ jobs:
       - name: Server image builds
         run: docker build -f deploy/Dockerfile -t bosofa-server:ci .
 
-  daemon-aot:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            rid: linux-x64
-          - os: windows-latest
-            rid: win-x64
-          - os: macos-latest
-            rid: osx-arm64
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-dotnet@v5
-        with:
-          global-json-file: global.json
-      - name: Install Native AOT prerequisites
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
-      # Trimming and AOT warnings are errors (TreatWarningsAsErrors), so this is the AOT gate.
-      - run: dotnet publish src/BoSoFa.Daemon -c Release -r ${{ matrix.rid }} -o out
-      - run: ./out/bosofad version
-        shell: bash
-      # A real install: the service manager must accept the definition and keep the launcher running.
-      - name: Install as a service (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo ./out/bosofad install --scope system --service-user "$USER" --data-dir /tmp/bosofa-service
-          sleep 5
-          systemctl is-active bosofad.service
-          sudo ./out/bosofad uninstall --scope system --data-dir /tmp/bosofa-service
-      - name: Install as a service (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          sudo ./out/bosofad install --scope system --service-user "$USER" --data-dir /tmp/bosofa-service
-          sleep 5
-          sudo launchctl print system/com.bosofa.daemon | grep -q 'state = running'
-          sudo ./out/bosofad uninstall --scope system --data-dir /tmp/bosofa-service
-      - name: Install as a service (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          ./out/bosofad.exe install --scope system --data-dir 'C:\bosofa-service'
-          sleep 5
-          sc.exe query BoSoFaDaemon | grep -q RUNNING
-          ./out/bosofad.exe uninstall --scope system --data-dir 'C:\bosofa-service'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bosofad-${{ matrix.rid }}
-          path: out/bosofad*
-          if-no-files-found: error
-
-  desktop-package:
-    # The archives the install page and the app's updater use; they only run on the OS they were built for.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            rid: linux-x64
-          - os: windows-latest
-            rid: win-x64
-          - os: macos-latest
-            rid: osx-arm64
-    runs-on: ${{ matrix.os }}
+  bundle:
+    # The server's publish builds the daemon and the desktop app for every platform, here on Linux as in the image.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -122,12 +59,77 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm --dir web install --frozen-lockfile
       - run: pnpm --dir web build
-      - run: dotnet publish src/BoSoFa.Desktop -c Release -r ${{ matrix.rid }} -p:BoSoFaPackage=true -p:Version=0.0.0-ci
+      # Trimming warnings are errors (TreatWarningsAsErrors), so this is also the daemon's trimming gate.
+      - run: dotnet publish src/BoSoFa.Server -c Release -p:Version=0.0.0-ci -o out
       - uses: actions/upload-artifact@v4
         with:
-          name: bosofa-desktop-${{ matrix.rid }}
-          path: artifacts/package/bosofa-desktop-*
+          name: bundle
+          path: out/bundle
           if-no-files-found: error
+
+  bundle-runs:
+    # What was built on Linux must run on each OS: the daemon as a real service, and the desktop archive must unpack.
+    needs: bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: bundle
+          path: bundle
+      # Artifacts lose the executable bit.
+      - name: Daemon
+        shell: bash
+        run: |
+          mkdir out
+          cp bundle/daemon/${{ matrix.rid }}/* out/
+          chmod +x out/*
+          ./out/bosofad* version
+      - name: Install as a service (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo ./out/bosofad install --scope system --service-user "$USER" --data-dir /tmp/bosofa-service
+          sleep 5
+          systemctl is-active bosofad.service
+          sudo ./out/bosofad uninstall --scope system --data-dir /tmp/bosofa-service
+      - name: Install as a service (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          codesign -dv ./out/bosofad 2>&1 | grep -q 'Signature=adhoc'
+          sudo ./out/bosofad install --scope system --service-user "$USER" --data-dir /tmp/bosofa-service
+          sleep 5
+          sudo launchctl print system/com.bosofa.daemon | grep -q 'state = running'
+          sudo ./out/bosofad uninstall --scope system --data-dir /tmp/bosofa-service
+      - name: Install as a service (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          ./out/bosofad.exe install --scope system --data-dir 'C:\bosofa-service'
+          sleep 5
+          sc.exe query BoSoFaDaemon | grep -q RUNNING
+          ./out/bosofad.exe uninstall --scope system --data-dir 'C:\bosofa-service'
+      - name: Desktop archive
+        shell: bash
+        run: |
+          mkdir app
+          case "${{ matrix.rid }}" in
+            win-*) unzip -q bundle/desktop/*-${{ matrix.rid }}.zip -d app ;;
+            *) tar -xzf bundle/desktop/*-${{ matrix.rid }}.tar.gz -C app ;;
+          esac
+          find app -name release.json -exec cat {} \;
+          find app -name release.json | grep -q .
+      - name: Desktop signature (macOS)
+        if: runner.os == 'macOS'
+        run: codesign -dv app/*.app/Contents/MacOS/bosofa-desktop 2>&1 | grep -q 'Signature=adhoc'
 
   web:
     runs-on: ubuntu-latest

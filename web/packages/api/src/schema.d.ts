@@ -182,53 +182,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/downloads/{product}/latest": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query: {
-                    rid: string;
-                };
-                header?: never;
-                path: {
-                    product: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["SignedRelease"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/downloads/{product}/{version}/{rid}": {
+    "/api/v1/downloads/{product}/{rid}": {
         parameters: {
             query?: never;
             header?: never;
@@ -241,7 +195,6 @@ export interface paths {
                 header?: never;
                 path: {
                     product: string;
-                    version: string;
                     rid: string;
                 };
                 cookie?: never;
@@ -1839,372 +1792,6 @@ export interface paths {
                 };
             };
         };
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/daemon-releases": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ReleaseDto"][];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["PublishRelease"];
-                };
-            };
-            responses: {
-                /** @description No Content */
-                204: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/daemon-releases/latest": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query: {
-                    rid: string;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["SignedRelease"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/desktop-releases": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ReleaseDto"][];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["PublishRelease"];
-                };
-            };
-            responses: {
-                /** @description No Content */
-                204: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/daemon-rollouts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["DaemonRolloutDto"][];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["StartDaemonRollout"];
-                };
-            };
-            responses: {
-                /** @description No Content */
-                204: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/daemon-rollouts/{id}/halt": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: number | string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description No Content */
-                204: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/machines/{id}/update-policy": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: number | string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["SetMachineUpdatePolicy"];
-                };
-            };
-            responses: {
-                /** @description No Content */
-                204: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        post?: never;
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3932,22 +3519,6 @@ export interface components {
             /** Format: uint64 */
             draftId?: null | number | string;
         };
-        DaemonRolloutDto: {
-            /** Format: uint64 */
-            id: number | string;
-            version: string;
-            channel: string;
-            status: components["schemas"]["DaemonRolloutStatus"];
-            /** Format: date-time */
-            startedAt: string;
-            /** Format: int32 */
-            updated: number | string;
-            /** Format: int32 */
-            inFlight: number | string;
-            detail: string;
-        };
-        /** @enum {unknown} */
-        DaemonRolloutStatus: "Running" | "Done" | "Halted";
         DaemonTokenRequest: {
             /** Format: uint64 */
             machineId: number | string;
@@ -4376,8 +3947,6 @@ export interface components {
         ProductDownload: {
             product: string;
             version: string;
-            /** Format: date-time */
-            publishedAt: string;
             files: components["schemas"]["DownloadFile"][];
         };
         ProfileDto: {
@@ -4405,23 +3974,11 @@ export interface components {
                 [key: string]: string;
             };
         };
-        PublishRelease: {
-            manifest: string;
-            signature: string;
-            channel: string;
-        };
         PublishSkillBundle: {
             name: string;
             version: string;
             sha256: string;
             description: null | string;
-        };
-        ReleaseDto: {
-            version: string;
-            channel: string;
-            /** Format: date-time */
-            publishedAt: string;
-            rids: string[];
         };
         RenameMachineRequest: {
             name: string;
@@ -4540,17 +4097,8 @@ export interface components {
         };
         /** @enum {unknown} */
         SessionStatus: "Starting" | "Running" | "WaitingForApproval" | "Idle" | "Stopped" | "Failed";
-        SetMachineUpdatePolicy: {
-            channel: string;
-            pinnedVersion: null | string;
-        };
         SideQuestionRequest: {
             text: string;
-        };
-        SignedRelease: {
-            version: string;
-            manifest: string;
-            signature: string;
         };
         SkillBundleDto: {
             name: string;
@@ -4563,16 +4111,6 @@ export interface components {
         SkillRef: {
             name: string;
             version: string;
-        };
-        StartDaemonRollout: {
-            version: string;
-            /**
-             * Format: int32
-             * @default 1
-             */
-            waveSize: number | string;
-            /** Format: int32 */
-            failAfterSeconds?: null | number | string;
         };
         TerminalDto: {
             id: string;

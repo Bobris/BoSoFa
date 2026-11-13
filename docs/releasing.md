@@ -1,78 +1,47 @@
 # Releasing
 
-A release is one version of both products, the daemon (`bosofad`) and the desktop app, for every RID. The
-[release workflow](../.github/workflows/release.yml) builds them, signs their manifests and publishes them to one BoSoFa
-server. Computers install from that server's `/install` page and update from it (plan §5.7).
-
-## The key
-
-The release key is an ECDSA P-256 key. Its public half is compiled into every daemon and desktop build, which accept only
-manifests it signed. Its private half is a PEM file that lives in one place: a GitHub secret of the `release` environment.
-
-Losing it means installed computers can no longer be updated: they must be reinstalled from a build with a new key. Keep
-one offline copy (a password manager or an encrypted drive) besides the secret. A leaked key lets its holder sign
-updates, but they still reach computers only through a server where they hold an admin's API token.
-
-## One-time setup
-
-1. Create the key on a trusted computer. The command prints the public key.
-
-   ```bash
-   bosofad release-keygen --out bosofa-release.pem
-   ```
-
-2. In the repository's settings:
-   - Variable `BOSOFA_RELEASE_PUBLIC_KEY`: the printed public key (repository level, because every build job embeds it).
-   - Environment `release`, with yourself as a required reviewer and deployments limited to `main` and `v*` tags:
-     - secret `BOSOFA_RELEASE_KEY`: the whole contents of `bosofa-release.pem`, including the BEGIN and END lines;
-     - secret `BOSOFA_TOKEN`: an API token of a server admin with full control (Settings → API tokens);
-     - variable `BOSOFA_SERVER`: the server's origin, such as `https://bosofa.example.com`.
-
-   With the GitHub CLI:
-
-   ```bash
-   gh variable set BOSOFA_RELEASE_PUBLIC_KEY --body '<public key>'
-   ```
-
-   ```bash
-   gh secret set BOSOFA_RELEASE_KEY --env release < bosofa-release.pem
-   ```
-
-   ```bash
-   gh secret set BOSOFA_TOKEN --env release
-   ```
-
-   ```bash
-   gh variable set BOSOFA_SERVER --env release --body https://bosofa.example.com
-   ```
-
-3. Move `bosofa-release.pem` to its offline copy and delete it from the computer.
+A release is a build of the server. `dotnet publish src/BoSoFa.Server` also builds the daemon (`bosofad`) and the desktop
+app for every platform, with the server's brand and version, and puts them in `bundle/` beside the server. The server's
+`/install` page and its install scripts hand out exactly those builds, and installed computers update to them (plan §5.7).
+There is nothing to publish separately, no signing key and no rollout to run.
 
 ## Making a release
 
-Push a tag, or run the workflow by hand with a version and a channel:
+Build the image with a version:
 
 ```bash
-git tag v1.2.0 && git push origin v1.2.0
+docker build -f deploy/Dockerfile --build-arg VERSION=1.2.0 -t bosofa-server:1.2.0 .
 ```
 
-```bash
-gh workflow run release -f version=1.3.0-beta.1 -f channel=beta
-```
+Then deploy it as usual ([deploy-aks.md](deploy-aks.md), [deploy-single-node.md](deploy-single-node.md)). Once the new
+server runs:
 
-A tag with a suffix (`v1.3.0-beta.1`) goes to the beta channel. The build jobs see no secrets. The publish job waits for
-the reviewer's approval, then uploads the files and signs with the Linux daemon it just built, which refuses a key other
-than the public key it embeds. Daemons follow the server's rollout; desktop apps take the newest stable release within six
-hours, or at their next start.
+- each daemon gets the new build offered when it next connects (the server's restart makes them reconnect), fetches it,
+  checks its SHA-256 and switches as soon as none of its sessions is busy (after 30 minutes at the latest);
+- each desktop app finds it within six hours, or at its next start, and offers "Restart to update".
 
-## Without the workflow
+Computers only ever move to a newer version (SemVer precedence; build metadata after `+` does not count), so raise the
+version with every release. While a cluster rolls from one build to the next, a daemon that reaches an old node is
+offered nothing, and one that reaches a new node moves up once.
 
-`bosofad release-publish` also signs with a local file (`--key bosofa-release.pem`) or with the PEM text in
-`BOSOFA_RELEASE_KEY`. The API token comes from `BOSOFA_TOKEN` either way.
+## What the build needs
 
-## Replacing the key
+- The desktop app's page: `pnpm --dir web build` before `dotnet publish` (the Dockerfile does it).
+- Nothing per platform: the daemon is a self-contained, trimmed single file and the desktop app is ReadyToRun, and both
+  build for Linux, Windows and macOS from any of them. macOS executables get the SDK's ad-hoc signature, which Apple
+  silicon needs to run them.
+- `-p:BoSoFaBundle=false` skips the bundle (the server then offers nothing to install), `-p:BoSoFaBundleRids=osx-arm64`
+  builds fewer platforms, and `dotnet build src/BoSoFa.Server -p:BoSoFaBundle=true` makes one for `dotnet run`, to try
+  installs and updates locally. The work happens under `artifacts/client-bundle/`.
 
-Builds trust exactly one public key. To replace it, build one release with the new public key and sign it with the old
-key, let every computer take it, then swap the secret and the variable for the new key. The workflow refuses that
-mismatch, so publish the bridge release by hand, with a `bosofad` built without `BoSoFaReleasePublicKey` and
-`--key` pointing at the old key. A computer that skipped the bridge release must be reinstalled from `/install`.
+## Trust
+
+The first download is trusted because it comes over HTTPS from the server the person chose, and so is every update: a
+daemon takes only the file whose SHA-256 the server it is connected to named. Builds are not signed beyond that, because
+whoever controls the server can already run commands on its machines.
+
+## A broken daemon
+
+A daemon version is not taken back by itself. If a release cannot reach the server, fix it in the next server build: a
+daemon that still connects takes that one. A machine whose daemon cannot connect at all is reinstalled from `/install`,
+which keeps its identity (`enroll` passes for a machine already enrolled on that server).

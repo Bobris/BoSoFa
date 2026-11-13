@@ -53,10 +53,10 @@ public sealed record InstalledApp(string Version, string Rid, string Root, strin
 }
 
 /// <summary>
-/// Keeps an installed app up to date from the server it was installed from (plan §6). A release counts only if the key compiled
-/// into this build signed it, so a server can offer nothing else. It is unpacked aside, and goes in place when the person restarts.
+/// Keeps an installed app up to date from the server it was installed from (plan §6): the server carries the build that
+/// matches it, and a newer one is unpacked aside and goes in place when the person restarts.
 /// </summary>
-public sealed class DesktopUpdater(InstalledApp? installed, string dataRoot, Func<string?> server, HttpClient http, string? releaseKey,
+public sealed class DesktopUpdater(InstalledApp? installed, string dataRoot, Func<string?> server, HttpClient http,
     Func<ProcessStartInfo, IDisposable?>? startProcess = null)
 {
     public const string UpdatedVariable = "BOSOFA_DESKTOP_UPDATED";
@@ -72,27 +72,12 @@ public sealed class DesktopUpdater(InstalledApp? installed, string dataRoot, Fun
     /// <summary>Set once the window exists: closes the app so the helper can replace it.</summary>
     public Action? Quit { get; set; }
 
-    public bool Supported => installed != null && releaseKey != null;
+    public bool Supported => installed != null;
 
     public UpdateState State => new(installed?.Version, Supported, _available, _stagedRoot != null, _problem);
 
     public static string CurrentRid => Releases.RidOf(OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsWindows() ? "windows" : "linux",
         RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant());
-
-    /// <summary>Only forward: a server must not be able to walk apps back to an older build with a known bug.</summary>
-    public static bool IsNewer(string candidate, string current)
-    {
-        static (Version? Number, bool Prerelease) Parse(string text)
-        {
-            var end = text.IndexOfAny(['-', '+']);
-            return (Version.TryParse(end < 0 ? text : text[..end], out var number) ? number : null, end >= 0 && text[end] == '-');
-        }
-        var (a, aPre) = Parse(candidate);
-        var (b, bPre) = Parse(current);
-        if (a == null || b == null) return candidate != current;
-        var order = a.CompareTo(b);
-        return order > 0 || (order == 0 && bPre && !aPre);
-    }
 
     string FailedPath => Path.Combine(Updates, "failed");
 
@@ -133,12 +118,12 @@ public sealed class DesktopUpdater(InstalledApp? installed, string dataRoot, Fun
     /// <summary>Looks for a newer release and stages it. Failures only end up in <see cref="State"/>: the app works without updates.</summary>
     public async Task<UpdateState> CheckAsync(CancellationToken cancellation)
     {
-        if (installed == null || releaseKey == null || server() is not { } origin) return State;
+        if (installed == null || server() is not { } origin) return State;
         await _checking.WaitAsync(cancellation);
         try
         {
             _problem = null;
-            await CheckCoreAsync(installed, releaseKey, new Uri(origin), cancellation);
+            await CheckCoreAsync(installed, new Uri(origin), cancellation);
         }
         catch (Exception exception) when (exception is HttpRequestException or IOException or JsonException or InvalidDataException or UnauthorizedAccessException or TaskCanceledException
                                               && !cancellation.IsCancellationRequested)
@@ -150,34 +135,23 @@ public sealed class DesktopUpdater(InstalledApp? installed, string dataRoot, Fun
         return State;
     }
 
-    async Task CheckCoreAsync(InstalledApp app, string key, Uri origin, CancellationToken cancellation)
+    async Task CheckCoreAsync(InstalledApp app, Uri origin, CancellationToken cancellation)
     {
-        using var response = await http.GetAsync(new Uri(origin, $"/api/v1/downloads/{Releases.Desktop}/latest?rid={app.Rid}"), cancellation);
-        if (!response.IsSuccessStatusCode) return; // nothing published for this platform
-        var release = (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.SignedRelease, cancellation))!;
-        if (!Releases.Verify(key, release.Manifest, release.Signature))
-        {
-            _problem = "The server's desktop release is not properly signed.";
-            return;
-        }
-        var manifest = JsonSerializer.Deserialize(release.Manifest, ProtocolJsonContext.Default.ReleaseManifest);
-        if (manifest == null || !Releases.IsFor(manifest, Releases.Desktop) || !Releases.IsValidVersion(manifest.Version) ||
-            manifest.Artifacts.FirstOrDefault(candidate => candidate.Rid == app.Rid) is not { } artifact)
-        {
-            _problem = "The server's desktop release does not fit this app.";
-            return;
-        }
-        var wanted = IsNewer(manifest.Version, app.Version) && !HasFailed(manifest.Version);
-        RemoveStagedExcept(wanted ? manifest.Version : null);
+        var downloads = await http.GetFromJsonAsync(new Uri(origin, "/api/v1/downloads"), ProtocolJsonContext.Default.ProductDownloadArray, cancellation) ?? [];
+        var offered = downloads.FirstOrDefault(download => download.Product == Releases.Desktop);
+        var file = offered?.Files.FirstOrDefault(candidate => candidate.Rid == app.Rid);
+        var wanted = offered != null && file != null && Releases.IsValidVersion(offered.Version) && Releases.IsNewer(offered.Version, app.Version) &&
+                     !HasFailed(offered.Version);
+        RemoveStagedExcept(wanted ? offered!.Version : null);
         if (!wanted)
         {
             _available = null;
             _stagedRoot = null;
             return;
         }
-        _available = manifest.Version;
-        var staged = Path.Combine(Updates, manifest.Version);
-        _stagedRoot = FindStaged(staged, manifest.Version, app.Rid) ?? await StageAsync(origin, manifest.Version, artifact, app.Rid, staged, cancellation);
+        _available = offered!.Version;
+        var staged = Path.Combine(Updates, offered.Version);
+        _stagedRoot = FindStaged(staged, offered.Version, app.Rid) ?? await StageAsync(origin, offered.Version, file!, app.Rid, staged, cancellation);
     }
 
     void RemoveStagedExcept(string? version)
@@ -196,14 +170,14 @@ public sealed class DesktopUpdater(InstalledApp? installed, string dataRoot, Fun
         return roots.Length == 1 && InstalledApp.FromRoot(roots[0]) is { } found && found.Version == version && found.Rid == rid && File.Exists(found.Executable) ? roots[0] : null;
     }
 
-    async Task<string?> StageAsync(Uri origin, string version, ReleaseArtifact artifact, string rid, string staged, CancellationToken cancellation)
+    async Task<string?> StageAsync(Uri origin, string version, DownloadFile artifact, string rid, string staged, CancellationToken cancellation)
     {
         Directory.CreateDirectory(Updates);
         var download = staged + ".download";
         var unpacked = staged + ".tmp";
         try
         {
-            using (var content = await http.GetAsync(new Uri(origin, $"/api/v1/downloads/{Releases.Desktop}/{version}/{rid}"), HttpCompletionOption.ResponseHeadersRead, cancellation))
+            using (var content = await http.GetAsync(new Uri(origin, artifact.Url), HttpCompletionOption.ResponseHeadersRead, cancellation))
             {
                 content.EnsureSuccessStatusCode();
                 await using var file = File.Create(download);
@@ -212,7 +186,7 @@ public sealed class DesktopUpdater(InstalledApp? installed, string dataRoot, Fun
             await using (var written = File.OpenRead(download))
                 if (Convert.ToHexStringLower(await SHA256.HashDataAsync(written, cancellation)) != artifact.Sha256)
                 {
-                    _problem = "The downloaded update does not match its release.";
+                    _problem = "The downloaded update does not match what the server offered.";
                     return null;
                 }
             if (Directory.Exists(unpacked)) Directory.Delete(unpacked, true);

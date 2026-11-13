@@ -31,9 +31,7 @@ export type MachineTerminal = components["schemas"]["MachineTerminalDto"];
 export type SessionDraft = components["schemas"]["SessionDraftDto"];
 export type ApiToken = components["schemas"]["ApiTokenDto"];
 export type AuditEntry = components["schemas"]["AuditEntryDto"];
-export type Release = components["schemas"]["ReleaseDto"];
 export type ProductDownload = components["schemas"]["ProductDownload"];
-export type DaemonRollout = components["schemas"]["DaemonRolloutDto"];
 export type LiveClientMessage = components["schemas"]["LiveClientMessage"];
 export type LiveServerMessage = components["schemas"]["LiveServerMessage"];
 

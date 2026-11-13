@@ -66,7 +66,8 @@ sealed class TestServer : IAsyncDisposable
         var urls = BaseAddress?.GetLeftPart(UriPartial.Authority) ?? _peerUrl?.GetLeftPart(UriPartial.Authority) ?? "http://127.0.0.1:0";
         _app = ServerApp.Build(["--urls", urls, "--environment", "Development",
             "--BoSoFa:DataDirectory", DataDirectory, "--BoSoFa:DevLogin", "true", "--BoSoFa:FlushToDisk", "false",
-            "--BoSoFa:WebRoot", Path.Combine(DataDirectory, "no-web-root"), .._extraArgs]);
+            "--BoSoFa:WebRoot", Path.Combine(DataDirectory, "no-web-root"), "--BoSoFa:BundleDirectory", Path.Combine(DataDirectory, "no-bundle"),
+            .._extraArgs]);
         await _app.StartAsync();
         BaseAddress = new(_app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First());
         _running = true;

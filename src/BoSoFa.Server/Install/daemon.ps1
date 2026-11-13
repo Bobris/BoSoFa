@@ -13,8 +13,8 @@
     try {
         $file = Join-Path $work '__BRAND_DAEMON__.exe'
         Write-Host "Downloading the daemon for $rid from $server"
-        try { $response = Invoke-WebRequest -UseBasicParsing -Uri "$server/api/v1/downloads/daemon/latest/$rid" -OutFile $file -PassThru }
-        catch { throw "This server has no daemon release for $rid." }
+        try { $response = Invoke-WebRequest -UseBasicParsing -Uri "$server/api/v1/downloads/daemon/$rid" -OutFile $file -PassThru }
+        catch { throw "This server carries no daemon for $rid." }
         $expected = [string]($response.Headers['X-BoSoFa-Sha256'] | Select-Object -First 1)
         $stream = [IO.File]::OpenRead($file)
         try { $actual = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }

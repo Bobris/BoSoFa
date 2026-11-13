@@ -24,8 +24,9 @@ public sealed class ServerOptions
     /// <summary>Where desktop apps run their page from; only these may call the API from another origin.</summary>
     public string[] DesktopOrigins { get; set; } = ["app://bosofa"];
 
-    /// <summary>How often a running daemon rollout is moved along.</summary>
-    public int RolloutTickSeconds { get; set; } = 15;
+    /// <summary>The daemon and desktop builds this server hands out (<c>bundle.json</c> and its files), written there by
+    /// <c>dotnet publish</c> of the server; relative to the folder of the server's assembly.</summary>
+    public string BundleDirectory { get; set; } = "bundle";
 
     /// <summary>What this node's backend action worker offers, in CPU units (100 is one core). An agent run counts 10, since it
     /// mostly waits for the model; unset, the larger of 100 per processor and 1000.</summary>

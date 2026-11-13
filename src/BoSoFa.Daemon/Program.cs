@@ -46,19 +46,11 @@ namespace BoSoFa.Daemon
                                                       Start with the machine (system) or at sign-in (user, the default).
               uninstall [--scope user|system] [--dry-run]  Remove the service; the machine's identity stays.
               doctor                                  Check what this daemon needs.
-              release-keygen --out <file>             Create the release signing key; prints the public key builds embed.
-              release-publish --server <url> [--key <file>] --version <v> --artifacts <rid=path,…> [--channel stable|beta] [--product daemon|desktop]
-                                                      Sign and publish a release (token in BOSOFA_TOKEN; without --key,
-                                                      the key's PEM text in BOSOFA_RELEASE_KEY).
               status [--server <url>]                 Check that the server answers and speaks this protocol version.
               version                                 Print the daemon version.
 
             Options: --data-dir <dir>   Where the daemon keeps its identity (default: the per-user data directory).
             """;
-
-        /// <summary>The public key this build checks releases against (<c>-p:BoSoFaReleasePublicKey</c>); null refuses every update.</summary>
-        static string? ReleaseKey => typeof(Cli).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(attribute => attribute.Key == "BoSoFaReleasePublicKey")?.Value;
 
         public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error,
             CancellationToken cancellation = default)
@@ -108,12 +100,6 @@ namespace BoSoFa.Daemon
                         return Service.ServiceCommands.Uninstall(store, options, output, error);
                     case "launcher":
                         return await Service.ServiceCommands.LauncherAsync(store, options, output, cancellation);
-                    case "release-keygen" when options.TryGetValue("out", out var keyFile):
-                        return Service.ReleaseCommands.KeyGen(keyFile, output, error);
-                    case "release-publish" when options.ContainsKey("server") && options.ContainsKey("version") && options.ContainsKey("artifacts"):
-                        return await Service.ReleaseCommands.PublishAsync(new Uri(options["server"]), options.GetValueOrDefault("key"), ReleaseKey,
-                            options.GetValueOrDefault("product") ?? Protocol.Releases.Daemon, options["version"],
-                            options.GetValueOrDefault("channel") ?? Protocol.Releases.Stable, options["artifacts"], output, error, cancellation);
                     case "claude-setup-token":
                         return await Service.ClaudeSetupToken.RunAsync(options.GetValueOrDefault("claude"), output, error, cancellation);
                     case "doctor":
@@ -121,9 +107,7 @@ namespace BoSoFa.Daemon
                     case "run":
                         return await RunLinkAsync(store, new(options.GetValueOrDefault("claude"),
                             options.GetValueOrDefault("replay-fixture"), CodexExecutable: options.GetValueOrDefault("codex"),
-                            Roots: options.GetValueOrDefault("roots")?.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries),
-                            ReleaseKey: ReleaseKey,
-                            Launched: Environment.GetEnvironmentVariable(Service.Launcher.LaunchedVariable) == "1"),
+                            Roots: options.GetValueOrDefault("roots")?.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)),
                             options.GetValueOrDefault("transport") switch
                             {
                                 "websocket" => DaemonTransport.WebSocket,
@@ -213,17 +197,19 @@ namespace BoSoFa.Daemon
             {
                 using var switching = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
                 var switchRequested = false;
-                host.Updater.SwitchRequested += () =>
+                using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+                var updater = new Service.DaemonUpdater(Path.GetFullPath(store.Directory), state.Server, http,
+                    Environment.GetEnvironmentVariable(Service.Launcher.LaunchedVariable) == "1", host.IsBusy, output);
+                updater.SwitchRequested += () =>
                 {
                     switchRequested = true;
                     switching.Cancel();
                 };
                 var link = new DaemonLink(state, key, output, outbox, host, transport, store.InstanceId());
-                if (Environment.GetEnvironmentVariable(Service.Launcher.LaunchedVariable) == "1")
+                link.Connected += welcome =>
                 {
-                    var versions = new Service.VersionStore(Path.GetFullPath(store.Directory));
-                    link.Connected += _ => versions.Confirm(Version); // ends the trial of a new version
-                }
+                    if (welcome.Update is { } update) updater.Offer(update);
+                };
                 await link.RunAsync(switching.Token);
                 return switchRequested ? Service.Launcher.SwitchVersionExitCode : 0;
             }

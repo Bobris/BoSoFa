@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Security.Cryptography;
 using System.Text.Json;
 using BoSoFa.Desktop;
 using BoSoFa.Protocol;
@@ -29,16 +28,6 @@ public class DesktopUpdaterTest
         public void Dispose() { }
     }
 
-    [Theory]
-    [InlineData("1.1", "1.0", true)]
-    [InlineData("1.10", "1.9", true)]
-    [InlineData("1.0", "1.0", false)]
-    [InlineData("0.9", "1.0", false)]
-    [InlineData("1.0", "1.0-beta", true)]
-    [InlineData("1.0-beta", "1.0", false)]
-    [InlineData("dev-b", "dev-a", true)]
-    public void OnlyNewerVersionsCount(string candidate, string current, bool newer) => Assert.Equal(newer, DesktopUpdater.IsNewer(candidate, current));
-
     [Fact]
     public void ABundleIsFoundFromTheFolderOfItsExecutable()
     {
@@ -53,30 +42,33 @@ public class DesktopUpdaterTest
     }
 
     [Fact]
-    public async Task ASignedNewerReleaseIsStagedAndSwappedInWhenItStarts()
+    public async Task ANewerBuildOfTheServerIsStagedAndSwappedInWhenItStarts()
     {
-        await using var server = await TestServer.StartAsync();
-        using var admin = await ReleaseFixture.AdminAsync(server);
         var folder = Directory.CreateTempSubdirectory("bosofa-desktop-update-").FullName;
         var data = Path.Combine(folder, "data");
         var installed = Install(Path.Combine(folder, "apps"), "1.0");
         using var http = new HttpClient();
+        await using (var same = await BundleFixture.StartAsync("1.0", (Releases.Desktop, Rid, BundleFixture.AppArchive("1.0", Rid, "BoSoFa", Zip))))
+            Assert.False((await new DesktopUpdater(installed, data, () => same.BaseAddress.ToString(), http).CheckAsync(default)).Ready); // not newer
+
+        await using var server = await BundleFixture.StartAsync("2.1", (Releases.Desktop, Rid, BundleFixture.AppArchive("2.1", Rid, "BoSoFa", Zip)));
         var started = new List<ProcessStartInfo>();
         var quit = 0;
-        var updater = new DesktopUpdater(installed, data, () => server.BaseAddress.ToString(), http, ReleaseFixture.PublicKey, info =>
+        var updater = new DesktopUpdater(installed, data, () => server.BaseAddress.ToString(), http, info =>
         {
             started.Add(info);
             return null;
         }) { Quit = () => Interlocked.Increment(ref quit) };
 
-        Assert.False((await updater.CheckAsync(default)).Ready); // nothing published
-        using var stranger = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        (await ReleaseFixture.PublishAsync(admin, Releases.Desktop, "2.0", [(Rid, ReleaseFixture.AppArchive("2.0", Rid, "BoSoFa", Zip))], key: stranger)).EnsureSuccessStatusCode();
+        // A file that does not match what the server says it is, is not taken.
+        var archive = BundleFixture.FileOf(server, Releases.Desktop, Rid);
+        var good = File.ReadAllBytes(archive);
+        File.WriteAllBytes(archive, BundleFixture.AppArchive("6.6", Rid, "BoSoFa", Zip));
         var refused = await updater.CheckAsync(default);
         Assert.False(refused.Ready);
-        Assert.Contains("not properly signed", refused.Problem);
+        Assert.Contains("does not match", refused.Problem);
+        File.WriteAllBytes(archive, good);
 
-        (await ReleaseFixture.PublishAsync(admin, Releases.Desktop, "2.1", [(Rid, ReleaseFixture.AppArchive("2.1", Rid, "BoSoFa", Zip))])).EnsureSuccessStatusCode();
         var state = await updater.CheckAsync(default);
         Assert.Equal(new UpdateState("1.0", true, "2.1", true, null), state);
 
@@ -101,7 +93,7 @@ public class DesktopUpdaterTest
         Assert.False(Directory.Exists(installed.Root + ".previous"));
         Assert.False(Directory.Exists(installed.Root + ".new"));
 
-        var after = new DesktopUpdater(InstalledApp.FromRoot(installed.Root), data, () => server.BaseAddress.ToString(), http, ReleaseFixture.PublicKey);
+        var after = new DesktopUpdater(InstalledApp.FromRoot(installed.Root), data, () => server.BaseAddress.ToString(), http);
         Assert.False((await after.CheckAsync(default)).Ready);
         Assert.Empty(Directory.GetDirectories(Path.Combine(data, "updates"))); // the staged copy is cleaned up
         Directory.Delete(folder, true);
@@ -110,14 +102,12 @@ public class DesktopUpdaterTest
     [Fact]
     public async Task AVersionThatDoesNotStartIsTakenBackAndNotOfferedAgain()
     {
-        await using var server = await TestServer.StartAsync();
-        using var admin = await ReleaseFixture.AdminAsync(server);
+        await using var server = await BundleFixture.StartAsync("2.0", (Releases.Desktop, Rid, BundleFixture.AppArchive("2.0", Rid, "BoSoFa", Zip)));
         var folder = Directory.CreateTempSubdirectory("bosofa-desktop-update-").FullName;
         var data = Path.Combine(folder, "data");
         var installed = Install(Path.Combine(folder, "apps"), "1.0");
         using var http = new HttpClient();
-        (await ReleaseFixture.PublishAsync(admin, Releases.Desktop, "2.0", [(Rid, ReleaseFixture.AppArchive("2.0", Rid, "BoSoFa", Zip))])).EnsureSuccessStatusCode();
-        var updater = new DesktopUpdater(installed, data, () => server.BaseAddress.ToString(), http, ReleaseFixture.PublicKey, _ => null);
+        var updater = new DesktopUpdater(installed, data, () => server.BaseAddress.ToString(), http, _ => null);
         Assert.True((await updater.CheckAsync(default)).Ready);
         Assert.Null(updater.Install());
         var plan = JsonSerializer.Deserialize<UpdatePlan>(File.ReadAllText(Path.Combine(data, "updates", "plan.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
@@ -134,7 +124,7 @@ public class DesktopUpdaterTest
         Assert.Equal("1.0", InstalledApp.FromRoot(installed.Root)!.Version);
         Assert.False(Directory.Exists(installed.Root + ".previous"));
 
-        var again = new DesktopUpdater(InstalledApp.FromRoot(installed.Root), data, () => server.BaseAddress.ToString(), http, ReleaseFixture.PublicKey);
+        var again = new DesktopUpdater(InstalledApp.FromRoot(installed.Root), data, () => server.BaseAddress.ToString(), http);
         Assert.False((await again.CheckAsync(default)).Ready);
 
         // An app that will not close changes nothing.

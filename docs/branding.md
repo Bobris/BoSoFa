@@ -47,7 +47,7 @@ dotnet publish src/BoSoFa.Daemon -c Release -r osx-arm64 -p:Brand=qsf -o artifac
 docker build -f deploy/Dockerfile --build-arg BRAND=qsf -t qsf-server .
 ```
 
-The release workflow builds the brand in the repository variable `BOSOFA_BRAND` ([releasing.md](releasing.md)). The
+The server's build carries the daemon and the desktop app of its own brand ([releasing.md](releasing.md)). The
 web page needs no brand: it reads its names from the server (`/api/v1/branding`) and remembers them for the next start.
 
 ## Adding a brand

@@ -28,9 +28,10 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
   azurite`), three nodes as separate processes and a front door on http://localhost:5080 (data in `data/cluster`).
   Type `kill 1` / `start 1` to try failover. The SPA dev server and daemons point at port 5080 as usual.
 - Desktop: `pnpm --dir web build`, then `dotnet run --project src/BoSoFa.Desktop`. RPC changed: build it and commit `web/apps/desktop/neoastra/neoastra.ts`.
-- Service and updates: `bosofad install --dry-run` prints the service definition; `bosofad doctor` checks a machine. Releases are signed with
-  `bosofad release-keygen` / `release-publish [--product desktop]`; a build needs `-p:BoSoFaReleasePublicKey=<key>` to accept them.
-  The release workflow publishes both products with the key from a GitHub secret: [docs/releasing.md](docs/releasing.md).
+- Service and updates: `bosofad install --dry-run` prints the service definition; `bosofad doctor` checks a machine. A release is a
+  server build: `dotnet publish src/BoSoFa.Server -p:Version=<v>` also builds the daemon and the desktop app for every platform into
+  `bundle/` (`ClientBundle.targets`; needs `pnpm --dir web build` first, `-p:BoSoFaBundle=false` skips it), which the server hands out and
+  updates computers to. `dotnet build src/BoSoFa.Server -p:BoSoFaBundle=true` makes one for `dotnet run`. See [docs/releasing.md](docs/releasing.md).
 - White labeling: `-p:Brand=qsf` builds another brand (`brands/*.props` → the generated `BoSoFa.Protocol.Brand`); never hard-code
   `bosofad`, `BoSoFa` or `bosofa` in anything people see. `BoSoFa:Branding` renames the UI only. See [docs/branding.md](docs/branding.md).
 - Single node without Azure: `deploy/compose.yaml` ([docs/deploy-single-node.md](docs/deploy-single-node.md)).
@@ -40,7 +41,7 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 - Server agent (`src/BoSoFa.Server/Agents`, [docs/server-agent.md](docs/server-agent.md)): harness `agent`, whose loop runs as a BTDB backend action on a server node and keeps all its state in the transcript; its machine tools run in `src/BoSoFa.Daemon/Tools`. CI uses recorded streams in
   `tests/fixtures/providers`. The live tests run with `BOSOFA_TEST_OPENAI_KEY_FILE=<file with the key>` , `BOSOFA_TEST_ANTHROPIC_KEY_FILE` and `BOSOFA_TEST_OPENCODE_KEY_FILE`
   (and optionally `BOSOFA_TEST_OPENAI_MODEL`, `BOSOFA_TEST_ANTHROPIC_MODEL`, `BOSOFA_TEST_OPENCODE_MODEL`); never print or commit a key.
-- Distribution: computers install both products from the server's `/install` page and update from it. A desktop package:
+- Distribution: computers install both products from the server's `/install` page and update from it. One desktop package by hand:
   `pnpm --dir web build`, then `dotnet publish src/BoSoFa.Desktop -c Release -r osx-arm64 -p:BoSoFaPackage=true -p:Version=<v>`
   writes `artifacts/package/bosofa-desktop-<rid>.tar.gz` (`.zip` on Windows).
 - AKS: `deploy/Dockerfile`; the workload itself is a Pulumi project in the operations repositories, built to the contract in
@@ -52,7 +53,8 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 
 - Every product assembly is `IsAotCompatible` and warnings are errors: no reflection-based JSON (use the
   source-generated contexts `ProtocolJsonContext` / `ServerJsonContext`), configuration binding goes through the
-  binding generator, BTDB metadata through `BTDB.SourceGenerator`. Only the daemon actually publishes AOT.
+  binding generator, BTDB metadata through `BTDB.SourceGenerator`. Nothing publishes AOT: the daemon is a trimmed single file, so the
+  server's build can make it for every OS.
 - The daemon references only `BoSoFa.Protocol` and talks to the server only over HTTP(S), dialing out.
 - BTDB handlers (`IEventHandler.Consume`) must be deterministic: use `ev.When`, never the clock, randomness or I/O;
   allocate IDs with `Ambient.AllocateId()`. Register new relations in `Domain.Relations` and handlers in

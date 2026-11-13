@@ -1,10 +1,6 @@
 using System.Reflection;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using BoSoFa.Protocol;
-using BoSoFa.Server.Btdb;
-using BoSoFa.Server.Domain;
-using BTDB.Replication.EventSourcing;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace BoSoFa.Server.Machines;
@@ -18,74 +14,21 @@ public static partial class DownloadEndpoints
 {
     public const string ShaHeader = "X-BoSoFa-Sha256";
     public const string VersionHeader = "X-BoSoFa-Version";
-    const string Latest = "latest";
 
     public static void MapDownloadEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/v1/downloads", ListAsync);
-        app.MapGet("/api/v1/downloads/{product}/latest", LatestReleaseAsync);
-        app.MapGet("/api/v1/downloads/{product}/{version}/{rid}", FileAsync);
+        app.MapGet("/api/v1/downloads", (ClientBundle bundle) => bundle.Downloads());
+        app.MapGet("/api/v1/downloads/{product}/{rid}", File);
         app.MapGet("/install/{script}", Script);
     }
 
-    sealed record Row(string Version, string Channel, string Manifest, string Signature, DateTime PublishedAt);
-
-    /// <summary>Newest first. Must run inside a query.</summary>
-    static IEnumerable<Row> Rows(string product) => (product == Releases.Daemon
-            ? Ambient.Relation<IDaemonReleaseTable>().Select(release => new Row(release.Version, release.Channel, release.Manifest, release.Signature, release.PublishedAt))
-            : Ambient.Relation<IDesktopReleaseTable>().Select(release => new Row(release.Version, release.Channel, release.Manifest, release.Signature, release.PublishedAt)))
-        .OrderByDescending(row => row.PublishedAt);
-
-    static ReleaseManifest? Parse(string manifest)
+    /// <summary>Only the files of this server's bundle, never blobs: those stay behind a sign-in.</summary>
+    static Results<PhysicalFileHttpResult, NotFound> File(string product, string rid, ClientBundle bundle, HttpContext http)
     {
-        try { return JsonSerializer.Deserialize(manifest, ProtocolJsonContext.Default.ReleaseManifest); }
-        catch (JsonException) { return null; }
-    }
-
-    static Row? NewestStable(string product, string? rid) => Rows(product).FirstOrDefault(row => row.Channel == Releases.Stable &&
-        (rid == null || Parse(row.Manifest)?.Artifacts.Any(artifact => artifact.Rid == rid) == true));
-
-    static async Task<ProductDownload[]> ListAsync(BtdbNode node, HttpContext http)
-    {
-        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
-        using var query = publisher.StartQuery();
-        var result = new List<ProductDownload>();
-        foreach (var product in new[] { Releases.Daemon, Releases.Desktop })
-        {
-            if (NewestStable(product, null) is not { } row || Parse(row.Manifest) is not { } manifest) continue;
-            result.Add(new(product, row.Version, row.PublishedAt, manifest.Artifacts.Select(artifact => new DownloadFile(artifact.Rid,
-                Releases.FileName(product, artifact.Rid), artifact.Sha256, artifact.Size, $"/api/v1/downloads/{product}/{row.Version}/{artifact.Rid}")).ToArray()));
-        }
-        return result.ToArray();
-    }
-
-    /// <summary>What an app checks before updating itself; the signature is its proof, so the server need not be believed.</summary>
-    static async Task<Results<Ok<SignedRelease>, NotFound>> LatestReleaseAsync(string product, string rid, BtdbNode node, HttpContext http)
-    {
-        if (!Releases.IsValidProduct(product)) return TypedResults.NotFound();
-        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
-        using var query = publisher.StartQuery();
-        return NewestStable(product, rid) is { } row ? TypedResults.Ok(new SignedRelease(row.Version, row.Manifest, row.Signature)) : TypedResults.NotFound();
-    }
-
-    /// <summary>Only files of published releases, never other blobs: those stay behind a sign-in.</summary>
-    static async Task<Results<FileStreamHttpResult, NotFound>> FileAsync(string product, string version, string rid, IBlobStore blobs, BtdbNode node, HttpContext http)
-    {
-        if (!Releases.IsValidProduct(product)) return TypedResults.NotFound();
-        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
-        ReleaseArtifact? artifact;
-        string? found;
-        using (publisher.StartQuery())
-        {
-            var row = version == Latest ? NewestStable(product, rid) : Rows(product).FirstOrDefault(candidate => candidate.Version == version);
-            found = row?.Version;
-            artifact = row == null ? null : Parse(row.Manifest)?.Artifacts.FirstOrDefault(candidate => candidate.Rid == rid);
-        }
-        if (artifact == null || await blobs.OpenAsync(artifact.Sha256, http.RequestAborted) is not { } content) return TypedResults.NotFound();
-        http.Response.Headers[ShaHeader] = artifact.Sha256;
-        http.Response.Headers[VersionHeader] = found;
-        http.Response.ContentLength = artifact.Size;
-        return TypedResults.Stream(content, "application/octet-stream", Releases.FileName(product, rid));
+        if (bundle.Find(product, rid) is not { } file) return TypedResults.NotFound();
+        http.Response.Headers[ShaHeader] = file.Sha256;
+        http.Response.Headers[VersionHeader] = bundle.Version;
+        return TypedResults.PhysicalFile(file.FullPath, "application/octet-stream", Releases.FileName(product, rid), enableRangeProcessing: true);
     }
 
     /// <summary>The script names this server, so that what a person copies needs no editing. The origin ends up in a shell

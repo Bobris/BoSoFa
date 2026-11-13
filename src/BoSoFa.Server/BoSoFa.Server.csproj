@@ -30,4 +30,5 @@
     <EmbeddedResource Include="Install/*" LogicalName="install/%(Filename)%(Extension)" />
     <EmbeddedResource Include="Agents/models.json" LogicalName="agents/models.json" />
   </ItemGroup>
+  <Import Project="ClientBundle.targets" />
 </Project>

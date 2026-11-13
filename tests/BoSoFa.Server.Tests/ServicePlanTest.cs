@@ -93,7 +93,7 @@ public class LauncherTest
     }
 
     static async Task<(VersionStore Store, List<string> Started)> RunUntilAsync(string directory, VersionState state, Func<string, int, FakeChild> children,
-        Func<VersionStore, List<string>, bool> done, TimeSpan? trial = null)
+        Func<VersionStore, List<string>, bool> done)
     {
         var store = new VersionStore(directory);
         store.Save(state);
@@ -104,7 +104,7 @@ public class LauncherTest
             var version = Path.GetFileName(Path.GetDirectoryName(executable)!);
             lock (started) started.Add(version);
             return children(version, started.Count).Start();
-        }, TextWriter.Null, trial, TimeSpan.FromMilliseconds(10));
+        }, TextWriter.Null);
         var running = launcher.RunAsync(stop.Token);
         while (true)
         {
@@ -122,63 +122,41 @@ public class LauncherTest
     static string Directory_() => Directory.CreateTempSubdirectory("bosofa-launcher-").FullName;
 
     [Fact]
-    public async Task ANewVersionThatDiesBeforeReachingTheServerIsTakenBack()
+    public async Task ACrashingVersionIsStartedAgain()
     {
-        var (store, started) = await RunUntilAsync(Directory_(), new("2.0", "1.0", DateTime.UtcNow, []),
-            (version, _) => version == "2.0" ? new FakeChild(1) : new FakeChild(), (_, list) => list.Contains("1.0"));
-        Assert.Equal(["2.0", "1.0"], started);
-        var state = store.Load();
-        Assert.Equal(("1.0", (string?)null, (DateTime?)null), (state.Current, state.Previous, state.TrialStartedAt));
-        Assert.Equal(["2.0"], state.Failed);
+        var (store, started) = await RunUntilAsync(Directory_(), new("2.0"), (_, count) => count == 1 ? new FakeChild(1) : new FakeChild(),
+            (_, list) => list.Count == 2);
+        Assert.Equal(["2.0", "2.0"], started); // there is nothing to go back to
+        Assert.Equal("2.0", store.Load().Current);
     }
 
     [Fact]
-    public async Task ANewVersionThatHangsIsTakenBackAfterTheLimit()
-    {
-        FakeChild? hanging = null;
-        var (store, _) = await RunUntilAsync(Directory_(), new("2.0", "1.0", DateTime.UtcNow, []), (version, _) =>
-        {
-            var child = new FakeChild();
-            if (version == "2.0") hanging = child;
-            return child;
-        }, (_, list) => list.Contains("1.0"), TimeSpan.FromMilliseconds(100));
-        Assert.True(hanging!.Stopped);
-        Assert.Equal("1.0", store.Load().Current);
-    }
-
-    [Fact]
-    public async Task AConfirmedVersionStaysEvenIfItCrashesLater()
+    public async Task ExitCodeSeventyFiveSwitchesToTheNewCurrentVersionAndDropsTheOldOne()
     {
         var directory = Directory_();
-        FakeChild? first = null;
-        var (store, started) = await RunUntilAsync(directory, new("2.0", "1.0", DateTime.UtcNow, []), (_, count) =>
+        var store = new VersionStore(directory);
+        foreach (var version in new[] { "0.9", "1.0" }) Directory.CreateDirectory(Path.Combine(store.Root, version));
+        var (_, started) = await RunUntilAsync(directory, new("1.0"), (version, count) =>
         {
-            var child = new FakeChild();
             if (count == 1)
             {
-                first = child;
-                new VersionStore(directory).Confirm("2.0");
+                // What the updater does while 1.0 runs, before it exits.
+                Directory.CreateDirectory(Path.Combine(store.Root, "2.0"));
+                new VersionStore(directory).Save(new("2.0"));
             }
-            return child;
-        }, (versions, list) =>
-        {
-            if (versions.Load().TrialStartedAt == null) first?.Exit(1);
-            return list.Count == 2;
-        });
-        Assert.Equal(["2.0", "2.0"], started);
-        Assert.Equal("2.0", store.Load().Current);
-        Assert.Empty(store.Load().Failed);
-    }
-
-    [Fact]
-    public async Task ExitCodeSeventyFiveSwitchesToTheNewCurrentVersion()
-    {
-        var directory = Directory_();
-        var (_, started) = await RunUntilAsync(directory, new("1.0", null, null, []), (version, count) =>
-        {
-            if (count == 1) new VersionStore(directory).Save(new("2.0", "1.0", DateTime.UtcNow, [])); // what the updater does before it exits
             return version == "1.0" ? new FakeChild(Launcher.SwitchVersionExitCode) : new FakeChild();
         }, (_, list) => list.Count == 2);
         Assert.Equal(["1.0", "2.0"], started);
+        Assert.Equal(["2.0"], Directory.GetDirectories(store.Root).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void AnOlderStateFileStillNamesTheCurrentVersion()
+    {
+        var directory = Directory_();
+        var store = new VersionStore(directory);
+        Directory.CreateDirectory(store.Root);
+        File.WriteAllText(Path.Combine(store.Root, "state.json"), """{"current":"2.0","previous":"1.0","trialStartedAt":null,"failed":["1.5"]}""");
+        Assert.Equal("2.0", store.Load().Current);
     }
 }

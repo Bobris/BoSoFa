@@ -21,8 +21,8 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 echo "Downloading the daemon for $rid from $server"
-if ! curl -fsSL -D "$work/headers" -o "$work/__BRAND_DAEMON__" "$server/api/v1/downloads/daemon/latest/$rid"; then
-  echo "This server has no daemon release for $rid." >&2
+if ! curl -fsSL -D "$work/headers" -o "$work/__BRAND_DAEMON__" "$server/api/v1/downloads/daemon/$rid"; then
+  echo "This server carries no daemon for $rid." >&2
   exit 1
 fi
 expected=$(tr -d '\r' <"$work/headers" | awk 'tolower($1) == "x-bosofa-sha256:" { print $2 }')

@@ -1,0 +1,70 @@
+<Project>
+  <!--
+    The server carries the daemon and the desktop app it hands out (plan §5.7, ClientBundle.cs). `dotnet publish` of the server
+    builds both for every platform with the server's brand and version and puts them in bundle/ beside it, with bundle.json:
+      -p:BoSoFaBundle=false             skips it (the server then offers nothing to install or update);
+      -p:BoSoFaBundle=true              also does it on `dotnet build` of this project, for trying installs and updates locally;
+      -p:BoSoFaBundleRids=osx-arm64     limits it to some platforms.
+    Both are built in separate processes under artifacts/client-bundle/, so they never race with the build around them. The
+    desktop app needs its page first: pnpm -dir web build.
+  -->
+  <PropertyGroup>
+    <BoSoFaBundleRids Condition="'$(BoSoFaBundleRids)' == ''">linux-x64;win-x64;osx-arm64</BoSoFaBundleRids>
+    <_BundleWork>$(ArtifactsPath)/client-bundle/</_BundleWork>
+    <_BundleStage>$(_BundleWork)stage/</_BundleStage>
+    <_BundleDotnet>$(DOTNET_HOST_PATH)</_BundleDotnet>
+    <_BundleDotnet Condition="'$(_BundleDotnet)' == ''">dotnet</_BundleDotnet>
+    <_BundleProperties>-c $(Configuration) -p:Brand=$(Brand) -p:Version=$(Version) -p:ArtifactsPath=&quot;$(_BundleWork)build&quot; -nologo -v:minimal</_BundleProperties>
+  </PropertyGroup>
+
+  <Target Name="BuildClientBundle">
+    <ItemGroup>
+      <_BundleRid Include="$(BoSoFaBundleRids)" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)../../web/apps/desktop/dist/index.html')" Text="The desktop app's page is missing: run 'pnpm --dir web build' first, or skip the bundle with -p:BoSoFaBundle=false." />
+    <RemoveDir Directories="$(_BundleStage)" />
+    <Message Importance="high" Text="Building the daemon and the desktop app $(Version) for @(_BundleRid, ', ')" />
+    <Exec Command="&quot;$(_BundleDotnet)&quot; publish &quot;$(MSBuildThisFileDirectory)../BoSoFa.Daemon/BoSoFa.Daemon.csproj&quot; -r %(_BundleRid.Identity) $(_BundleProperties) -o &quot;$(_BundleWork)daemon/%(_BundleRid.Identity)&quot;" />
+    <Exec Command="&quot;$(_BundleDotnet)&quot; publish &quot;$(MSBuildThisFileDirectory)../BoSoFa.Desktop/BoSoFa.Desktop.csproj&quot; -r %(_BundleRid.Identity) $(_BundleProperties) -p:BoSoFaPackage=true -p:BoSoFaPackageDirectory=&quot;$(_BundleWork)package&quot;" />
+    <ItemGroup>
+      <_BundleRid>
+        <Windows>$([System.String]::Copy('%(Identity)').StartsWith('win-'))</Windows>
+      </_BundleRid>
+      <_BundleRid>
+        <Executable>$(BrandDaemon)</Executable>
+        <Archive>$(BrandId)-desktop-%(Identity).tar.gz</Archive>
+      </_BundleRid>
+      <_BundleRid Condition="'%(Windows)' == 'True'">
+        <Executable>$(BrandDaemon).exe</Executable>
+        <Archive>$(BrandId)-desktop-%(Identity).zip</Archive>
+      </_BundleRid>
+      <_BundleFile Include="$(_BundleWork)daemon/%(_BundleRid.Identity)/%(_BundleRid.Executable)" Product="daemon" Rid="%(_BundleRid.Identity)"
+                   BundlePath="daemon/%(_BundleRid.Identity)/%(_BundleRid.Executable)" />
+      <_BundleFile Include="$(_BundleWork)package/%(_BundleRid.Archive)" Product="desktop" Rid="%(_BundleRid.Identity)"
+                   BundlePath="desktop/%(_BundleRid.Archive)" />
+    </ItemGroup>
+    <Error Condition="!Exists('%(_BundleFile.FullPath)')" Text="%(_BundleFile.FullPath) was not built." />
+    <GetFileHash Files="@(_BundleFile)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Items" ItemName="_BundleHashed" />
+    </GetFileHash>
+    <Copy SourceFiles="@(_BundleHashed)" DestinationFiles="@(_BundleHashed->'$(_BundleStage)%(BundlePath)')" />
+    <PropertyGroup>
+      <_BundleJsonFiles>@(_BundleHashed->'{&quot;product&quot;:&quot;%(Product)&quot;,&quot;rid&quot;:&quot;%(Rid)&quot;,&quot;path&quot;:&quot;%(BundlePath)&quot;,&quot;sha256&quot;:&quot;%(FileHash)&quot;}', ',')</_BundleJsonFiles>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_BundleStage)bundle.json" Overwrite="true" Lines="{&quot;version&quot;:&quot;$(Version)&quot;,&quot;files&quot;:[$(_BundleJsonFiles)]}" />
+    <ItemGroup>
+      <_BundleOutput Include="$(_BundleStage)**/*" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CopyClientBundleToOutput" AfterTargets="Build" DependsOnTargets="BuildClientBundle" Condition="'$(BoSoFaBundle)' == 'true'">
+    <RemoveDir Directories="$(OutDir)bundle" />
+    <Copy SourceFiles="@(_BundleOutput)" DestinationFiles="@(_BundleOutput->'$(OutDir)bundle/%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+  <Target Name="CopyClientBundleToPublish" AfterTargets="Publish" DependsOnTargets="BuildClientBundle" Condition="'$(BoSoFaBundle)' != 'false'">
+    <RemoveDir Directories="$(PublishDir)bundle" />
+    <Copy SourceFiles="@(_BundleOutput)" DestinationFiles="@(_BundleOutput->'$(PublishDir)bundle/%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Message Importance="high" Text="Bundled @(_BundleHashed->Count()) files of version $(Version) into $(PublishDir)bundle" />
+  </Target>
+</Project>

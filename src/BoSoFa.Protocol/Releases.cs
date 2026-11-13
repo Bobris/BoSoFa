@@ -1,58 +1,24 @@
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
-
 namespace BoSoFa.Protocol;
-
-public sealed record ReleaseArtifact(string Rid, string Sha256, long Size);
-
-/// <summary>What a release contains. Its JSON text is what the offline release key signs (plan §5.7). The product is signed
-/// too, so a release of one product cannot pass for the other; a manifest without one is a daemon release.</summary>
-public sealed record ReleaseManifest(string Version, ReleaseArtifact[] Artifacts,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Product = null);
-
-public sealed record PublishRelease(string Manifest, string Signature, string Channel);
-
-/// <summary>A release with what is needed to check it.</summary>
-public sealed record SignedRelease(string Version, string Manifest, string Signature);
-
-public sealed record ReleaseDto(string Version, string Channel, DateTime PublishedAt, string[] Rids);
 
 /// <summary>One file a person or an install script can fetch without signing in.</summary>
 public sealed record DownloadFile(string Rid, string FileName, string Sha256, long Size, string Url);
 
-/// <summary>The newest stable release of a product.</summary>
-public sealed record ProductDownload(string Product, string Version, DateTime PublishedAt, DownloadFile[] Files);
+/// <summary>The build of a product that this server carries (plan §5.7): one version, every platform it was built for.</summary>
+public sealed record ProductDownload(string Product, string Version, DownloadFile[] Files);
 
-[JsonConverter(typeof(JsonStringEnumConverter<DaemonRolloutStatus>))]
-public enum DaemonRolloutStatus
+/// <summary>Sent to a daemon whose version is older than the one the server carries: fetch
+/// <c>/api/v1/downloads/daemon/{rid}</c>, check its SHA-256 and switch to it.</summary>
+public sealed record DaemonUpdate(string Version, string Sha256, long Size);
+
+public static class Releases
 {
-    Running,
-    Done,
-    Halted
-}
-
-/// <summary><c>WaveSize</c> machines update at a time. One that is not back on the new version after
-/// <c>FailAfterSeconds</c> halts the rollout.</summary>
-public sealed record StartDaemonRollout(string Version, int WaveSize = 1, int? FailAfterSeconds = null);
-
-public sealed record DaemonRolloutDto(ulong Id, string Version, string Channel, DaemonRolloutStatus Status, DateTime StartedAt, int Updated, int InFlight, string Detail);
-
-/// <summary>The default channel is <see cref="Releases.Stable"/>. A pin holds a machine at one version.</summary>
-public sealed record SetMachineUpdatePolicy(string Channel, string? PinnedVersion);
-
-public static partial class Releases
-{
-    public const string Stable = "stable";
-    public const string Beta = "beta";
-
     public const string Daemon = "daemon";
     public const string Desktop = "desktop";
 
-    public static bool IsValidProduct(string product) => product is Daemon or Desktop;
+    /// <summary>Every platform a server build carries the daemon and the desktop app for.</summary>
+    public static readonly string[] Rids = ["linux-x64", "win-x64", "osx-arm64"];
 
-    public static bool IsFor(ReleaseManifest manifest, string product) => (manifest.Product ?? Daemon) == product;
+    public static bool IsValidProduct(string product) => product is Daemon or Desktop;
 
     /// <summary>What a download is called: the daemon is a bare executable, the desktop app an archive of its folder.</summary>
     public static string FileName(string product, string rid)
@@ -64,28 +30,42 @@ public static partial class Releases
     }
 
     /// <summary>A version names a folder on every machine, so it must be plain.</summary>
-    public static bool IsValidVersion(string version) => version.Length is > 0 and <= 100 && version[0] != '.' && VersionPattern().IsMatch(version);
-
-    public static bool IsValidChannel(string channel) => channel is Stable or Beta;
+    public static bool IsValidVersion(string version) =>
+        version.Length is > 0 and <= 100 && version[0] != '.' && version.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '+' or '_' or '-');
 
     /// <summary>The .NET runtime identifier of a machine, from what its daemon reports.</summary>
     public static string RidOf(string os, string arch) => (os == "macos" ? "osx" : os == "windows" ? "win" : os) + "-" + arch;
 
-    /// <summary>ECDSA P-256, IEEE P1363 signature over the manifest's UTF-8 bytes; the key is SubjectPublicKeyInfo, base64.</summary>
-    public static bool Verify(string publicKey, string manifest, string signature)
+    /// <summary>Only forward, by SemVer precedence (build metadata after <c>+</c> does not count). While a cluster rolls to a
+    /// new build, its nodes carry different versions; a computer moves up once and never back.</summary>
+    public static bool IsNewer(string candidate, string current)
     {
-        try
+        static (Version? Number, string? Prerelease) Parse(string text)
         {
-            using var key = ECDsa.Create();
-            key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKey), out _);
-            return key.VerifyData(Encoding.UTF8.GetBytes(manifest), Convert.FromBase64String(signature), HashAlgorithmName.SHA256);
+            var plus = text.IndexOf('+');
+            if (plus >= 0) text = text[..plus];
+            var dash = text.IndexOf('-');
+            return (Version.TryParse(dash < 0 ? text : text[..dash], out var number) ? number : null, dash < 0 ? null : text[(dash + 1)..]);
         }
-        catch (Exception exception) when (exception is FormatException or CryptographicException)
-        {
-            return false;
-        }
+        var (a, aPre) = Parse(candidate);
+        var (b, bPre) = Parse(current);
+        if (a == null || b == null) return false;
+        var order = a.CompareTo(b);
+        if (order != 0) return order > 0;
+        if (aPre == null || bPre == null) return aPre == null && bPre != null;
+        return ComparePrerelease(aPre.Split('.'), bPre.Split('.')) > 0;
     }
 
-    [GeneratedRegex("^[0-9A-Za-z.+_-]+$")]
-    private static partial Regex VersionPattern();
+    /// <summary>SemVer: numeric identifiers by value and below alphanumeric ones, then the longer list wins.</summary>
+    static int ComparePrerelease(string[] a, string[] b)
+    {
+        for (var i = 0; i < Math.Min(a.Length, b.Length); i++)
+        {
+            var aNumber = ulong.TryParse(a[i], out var x);
+            var bNumber = ulong.TryParse(b[i], out var y);
+            var order = aNumber && bNumber ? x.CompareTo(y) : aNumber ? -1 : bNumber ? 1 : string.CompareOrdinal(a[i], b[i]);
+            if (order != 0) return order;
+        }
+        return a.Length.CompareTo(b.Length);
+    }
 }

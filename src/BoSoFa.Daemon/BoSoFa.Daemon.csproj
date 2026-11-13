@@ -4,16 +4,17 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>$(BrandDaemon)</AssemblyName>
     <RootNamespace>BoSoFa.Daemon</RootNamespace>
-    <PublishAot>true</PublishAot>
+    <!-- Published as one self-contained, trimmed file. Not Native AOT: that cannot be built for another operating system, and the
+         server's publish builds the daemon for every platform it hands out (plan §5.7). The code stays AOT-compatible. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
+    <PublishTrimmed>true</PublishTrimmed>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType Condition="'$(_IsPublishing)' == 'true'">none</DebugType>
     <InvariantGlobalization>true</InvariantGlobalization>
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
-    <StripSymbols>true</StripSymbols>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
-  <ItemGroup Condition="'$(BoSoFaReleasePublicKey)' != ''">
-    <!-- The key that signs releases; a build without one refuses every update. -->
-    <AssemblyMetadata Include="BoSoFaReleasePublicKey" Value="$(BoSoFaReleasePublicKey)" />
-  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../BoSoFa.Protocol/BoSoFa.Protocol.csproj" />
     <PackageReference Include="System.ServiceProcess.ServiceController" />

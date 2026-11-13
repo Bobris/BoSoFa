@@ -57,7 +57,7 @@ public interface IAccountLeaser
 
 public sealed record HarnessOptions(string? ClaudeExecutable = null, string? ReplayFixture = null,
     IAccountLeaser? Accounts = null, string? CodexExecutable = null, IProfileSource? Profiles = null,
-    IBlobUploader? Uploader = null, string[]? Roots = null, string? ReleaseKey = null, bool Launched = false);
+    IBlobUploader? Uploader = null, string[]? Roots = null);
 
 /// <summary>
 /// Applies the server's commands to the sessions of this machine. Commands are idempotent per ID (the journal), and
@@ -93,7 +93,6 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         Files = new MachineFiles(FileRoots, options.Uploader, options.Profiles);
         Tools = new AgentToolHost(this, uploader: options.Uploader);
         _configuredRoots = options.Roots ?? [];
-        Updater = new DaemonUpdater(Path.GetFullPath(dataDirectory), options.Profiles, options.ReleaseKey, options.Launched, IsBusy, log);
         _directory = Path.Combine(dataDirectory, "sessions");
         Directory.CreateDirectory(_directory);
         _outbox = outbox;
@@ -319,11 +318,8 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
 
     readonly string[] _configuredRoots;
 
-    /// <summary>Applies new daemon releases.</summary>
-    public DaemonUpdater Updater { get; }
-
     /// <summary>Something would be cut off by switching versions now.</summary>
-    bool IsBusy()
+    public bool IsBusy()
     {
         lock (_sessions)
             if (_sessions.Values.Any(session => session.State.Status is SessionStatus.Starting or SessionStatus.Running or SessionStatus.WaitingForApproval))
@@ -362,21 +358,6 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     public async Task<bool> ApplyAsync(ulong commandId, DateTime issuedAt, MachineCommand command)
     {
         if (_journal.Contains(commandId, issuedAt)) return false;
-        if (command is UpdateDaemonCommand update)
-        {
-            // In the background: fetching the binary can take minutes, and other commands must not wait for it.
-            _ = Task.Run(async () =>
-            {
-                try { await Updater.ApplyAsync(update, CancellationToken.None); }
-                catch (Exception exception) when (exception is IOException or HttpRequestException or InvalidDataException or
-                                                      UnauthorizedAccessException or System.Text.Json.JsonException)
-                {
-                    _log.WriteLine($"Update to {update.Version} failed: {exception.Message}");
-                }
-            });
-            _journal.Add(commandId, issuedAt);
-            return true;
-        }
         if (command is InstallHarnessCommand install)
         {
             // In the background: a download can take minutes, and other commands must not wait for it.

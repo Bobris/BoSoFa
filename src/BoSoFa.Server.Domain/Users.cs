@@ -80,7 +80,7 @@ public static class Domain
 {
     /// <summary>Raise this with every change to persisted relations: a node of a higher generation takes over from older
     /// nodes and publishes its schema, and older builds can never lead again (BTDB <c>Doc/ReplicationHosting.md</c>).</summary>
-    public const ulong ApplicationGeneration = 13;
+    public const ulong ApplicationGeneration = 14;
 
     /// <summary>Every relation of the server database; InitializeRelations registers them under leader authority.</summary>
     public static readonly Type[] Relations =
@@ -90,7 +90,7 @@ public static class Domain
         typeof(IMachinePresenceTable), typeof(IHarnessAccountTable), typeof(IHarnessAccountUsageTable),
         typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable), typeof(IMcpServerTable),
         typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable), typeof(IAuditEntryTable),
-        typeof(IDaemonReleaseTable), typeof(IDesktopReleaseTable), typeof(IMachineUpdatePolicyTable), typeof(IDaemonRolloutTable), typeof(IDaemonRolloutMachineTable), typeof(IDesktopSessionTable),
+        typeof(IDesktopSessionTable),
         typeof(IAgentRunnerTable), typeof(ISessionDraftTable), .. BTDB.BackendActions.BackendActions.RelationTypes
     ];
 
@@ -101,6 +101,8 @@ public static class Domain
         actions.RegisterEvents(dispatcher);
         return dispatcher;
     }
+
+    static readonly RetiredReleaseHandlers Retired = new();
 
     static EventDispatcher Handlers(IDomainSignals signals, BTDB.BackendActions.BackendActions actions) => new EventDispatcher()
         .Register(new UserSignedInHandler())
@@ -134,12 +136,12 @@ public static class Domain
         .Register(new ApiTokenCreatedHandler())
         .Register(new ApiTokenRevokedHandler())
         .Register(new ActionAuditedHandler())
-        .Register(new DaemonReleasePublishedHandler())
-        .Register(new DesktopReleasePublishedHandler())
-        .Register(new MachineUpdatePolicySetHandler())
-        .Register(new DaemonRolloutStartedHandler())
-        .Register(new DaemonRolloutHaltRequestedHandler())
-        .Register(new DaemonRolloutTickedHandler(signals))
+        .Register<DaemonReleasePublished, SessionCommandResult>(Retired)
+        .Register<DesktopReleasePublished, SessionCommandResult>(Retired)
+        .Register<MachineUpdatePolicySet, SessionCommandResult>(Retired)
+        .Register<DaemonRolloutStarted, DaemonRolloutResult>(Retired)
+        .Register<DaemonRolloutHaltRequested, DaemonRolloutResult>(Retired)
+        .Register<DaemonRolloutTicked>(Retired)
         .Register(new DesktopSessionStartedHandler())
         .Register(new DesktopSessionRefreshedHandler())
         .Register(new DesktopSessionRevokedHandler())

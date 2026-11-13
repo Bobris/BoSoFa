@@ -47,8 +47,7 @@ flowchart LR
 | Daemon transport | A WebSocket over 443, falling back to HTTP long-poll plus batched POST. |
 | Sign-in | Any OIDC provider. Development has a fake local login. |
 | Desktop | NeoAstra (the CodeAlta UI technology) hosting the same SolidJS SPA. It is a client of the server and can also manage the local daemon. |
-| Distribution | The server is the only source of both the daemon and the desktop app (decided 2026-11-09): a computer installs them from the server's install page, and every update comes from the same server, signed with the release key. No package registry or store is involved. |
-| Release key | A PEM file kept as a GitHub secret of a protected `release` environment (decided 2026-11-09). The release workflow signs with it; nothing else holds it ([releasing.md](releasing.md)). |
+| Distribution | The server is the only source of both the daemon and the desktop app (decided 2026-11-09): a computer installs them from the server's install page, and every update comes from the same server. No package registry or store is involved. Since 2026-11-13 the server's build carries both for every platform, so a release is just a server build: no separate publishing, signing key, channels or rollouts ([releasing.md](releasing.md)). |
 | AKS deployment | A Pulumi project in the operations repositories, like SkillShare's (decided 2026-11-09). This repository ships the image and the contract in [deploy-aks.md](deploy-aks.md), not a Helm chart. |
 | White labeling | A build brand (`-p:Brand=qsf`: QSF, Quadient Software Factory, `qsfd`) names binaries, apps, folders and services; the server's configuration (`BoSoFa:Branding`) can rename the UI on top (decided 2026-11-09, [branding.md](branding.md)). |
 | Hosting | Both a cluster on AKS over Azure Blob storage and a single node on its own disk with no Azure ([deploy-single-node.md](deploy-single-node.md)) (decided 2026-11-09). |
@@ -121,7 +120,7 @@ Boundary rules, enforced by an architecture test:
 - Run as a StatefulSet with a headless Service (`publishNotReadyAddresses: true`) for stable peer DNS. Blob is the source of truth and `/data` is a cache (`emptyDir`, or a small PVC for warm restarts). Use workload identity for Blob.
 - Domain state lives in **one `EventPublisher`** (a data topic plus a metadata topic). Handlers are `IEventHandler<TEvent[,TResult]>` with a synchronous `Validate` and a deterministic `Consume` that writes relations via `Ambient.Relation<T>()`, using `ev.When` and never the clock.
 - Commands go through `PublishAndWaitAsync`, which gives read-your-writes on the pod that publishes. Any pod may publish, because the event log forwards to the topic owner, so writes never need routing to a leader.
-- Leader-only background work runs in `ReplicationLeadership.RunWhileLeaderAsync`: timeouts, cleanup, the rollout scheduler, cloud-machine reaping.
+- Leader-only background work runs in `ReplicationLeadership.RunWhileLeaderAsync`: timeouts, cleanup, cloud-machine reaping.
 - BTDB prerequisites, released in **BTDB 36.2.0** (pin all `BTDB*` packages to this version in `Directory.Packages.props`):
   - `ReplicationFileSet.RestoreAsync(local, storage, genesis)` restores published history or creates an empty database (check `HasPublishedHistory`); no test-only helper is needed.
   - `EventLogOptions.Retention = topic => …` gives per-topic `EventLogRetention(MaxBytes, MaxAge)`; null means forever. Keep the `EventPublisher` data and metadata topics forever.
@@ -145,8 +144,8 @@ Boundary rules, enforced by an architecture test:
 - Auth:
   - `/auth/login`, `/auth/callback`, `/auth/logout`: the server is the OIDC confidential client (BFF pattern). The SPA gets an HttpOnly, SameSite=strict cookie and never holds tokens.
   - `/auth/desktop/start` → system browser → loopback redirect (RFC 8252) → one-time code → BoSoFa access and refresh tokens for the desktop app.
-- REST `/api/v1/...`: users, machines, enrollments, projects, sessions, runs, runtime-requests (answer), harnesses, mcp-servers, skills, profiles, files, daemon-releases, desktop-releases, settings. Each mutation is a command that returns `{ eventId }`, which serves as the client's cursor.
-- Without a sign-in: `/api/v1/branding` (the names the UI shows, from `BoSoFa:Branding`), and (§5.7) `/api/v1/downloads` (the newest stable release of each product and its files), `/api/v1/downloads/{product}/{version|latest}/{rid}`, and the install scripts `/install/{daemon,desktop}.{sh,ps1}`.
+- REST `/api/v1/...`: users, machines, enrollments, projects, sessions, runs, runtime-requests (answer), harnesses, mcp-servers, skills, profiles, files, settings. Each mutation is a command that returns `{ eventId }`, which serves as the client's cursor.
+- Without a sign-in: `/api/v1/branding` (the names the UI shows, from `BoSoFa:Branding`), and (§5.7) `/api/v1/downloads` (the daemon and desktop builds this server carries, with their files), `/api/v1/downloads/{product}/{rid}`, and the install scripts `/install/{daemon,desktop}.{sh,ps1}`.
 - WebSocket `/api/v1/live` for UI clients: messages `subscribe{shell}`, `subscribe{session,id,afterSeq}`, `subscribe{terminal,id}`, `unsubscribe`, `terminal.input`, `ping`. The server sends `snapshot`, `event`, `delta`, `resync`.
 - Daemon endpoints `/api/daemon/v1/...` are described in §5.3.
 - Contracts:
@@ -162,7 +161,7 @@ Boundary rules, enforced by an architecture test:
 - The server's own token signing keys are kept the same way.
 - Every member can see the machine list. A session, its transcript and its requests are visible only to its creator (decided 2026-11-09).
 - **Controlling** a machine (starting sessions, files, terminals, answering approvals) needs the owner or an explicit grant: a user, `everyone`, or the per-machine flag `shared`.
-- Admins manage catalogs, rollouts and cloud machines.
+- Admins manage catalogs and cloud machines.
 - Any member may enroll a machine; it belongs to whoever approves its code.
 - API tokens let users script the API. They are hashed in the DB and scoped.
 - Audit: each command event already records its actor. An `AuditEntry` relation projects them for the UI.
@@ -343,19 +342,18 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - Windows: a real Windows Service via `Microsoft.Extensions.Hosting.WindowsServices`, running as LocalSystem or a given account, for cloud and build machines. Dev machines use a per-user logon task.
   - The service runs as a user because harness credentials and git credentials live in that user's profile. `doctor` explains this.
 - **Self-update:**
-  - The service always runs the stable **launcher** path, `bosofad` in the data folder. The launcher starts `versions/<v>/bosofad` as a child.
-  - The child exits with code 75 to mean "switch version".
-  - A new version is on trial and must reach the server and confirm within 2 minutes, or the launcher rolls back.
+  - The service always runs the stable **launcher** path, `bosofad` in the data folder. The launcher starts `versions/<v>/bosofad` as a child and deletes the other versions.
+  - The child exits with code 75 to mean "switch version". A version that dies is started again; there is no automatic way back (decided 2026-11-13): a broken release is fixed by the next one, or the machine is reinstalled from `/install`.
   - The service definition is never rewritten.
-- **Releases:**
-  - Two products, the daemon and the desktop app. The release workflow (`.github/workflows/release.yml`, [releasing.md](releasing.md)) builds every RID and publishes them to one server (`bosofad release-publish [--product desktop]`, then `POST /api/v1/{daemon,desktop}-releases`); the files go to the blob store.
-  - Each manifest is signed with the release key (ECDSA P-256), a PEM file that only the workflow's protected environment holds, and its public key is compiled into the daemon and the app. `release-publish` refuses a key other than the one its own build trusts. Both refuse unsigned or mismatching manifests. A desktop manifest says `"product": "desktop"`, so a release of one product cannot pass for the other; a manifest without a product is a daemon release.
-  - Daemon channels are `stable` and `beta`, with a per-machine pin. The leader rolls out in waves. Desktop apps take the newest stable release by themselves.
+- **The server carries both products** (2026-11-13, [releasing.md](releasing.md)):
+  - `dotnet publish` of the server also builds the daemon and the desktop app for `linux-x64`, `win-x64` and `osx-arm64` with its brand and version (`src/BoSoFa.Server/ClientBundle.targets`) into `bundle/` with a `bundle.json` of SHA-256s; the server serves them from there (`ClientBundle`). Both build for every platform from any OS: the daemon is a self-contained, trimmed single file (Native AOT cannot cross operating systems), the desktop app ReadyToRun.
+  - A daemon's hello names its version; the server's welcome carries `Update {version, sha256, size}` when its build is newer (SemVer precedence, build metadata ignored). The daemon fetches `/api/v1/downloads/daemon/{rid}`, checks the hash and switches once no session is busy (30 minutes at most). Only forward, so a cluster in the middle of a rolling update cannot walk a daemon back and forth.
+  - Desktop apps compare `/api/v1/downloads` with their own version.
+  - Nothing is signed beyond the SHA-256 from the server over HTTPS: whoever controls the server can already run commands on its machines.
 - **First install, from the server's page:**
   - `/install` lists both products with a one-line command per OS and direct downloads. The commands fetch `/install/daemon.sh` (`curl -fsSL <server>/install/daemon.sh | sh`) or `daemon.ps1` (`irm <server>/install/daemon.ps1 | iex`), which name the server they came from.
-  - The daemon script downloads the newest stable build for the machine, checks its SHA-256, runs `bosofad enroll` (a person approves the printed code; a machine already enrolled on this server passes) and `bosofad install`, which copies itself into the data folder as the launcher.
-  - These downloads need no sign-in, because the computer has no identity yet. The builds hold no secrets, only stable releases of published products are served (never other blobs), and a machine joins only when a person approves it.
-  - The first download is trusted because it comes over HTTPS from the server the person chose; every later update is checked against the release key.
+  - The daemon script downloads the server's build for the machine, checks its SHA-256, runs `bosofad enroll` (a person approves the printed code; a machine already enrolled on this server passes) and `bosofad install`, which copies itself into the data folder as the launcher.
+  - These downloads need no sign-in, because the computer has no identity yet. The builds hold no secrets, only the bundle's files are served (never other blobs), and a machine joins only when a person approves it.
 
 ### 5.8 Ad-hoc cloud machines (later phase)
 
@@ -369,7 +367,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - It hosts `web/apps/desktop`, which is the web app's source plus a desktop platform module. `@bosofa/api` holds the `Platform` interface.
   - Distribution: from the server's install page (§5.7), like the daemon. A package is self-contained (no .NET needed): a `.app` bundle on macOS, a folder elsewhere, as `tar.gz` (macOS, Linux) or `zip` (Windows), built by `dotnet publish -p:BoSoFaPackage=true`. Its `release.json` names its version and RID; a build without one never updates itself.
   - The install script puts it in `~/Applications/BoSoFa.app`, `$XDG_DATA_HOME/BoSoFa/app` (with a `.desktop` entry) or `%LOCALAPPDATA%\Programs\BoSoFa` (with a Start menu shortcut), and starts it with `--server <origin>`, so it opens on the sign-in of that server.
-  - Self-update: the app asks `/api/v1/downloads/desktop/latest` at start and every 6 hours, takes only a newer version signed by the compiled-in key, and unpacks it under its data folder. The page shows "Restart to update". The app then closes and the staged copy's helper (`--apply-update`) puts the new version beside the old one, swaps them by renames, and starts it. A version that does not show its page within 2 minutes is swapped back and never offered again.
+  - Self-update: the app asks `/api/v1/downloads` at start and every 6 hours, takes only a newer version whose archive matches the SHA-256 the server named, and unpacks it under its data folder. The page shows "Restart to update". The app then closes and the staged copy's helper (`--apply-update`) puts the new version beside the old one, swaps them by renames, and starts it. A version that does not show its page within 2 minutes is swapped back and never offered again.
   - NeoAstra's own `bundle` tool and experimental updater need its frontend asset pipeline, which this app does not use, so the packaging and updater are ours.
 - **Talking to the server:** the WebView calls the server directly (CORS plus a bearer from the desktop token flow), with `connect-src` including the server origin. Alternative: tunnel through C# RPC. Decide in the M0 spike.
 - **Native RPC services** (`[NeoRpcService]`):
@@ -444,7 +442,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - `McpServerDefinition`, `SkillBundle(version, hash)`, `Profile`, `Secret(per machine ciphertext)`
   - `Session(project, workspace, machine, harness, profile, creator, status, branch, parent, title, usage)`, `Run(session, ordinal, status, checkpointBefore/After)`, `SessionItem(session, seq, kind, payload|blobHash)`, `RuntimeRequest(run, kind, payload, status, answeredBy)`
   - `MachineInbox(machine, cmdId, kind, payload, status)`, `StreamCursor(machine, stream, lastSeq)`
-  - `FileTransfer`, `DaemonRelease`, `RolloutPolicy`, `AuditEntry`
+  - `FileTransfer`, `AuditEntry`
 - **Example events:**
   - `UserSignedIn`, `MachineEnrolled`, `MachineHeartbeat` (coarse, at most one per minute)
   - `SessionCreated`, `RunStarted`, `SessionItemsAppended` (batched), `RuntimeRequestRaised` / `Answered`, `RunEnded`
@@ -461,7 +459,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
 | **M2 Multi-node early** | docker-compose with 3 nodes + Azurite, Azure storages, internal live relay, peer port, presence ownership, failover test in CI. | The M1 scenario passes while the leader pod is killed. |
 | **M3 More harnesses and git** | Harness accounts (§5.4.1): secrets encrypted with Data Protection, account leases, pasted Claude tokens and API keys, Codex device-code sign-in per machine. Codex app-server and ACP adapters, the harness install/update catalog with pinned hashes, worktrees, checkpoints, diffs, steer/queue/interrupt. | The same project runs on Claude, Codex and OpenCode with diffs per run. |
 | **M4 MCP, skills, files, terminals** | BoSoFa MCP endpoint, managed MCP catalog + profiles, skill bundles, file upload/download + browser, attach/observe PTY terminals. | A profile pushes a new skill and an MCP server to a machine and a session uses them. |
-| **M5 Operations** | Service install on all 3 OSes, launcher + signed self-update + rollout channels, long-poll fallback, API tokens, audit UI. | Install on Windows/macOS/Linux, roll out a new daemon version remotely, roll back a broken one automatically. |
+| **M5 Operations** | Service install on all 3 OSes, launcher + self-update, long-poll fallback, API tokens, audit UI. | Install on Windows/macOS/Linux and update the daemon remotely. |
 | **M6 Desktop** | NeoAstra app, desktop auth flow, LocalDaemon RPC (install/enroll this machine), "Add Claude account" through `claude setup-token`, notifications, deep links. | Fresh machine: install the desktop, click "enable this machine", and run a session. |
 | **M7 AKS production** | Image and deployment contract (Pulumi), workload identity, Key Vault Data Protection, one plain HTTP port behind a TLS-terminating reverse proxy (no buffering, WebSocket idle timeouts), OpenTelemetry, backups. | Staging cluster, 3 replicas, a rolling upgrade with an `ApplicationGeneration` bump. |
 | **M8 Cloud machines** | Provisioner interface + one implementation, ephemeral machines, label scheduling. | "Run on any linux machine" starts a pod and cleans up after it. |
@@ -620,7 +618,7 @@ Done when: a profile pushes a new skill and an MCP server to a machine and a ses
 
 ### M5 steps
 
-Done when: install on Windows, macOS and Linux, roll out a new daemon version remotely, and roll back a broken one automatically.
+Done when: install on Windows, macOS and Linux, roll out a new daemon version remotely, and roll back a broken one automatically. (Since 2026-11-13 releases come with the server's build and there is no rollback: the signing, channels, pins and rollouts below are gone, see §5.7.)
 
 1. **API tokens.** *Done:* `bsf_` bearer tokens with the owner's rights, read-only or full control, managed only from a signed-in browser. Only the hash is stored.
 2. **Audit.** *Done:* commands write their entry in their own transaction; file transfers, terminals and account leases are recorded as they happen. Admins read it at `/audit`.

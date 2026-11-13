@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Web;
 using BoSoFa.Daemon.Service;
@@ -61,9 +60,9 @@ public class LocalDaemonTest
         }
     }
 
-    static async Task<(TestServer Server, HttpClient Browser, DesktopAccount Account, string Data)> StartAsync()
+    static async Task<(TestServer Server, HttpClient Browser, DesktopAccount Account, string Data)> StartAsync(string? bundle = null)
     {
-        var server = await TestServer.StartAsync();
+        var server = await TestServer.StartAsync(extraArgs: bundle == null ? null : ["--BoSoFa:BundleDirectory", bundle]);
         var browser = server.Client(new CookieContainer());
         (await browser.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("boris@example.com", null))).EnsureSuccessStatusCode();
         var data = Directory.CreateTempSubdirectory("bosofa-local-").FullName;
@@ -80,9 +79,21 @@ public class LocalDaemonTest
     }
 
     [Fact]
-    public async Task EnablingFetchesASignedDaemonEnrollsAndInstalls()
+    public async Task EnablingFetchesTheServersDaemonEnrollsAndInstalls()
     {
-        var (server, browser, account, data) = await StartAsync();
+        var (bare, bareBrowser, bareAccount, bareData) = await StartAsync();
+        await using (bare)
+        using (bareBrowser)
+        using (bareAccount)
+        {
+            using var none = new HttpClient();
+            Assert.Contains("no daemon", await new LocalDaemon(bareAccount, bareData, Path.Combine(bareData, "d"), new FakeDaemonCommands(Path.Combine(bareData, "d")), none)
+                .EnableAsync(default));
+        }
+
+        var rid = Releases.RidOf(OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsWindows() ? "windows" : "linux",
+            System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant());
+        var (server, browser, account, data) = await StartAsync(BundleFixture.Write("2.0", (Releases.Daemon, rid, "daemon"u8.ToArray())));
         await using (server)
         using (browser)
         using (account)
@@ -90,23 +101,14 @@ public class LocalDaemonTest
             var daemon = Path.Combine(data, "daemon-data");
             var commands = new FakeDaemonCommands(daemon);
             using var http = new HttpClient();
-            using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-            var publicKey = Convert.ToBase64String(key.ExportSubjectPublicKeyInfo());
-            var local = new LocalDaemon(account, data, daemon, commands, http, publicKey);
+            var local = new LocalDaemon(account, data, daemon, commands, http);
             Assert.False(local.Status().Enrolled);
-            Assert.Contains("no daemon release", await local.EnableAsync(default));
-
-            var rid = Releases.RidOf(OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsWindows() ? "windows" : "linux",
-                System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant());
-            var blob = await (await browser.PostAsync("/api/v1/blobs", new ByteArrayContent("daemon"u8.ToArray()))).Content.ReadFromJsonAsync<BlobRef>();
-            var manifest = JsonSerializer.Serialize(new ReleaseManifest("2.0", [new(rid, blob!.Sha256, blob.Size)]), ProtocolJsonContext.Default.ReleaseManifest);
-
-            (await browser.PostAsJsonAsync("/api/v1/daemon-releases", new PublishRelease(manifest, Convert.ToBase64String(new byte[64]), "stable"))).EnsureSuccessStatusCode();
-            Assert.Contains("not properly signed", await local.EnableAsync(default));
+            var file = BundleFixture.FileOf(server, Releases.Daemon, rid);
+            File.WriteAllText(file, "tampered");
+            Assert.Contains("does not match", await local.EnableAsync(default));
             Assert.Empty(commands.Runs);
+            File.WriteAllText(file, "daemon");
 
-            var signature = Convert.ToBase64String(key.SignData(Encoding.UTF8.GetBytes(manifest), HashAlgorithmName.SHA256));
-            (await browser.PostAsJsonAsync("/api/v1/daemon-releases", new PublishRelease(manifest, signature, "stable"))).EnsureSuccessStatusCode();
             // The real enroll would wait for this approval, so the app must have made it; there is no such code on this server.
             await Assert.ThrowsAnyAsync<HttpRequestException>(() => local.EnableAsync(default));
             var fetched = Path.Combine(data, "daemon", "2.0", OperatingSystem.IsWindows() ? Brand.Daemon + ".exe" : Brand.Daemon);
@@ -138,7 +140,7 @@ public class LocalDaemonTest
             var directory = Path.Combine(data, "daemon-data");
             var commands = new CodeReporting(started!.UserCode, directory);
             using var http = new HttpClient();
-            var local = new LocalDaemon(account, data, directory, commands, http, null, configuredExecutable: "/fake/bosofad");
+            var local = new LocalDaemon(account, data, directory, commands, http, configuredExecutable: "/fake/bosofad");
             Assert.Null(await local.EnableAsync(default));
             var poll = await (await daemon.PostAsJsonAsync("/api/daemon/v1/enroll/poll", new EnrollPollRequest(started.EnrollmentId))).Content.ReadFromJsonAsync<EnrollPollResponse>();
             Assert.Equal(EnrollStatus.Approved, poll!.Status);
@@ -173,7 +175,7 @@ public class LocalDaemonTest
         using (account)
         {
             using var http = new HttpClient();
-            var local = new LocalDaemon(account, data, Path.Combine(data, "d"), new FakeDaemonCommands(Path.Combine(data, "d")), http, null, "/fake/bosofad");
+            var local = new LocalDaemon(account, data, Path.Combine(data, "d"), new FakeDaemonCommands(Path.Combine(data, "d")), http, "/fake/bosofad");
             Assert.Null(await local.AddClaudeAccountAsync("My Claude", default));
             var added = Assert.Single((await browser.GetFromJsonAsync<HarnessAccountDto[]>("/api/v1/accounts"))!);
             Assert.Equal(("My Claude", AccountKind.ClaudeOAuthToken), (added.Label, added.Kind));
