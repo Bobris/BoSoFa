@@ -30,13 +30,15 @@ public sealed record PreparedProfile(ResolvedMcpServer[] McpServers, string? Plu
 /// A session gets its own copy at its start, shaped as a Claude Code plugin, so a later change to the profile cannot
 /// alter a running conversation. User-owned config is never edited.
 /// </summary>
-public sealed class SessionProfiles(string dataDirectory, IProfileSource? source)
+/// <param name="masker">Takes the secrets of each profile, to mask them in all the daemon reports from then on.</param>
+public sealed class SessionProfiles(string dataDirectory, IProfileSource? source, SecretMasker? masker = null)
 {
     public async Task<PreparedProfile?> PrepareAsync(SessionState state)
     {
         if (!state.HasProfile) return null;
         if (source == null) throw new InvalidOperationException("This daemon cannot load profiles.");
         var profile = await source.GetProfileAsync(state.SessionId, CancellationToken.None);
+        if (profile.Mask is { } mask) masker?.Retain(mask);
         var environment = profile.Environment ?? [];
         if (profile.Skills.Length == 0) return new(profile.McpServers, null, environment);
         var folder = Path.Combine(dataDirectory, "session-skills", state.SessionId.ToString());

@@ -11,8 +11,9 @@ public sealed record AgentToolCall(string Key, string LiveRef, int RunNumber);
 /// <summary>The computer a session's tools run on (docs/server-agent.md §6.1). A call that was under way when the connection dropped is
 /// asked for again: the daemon joins it by its key, so it does not run twice.</summary>
 /// <param name="environment">The profile's variables, resolved, for the commands of the shell tool; null for none.</param>
+/// <param name="mask">The secrets among the session's values, which the daemon masks in what it sends back.</param>
 public sealed class AgentMachine(MachineRpcClient rpc, ulong machineId, string workingDirectory, ulong sessionId, TimeProvider time,
-    IReadOnlyDictionary<string, string>? environment = null)
+    IReadOnlyDictionary<string, string>? environment = null, string[]? mask = null)
 {
     static readonly TimeSpan ReconnectGrace = TimeSpan.FromSeconds(60), RetryEvery = TimeSpan.FromSeconds(1), CancelTimeout = TimeSpan.FromSeconds(5);
 
@@ -28,7 +29,8 @@ public sealed class AgentMachine(MachineRpcClient rpc, ulong machineId, string w
             {
                 var checkpoint = server == null && MachineTools.Changes(tool) ? CheckpointRef(call.RunNumber, "before") : null;
                 var answer = await rpc.CallAsync(machineId, new ToolRunRequest(call.Key, sessionId, workingDirectory, tool, arguments, timeoutSeconds, call.LiveRef, isRetry,
-                    checkpoint, server, server == null && tool == MachineTools.Shell && environment is { Count: > 0 } ? new(environment) : null), cancellation);
+                    checkpoint, server, server == null && tool == MachineTools.Shell && environment is { Count: > 0 } ? new(environment) : null,
+                    mask is { Length: > 0 } ? mask : null), cancellation);
                 switch (answer)
                 {
                     case ToolRunResult result:

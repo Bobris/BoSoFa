@@ -4250,6 +4250,7 @@ export interface components {
             environment?: null | {
                 [key: string]: string;
             };
+            mask?: null | string[];
         };
         /** @enum {unknown} */
         SessionStatus: "Starting" | "Running" | "WaitingForApproval" | "Idle" | "Stopped" | "Failed";

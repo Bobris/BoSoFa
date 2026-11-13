@@ -214,7 +214,7 @@ public class McpEndpointTest
         }
         finally
         {
-            upstream.Stop();
+            upstream.Close(); // not Stop, then Dispose: on Unix that binds the port again, which another test may hold by then
             await serving;
         }
     }

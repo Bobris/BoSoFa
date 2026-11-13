@@ -85,13 +85,13 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         // Absolute: harnesses run in the session's working directory, so a relative profile path would point nowhere.
         _dataDirectory = Path.GetFullPath(dataDirectory);
         Installer = new HarnessInstaller(_dataDirectory);
-        _profiles = new SessionProfiles(_dataDirectory, options.Profiles);
+        _profiles = new SessionProfiles(_dataDirectory, options.Profiles, Masker);
         Mcp = new McpEndpoint(id =>
         {
             lock (_sessions) return _sessions.GetValueOrDefault(id)?.State;
         }, this, options.Uploader);
         Files = new MachineFiles(FileRoots, options.Uploader, options.Profiles);
-        Tools = new AgentToolHost(this, uploader: options.Uploader);
+        Tools = new AgentToolHost(this, uploader: options.Uploader, masker: Masker);
         _configuredRoots = options.Roots ?? [];
         _directory = Path.Combine(dataDirectory, "sessions");
         Directory.CreateDirectory(_directory);
@@ -99,7 +99,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         if (Directory.Exists(McpConfigDirectory)) Directory.Delete(McpConfigDirectory, true);
         _outbox = outbox;
         _options = options;
-        _log = log;
+        _log = new MaskingWriter(log, Masker);
         _journal = new CommandJournal(Path.Combine(dataDirectory, "commands.json"));
         foreach (var path in Directory.EnumerateFiles(_directory, "*.json"))
         {
@@ -148,6 +148,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         {
             if (_options.Accounts is not { } accounts) throw new InvalidOperationException("This daemon cannot lease harness accounts.");
             apiKey = (await accounts.LeaseAsync(accountId, state.SessionId, CancellationToken.None)).Secret;
+            Masker.Retain(apiKey);
         }
         var home = Path.Combine(_dataDirectory, "profiles", state.AccountId is { } id ? $"account-{id}" : "machine", "codex");
         Directory.CreateDirectory(home);
@@ -316,6 +317,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         if (_options.Accounts is not { } accounts)
             throw new InvalidOperationException("This daemon cannot lease harness accounts.");
         var lease = await accounts.LeaseAsync(accountId, state.SessionId, CancellationToken.None);
+        Masker.Retain(lease.Secret);
         var configDirectory = Path.Combine(_dataDirectory, "profiles", $"account-{accountId}", "claude");
         Directory.CreateDirectory(configDirectory);
         var environment = PreparedProfile.Merge(profile, new Dictionary<string, string>
@@ -537,11 +539,11 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                 : repository.AddWorktree(path, branch);
         if (error != null)
         {
-            _outbox.Append(state.SessionId, new StatusReport(SessionStatus.Failed, Error: error));
+            Append(state.SessionId, new StatusReport(SessionStatus.Failed, Error: error));
             return false;
         }
         state.WorkingDirectory = path;
-        _outbox.Append(state.SessionId, new WorkspaceReport(path, branch));
+        Append(state.SessionId, new WorkspaceReport(path, branch));
         return true;
     }
 
@@ -569,7 +571,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         if (workspace.Checkpoint($"refs/{Brand.Id}/{state.SessionId}/{state.Runs}-after") is not { } after ||
             workspace.Diff(before, after) is not { } diff)
             return;
-        _outbox.Append(state.SessionId, new ItemReport(SessionItemKind.Diff, DateTime.UtcNow, diff.Patch,
+        Append(state.SessionId, new ItemReport(SessionItemKind.Diff, DateTime.UtcNow, diff.Patch,
             Data: diff.Data));
     }
 
@@ -582,11 +584,38 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                 if (status.HarnessSessionId != null) state.HarnessSessionId = status.HarnessSessionId;
                 Save(state);
             }
-        _outbox.Append(sessionId, report);
+        Append(sessionId, report);
     }
 
-    public void Delta(ulong sessionId, string itemRef, string text) =>
+    /// <summary>
+    /// Masks the secrets this daemon was given (docs/secrets.md §5.2): its profiles' (<see cref="SessionProfileResponse.Mask"/>),
+    /// its accounts', and those of the server agent's tool calls. It keeps each for as long as it runs, since a process that took
+    /// one may print it after it was rotated.
+    /// </summary>
+    public SecretMasker Masker { get; } = new();
+
+    /// <summary>Everything a session reports goes through here: masked before the outbox writes it to disk.</summary>
+    void Append(ulong sessionId, SessionReport report)
+    {
+        if (report is ItemReport { Ref: { } itemRef }) _deltas.TryRemove((sessionId, itemRef), out _); // the item replaces its deltas
+        else if (report is RunEndedReport)
+            foreach (var key in _deltas.Keys.Where(key => key.SessionId == sessionId)) _deltas.TryRemove(key, out _);
+        _outbox.Append(sessionId, Masker.MaskReport(report));
+    }
+
+    readonly ConcurrentDictionary<(ulong SessionId, string Ref), SecretMasker.SecretTextStream> _deltas = new();
+
+    /// <summary>The live text of an item, masked as it streams: an end that may begin a secret waits for the next delta.</summary>
+    public void Delta(ulong sessionId, string itemRef, string text)
+    {
+        if (!Masker.IsEmpty)
+        {
+            var stream = _deltas.GetOrAdd((sessionId, itemRef), _ => Masker.CreateStream());
+            lock (stream) text = stream.Write(text);
+            if (text.Length == 0) return;
+        }
         DeltaSink?.Invoke(new DeltaMessage(sessionId, itemRef, text));
+    }
 
     void Save(SessionState state)
     {

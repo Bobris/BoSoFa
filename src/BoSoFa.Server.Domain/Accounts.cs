@@ -89,7 +89,7 @@ public class HarnessAccountRemoved : EventWithResult<AccountCommandResult>
     public ulong UserId { get; set; }
 }
 
-public sealed class HarnessAccountAddedHandler : IEventHandler<HarnessAccountAdded, AccountCommandResult>
+public sealed class HarnessAccountAddedHandler(IDomainSignals signals) : IEventHandler<HarnessAccountAdded, AccountCommandResult>
 {
     /// <summary>A <c>claude setup-token</c> token lasts one year.</summary>
     public static readonly TimeSpan ClaudeTokenLifetime = TimeSpan.FromDays(365);
@@ -111,6 +111,7 @@ public sealed class HarnessAccountAddedHandler : IEventHandler<HarnessAccountAdd
         };
         Ambient.Relation<IHarnessAccountTable>().Insert(account);
         Audit.Record(ev.When, ev.OwnerId, "account.added", account.Label, ev.Kind.ToString());
+        signals.SecretsChanged();
         return new() { Outcome = CommandOutcome.Ok, AccountId = account.Id };
     }
 }

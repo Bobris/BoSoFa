@@ -16,9 +16,13 @@ namespace BoSoFa.Server.Agents;
 
 /// <summary>What a loop needs from its node, and which attempt of the session's backend action it is.</summary>
 sealed class AgentLoopContext(EventPublisher publisher, string nodeId, ulong actionId, ulong attempt, bool cleanStart, IBlobStore blobs, ILogger logger,
-    Action<LiveDelta> publishDelta, Func<Session, CancellationToken, Task<(AgentEnvironment, List<string>)>> openEnvironment, Func<Session, AgentMachine?> machineOf)
+    Action<LiveDelta> publishDelta, Func<Session, CancellationToken, Task<(AgentEnvironment, List<string>)>> openEnvironment, Func<Session, AgentMachine?> machineOf,
+    ServerSecretMasker masker)
 {
     public EventPublisher Publisher => publisher;
+
+    /// <summary>Every secret of the server, masked in what the loop records, streams and gives the model (docs/secrets.md §5.3).</summary>
+    public SecretMasker Masker => masker.Masker;
     public string NodeId => nodeId;
     public ulong ActionId => actionId;
     public ulong Attempt => attempt;
@@ -39,7 +43,8 @@ sealed class AgentLoopContext(EventPublisher publisher, string nodeId, ulong act
 /// message handled by any node wakes the loop through <see cref="Wake"/> on every node.
 /// </summary>
 public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, MachinePresenceService presence, ReplicationLeadership leadership,
-    LiveHub hub, LiveRelay relay, MachineRpcClient rpc, IDataProtectionProvider protection, IBlobStore blobs, TimeProvider time, ILogger<AgentRunnerService> logger)
+    LiveHub hub, LiveRelay relay, MachineRpcClient rpc, IDataProtectionProvider protection, IBlobStore blobs, TimeProvider time, ILogger<AgentRunnerService> logger,
+    ServerSecretMasker masker)
     : BackgroundService
 {
     /// <summary>Anthropic's default cache lifetime; OpenAI and OpenCode do not promise one, so nothing is counted down for them.</summary>
@@ -97,7 +102,7 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
         }
         logger.LogInformation("Running agent session {SessionId}, attempt {Attempt}", input.SessionId, action.Attempt);
         var context = new AgentLoopContext(publisher, presence.NodeId, action.Id.ActionId, action.Attempt, attached.Clean, blobs, logger, PublishDelta,
-            OpenEnvironmentAsync, MachineOf);
+            OpenEnvironmentAsync, MachineOf, masker);
         var loop = new AgentLoop(context, input.SessionId);
         _loops[input.SessionId] = loop; // before the loop's first read, so no change is missed
         try
@@ -125,12 +130,13 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
     {
         var publisher = await node.Ready.WaitAsync(action.Cancellation);
         var context = new AgentLoopContext(publisher, presence.NodeId, action.Id.ActionId, action.Attempt, false, blobs, logger, PublishDelta,
-            OpenEnvironmentAsync, MachineOf);
+            OpenEnvironmentAsync, MachineOf, masker);
         return await new AgentLoop(context, input.SessionId).AnswerSideQuestionAsync(input.QuestionSeq, action.Cancellation);
     }
 
     void PublishDelta(LiveDelta delta)
     {
+        delta = delta with { Text = masker.Masker.MaskText(delta.Text) };
         hub.Delta(delta);
         relay.PublishSession(delta.SessionId, delta);
     }
@@ -149,6 +155,7 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
         ResolvedMcpServer[] servers;
         Dictionary<string, string> environment;
         string? os = null, profilePrompt = null, profileMode = null, used;
+        string[] mask;
         using (publisher.StartQuery())
         {
             if (Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId) is not { } account || account.OwnerId != session.CreatedById)
@@ -163,12 +170,13 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
             try { resolver.ThrowIfMissing(); }
             catch (MissingSecretsException missing) { throw new AgentSetupException(missing.Message); }
             used = resolver.Used;
+            mask = resolver.Secrets;
             (profilePrompt, profileMode) = (profile?.SystemPrompt, profile?.SystemPromptMode);
         }
         if (used != null)
             await AuditEndpoints.RecordAsync(publisher, session.CreatedById, "secret.used", $"session {session.Id}",
                 session.MachineId == 0 ? used : $"on machine {session.MachineId}: {used}", logger);
-        var machine = session.MachineId == 0 ? null : new AgentMachine(rpc, session.MachineId, session.WorkingDirectory, session.Id, time, environment);
+        var machine = session.MachineId == 0 ? null : new AgentMachine(rpc, session.MachineId, session.WorkingDirectory, session.Id, time, environment, mask);
         IModelTurnExecutor executor = kind switch
         {
             AccountKind.OpenAIApiKey => OpenAIResponsesExecutor.WithApiKey(Http, secret,

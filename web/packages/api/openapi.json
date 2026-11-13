@@ -6071,6 +6071,15 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "mask": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

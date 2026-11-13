@@ -167,4 +167,46 @@ public class SecretTest
         using var query = publisher.StartQuery();
         Assert.Equal("", Ambient.Relation<IMcpServerTable>().FindByIdOrDefault("grafana-mcp")!.ProtectedSecrets);
     }
+
+    /// <summary>The server's second line: a report a daemon did not mask (one of an older version, say) is kept masked, with
+    /// every secret of the server, a rotated one's earlier value included.</summary>
+    [Fact]
+    public async Task TheServerMasksWhatADaemonReports()
+    {
+        await using var server = await TestServer.StartAsync();
+        using var boris = await SignIn(server, "boris@example.com");
+        await SetOk(boris, SecretScope.Personal, "GRAFANA_TOKEN", SecretKind.Secret, Grafana);
+        var directory = Path.Combine(Path.GetTempPath(), "bosofa-mask-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var state = await SessionTest.EnrollAsync(server.BaseAddress, boris, directory);
+            var created = await boris.PostAsJsonAsync("/api/v1/sessions", new CreateSessionRequest(state.MachineId, Harnesses.Replay, directory, "Go", null, null, null));
+            created.EnsureSuccessStatusCode();
+            var session = (await created.Content.ReadFromJsonAsync<SessionDto>())!.Id;
+            var masker = server.Service<ServerSecretMasker>();
+            await SetOk(boris, SecretScope.Personal, "GRAFANA_TOKEN", SecretKind.Secret, Rotated); // read again after the change
+
+            await BoSoFa.Server.Machines.MachineEndpoints.StoreReportsAsync(server.Node.Publisher!, state.MachineId, new(
+            [
+                new(session, 1, new ItemReport(SessionItemKind.ToolResult, DateTime.UtcNow, $"old {Grafana}, new {Rotated}",
+                    Data: System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string> { ["token"] = Rotated }, ProtocolJsonContext.Default.DictionaryStringString)))
+            ]), masker.Masker);
+            var item = Assert.Single((await boris.GetFromJsonAsync<SessionItemDto[]>($"/api/v1/sessions/{session}/items"))!,
+                item => item.Kind == SessionItemKind.ToolResult);
+            Assert.Equal(("old ***, new ***", "{\"token\":\"***\"}"), (item.Text, item.Data));
+            foreach (var file in Directory.EnumerateFiles(server.DataDirectory, "*", SearchOption.AllDirectories))
+            {
+                byte[] content;
+                try { content = await File.ReadAllBytesAsync(file); }
+                catch (IOException) { continue; }
+                foreach (var value in new[] { Grafana, Rotated })
+                    Assert.True(content.AsSpan().IndexOf(Encoding.UTF8.GetBytes(value)) < 0, $"{file} holds a secret in the clear");
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(directory, true); }
+            catch (IOException) { }
+        }
+    }
 }

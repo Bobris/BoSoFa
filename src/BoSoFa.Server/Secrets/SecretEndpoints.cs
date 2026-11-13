@@ -31,6 +31,10 @@ public static class SecretEndpoints
     internal static string Protect(IDataProtectionProvider protection, string secretId, int version, string value) =>
         Protector(protection, secretId, version).Protect(value);
 
+    /// <summary>A value of a secret's version, as <see cref="Protect"/> made it.</summary>
+    internal static string Open(IDataProtectionProvider protection, string secretId, int version, string protectedValue) =>
+        Protector(protection, secretId, version).Unprotect(protectedValue);
+
     /// <summary>The value of a secret or a variable, for resolving a session; it stays in memory on this node.</summary>
     internal static string ValueOf(SecretEntry secret, IDataProtectionProvider protection) => secret.Kind == SecretKind.Secret
         ? Protector(protection, secret.SecretId, secret.Version).Unprotect(secret.ProtectedValue)

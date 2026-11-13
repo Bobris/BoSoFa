@@ -199,6 +199,25 @@ public sealed partial class SecretMasker
         return builder.Append(json, copied, json.Length - copied).ToString();
     }
 
+    /// <summary>A report of a session with each secret masked: its texts, and its JSON as JSON.</summary>
+    /// <returns>The report itself when there is nothing to mask.</returns>
+    public SessionReport MaskReport(SessionReport report)
+    {
+        if (IsEmpty) return report;
+        return report switch
+        {
+            ItemReport item => item with { Text = MaskText(item.Text), Data = MaskData(item.Data) },
+            StatusReport { Error: not null } status => status with { Error = MaskText(status.Error) },
+            RunEndedReport ended => ended with { Outcome = MaskText(ended.Outcome) },
+            ApprovalRequestedReport approval => approval with { Input = MaskData(approval.Input)!, Description = MaskText(approval.Description) },
+            _ => report
+        };
+    }
+
+    /// <summary>JSON as JSON, anything else as text.</summary>
+    [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(data))]
+    string? MaskData(string? data) => data is null ? null : data.AsSpan().TrimStart() is ['{' or '[', ..] ? MaskJson(data) : MaskText(data);
+
     /// <summary>
     /// The masking of one text that comes in parts, such as the deltas of a reply: what a part gives is masked and can be shown
     /// at once, and its end that could begin a secret is held back until the next part, or <see cref="SecretTextStream.Flush"/>,

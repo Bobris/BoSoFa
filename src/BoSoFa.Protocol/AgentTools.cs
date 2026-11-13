@@ -45,9 +45,10 @@ public abstract record ToolRpc : MachineRpc;
 /// <param name="CheckpointRef">Before running, commit the working tree under this hidden ref, unless it exists.</param>
 /// <param name="McpServer">The call is a tool of this stdio MCP server, started if needed.</param>
 /// <param name="Environment">Variables of the profile for a command the shell tool runs, with references resolved.</param>
+/// <param name="Mask">The secrets among the session's values, which the daemon masks in what it sends back.</param>
 public sealed record ToolRunRequest(string Key, ulong SessionId, string WorkingDirectory, string Tool, string Arguments, int TimeoutSeconds,
     string LiveRef, bool IsRetry = false, string? CheckpointRef = null, ResolvedMcpServer? McpServer = null,
-    Dictionary<string, string>? Environment = null) : ToolRpc;
+    Dictionary<string, string>? Environment = null, string[]? Mask = null) : ToolRpc;
 
 /// <summary>Stops a running call; its answer says so. Nothing happens for a call that ended.</summary>
 public sealed record ToolCancelRequest(string Key) : ToolRpc;

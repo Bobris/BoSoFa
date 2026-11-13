@@ -316,11 +316,21 @@ public class AgentMachineTest(ITestOutputHelper output)
         var results = (await m.H.RunEndedAsync(session.Id)).Where(item => item.Kind == SessionItemKind.ToolResult).ToArray();
         Assert.All(results, result => Assert.False(result.IsError, result.Text));
         Assert.Equal("in work with s3", results[0].Text);
-        Assert.Contains("deploy-token-77 in eu-west", results[1].Text);
+        // The command had the secret; what it printed is masked, a variable is not (docs/secrets.md §5).
+        Assert.Contains("*** in eu-west", results[1].Text);
         var audit = await m.H.Boris.GetStringAsync("/api/v1/audit");
         Assert.Contains("secret.used", audit);
         Assert.Contains("DEPLOY version 1 (personal)", audit);
         Assert.DoesNotContain("deploy-token-77", audit);
+        Assert.DoesNotContain(m.H.Backend.ModelRequests, request => request.ToJsonString().Contains("deploy-token-77"));
+        foreach (var directory in new[] { m.H.Server.DataDirectory, Path.Combine(m.Root, "daemon") })
+            foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                byte[] content;
+                try { content = await File.ReadAllBytesAsync(file); }
+                catch (IOException) { continue; }
+                Assert.True(content.AsSpan().IndexOf("deploy-token-77"u8) < 0, $"{file} holds the secret in the clear");
+            }
         var offered = AgentSessionTest.Tools(m.H.Backend.ModelRequests.First());
         Assert.Contains("mcp__local__where", offered);
         Assert.Contains("mcp__facts__lookup", offered);

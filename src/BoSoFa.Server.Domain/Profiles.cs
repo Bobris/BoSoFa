@@ -150,7 +150,7 @@ public sealed class McpServerPublishedHandler : IEventHandler<McpServerPublished
     }
 }
 
-public sealed class McpValuesMovedHandler : IEventHandler<McpValuesMoved, SessionCommandResult>
+public sealed class McpValuesMovedHandler(IDomainSignals signals) : IEventHandler<McpValuesMoved, SessionCommandResult>
 {
     public SessionCommandResult? Validate(McpValuesMoved ev) =>
         ev.Values.Length > 0 && ev.Secrets.All(secret => SecretNames.IsValid(secret.Name) && secret.ProtectedValue.Length > 0)
@@ -177,6 +177,7 @@ public sealed class McpValuesMovedHandler : IEventHandler<McpValuesMoved, Sessio
         server.SecretId = "";
         server.ProtectedSecrets = "";
         servers.Upsert(server);
+        signals.SecretsChanged();
         return new() { Outcome = CommandOutcome.Ok };
     }
 }

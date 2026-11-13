@@ -74,6 +74,7 @@ public static class ServerApp
         builder.Services.AddHostedService(services => services.GetRequiredService<PollEndpoints>());
         builder.Services.AddSingleton(ClientBundle.Load(Path.GetFullPath(options.BundleDirectory, AppContext.BaseDirectory)));
         builder.Services.AddSingleton<IDomainSignals, DomainSignals>();
+        builder.Services.AddSingleton<ServerSecretMasker>();
 
         // BTDB: one replicated database plus the EventLog (see NodeStorage).
         builder.Services.AddSingleton<IReplicationScheduler>(new SystemReplicationScheduler());

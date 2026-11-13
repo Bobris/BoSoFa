@@ -213,7 +213,9 @@ public sealed class DesktopAccount(string dataDirectory, ITokenVault vault, Func
 
     static async Task<string> WaitForCodeAsync(HttpListener listener, string state, CancellationToken cancellation)
     {
-        await using (cancellation.Register(listener.Stop))
+        // Close, not Stop: on Unix a stopped listener's Dispose binds its port again to let go of it, which fails once another
+        // process took the port meanwhile ("Address already in use").
+        await using (cancellation.Register(listener.Close))
             while (true)
             {
                 HttpListenerContext context;

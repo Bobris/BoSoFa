@@ -157,6 +157,9 @@ public interface IDomainSignals
 
     /// <summary>The node running an agent session changed, or none runs it any more.</summary>
     void AgentRunnerChanged(ulong sessionId);
+
+    /// <summary>A secret, a harness account or the values of an MCP definition changed: what the server masks is read again.</summary>
+    void SecretsChanged();
 }
 
 public enum CommandOutcome

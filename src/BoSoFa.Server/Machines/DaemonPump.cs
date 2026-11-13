@@ -11,7 +11,7 @@ namespace BoSoFa.Server.Machines;
 /// <summary>Serves one connected daemon, over whichever transport it came: registers its presence, feeds it commands,
 /// stores its reports and relays what is live.</summary>
 public sealed class DaemonPump(DaemonConnections connections, BtdbNode node, LiveHub hub, MachinePresenceService presence, LiveRelay relay,
-    ClientBundle bundle, TimeProvider time, ILoggerFactory loggers)
+    ClientBundle bundle, TimeProvider time, ILoggerFactory loggers, BoSoFa.Server.Secrets.ServerSecretMasker masker)
 {
     /// <summary>Null when this daemon may connect, else why not.</summary>
     public static string? RefusalOf(HelloMessage hello) => hello.ProtocolVersion == ProtocolVersion.Current
@@ -62,7 +62,7 @@ public sealed class DaemonPump(DaemonConnections connections, BtdbNode node, Liv
                             cancellation);
                         break;
                     case OutboxMessage outbox:
-                        await connection.SendAsync(await MachineEndpoints.StoreReportsAsync(publisher, machineId, outbox), cancellation);
+                        await connection.SendAsync(await MachineEndpoints.StoreReportsAsync(publisher, machineId, outbox, masker.Masker), cancellation);
                         break;
                     case InventoryMessage inventory:
                         await publisher.PublishAsync(new MachineInventoryReported
@@ -87,7 +87,8 @@ public sealed class DaemonPump(DaemonConnections connections, BtdbNode node, Liv
                     case DeltaMessage delta:
                         if (MachineEndpoints.SessionBelongsTo(publisher, delta.SessionId, machineId))
                         {
-                            var live = new LiveDelta(delta.SessionId, delta.Ref, delta.Text);
+                            // The daemon masked it as it streamed; this masks what it may not know, a part at a time.
+                            var live = new LiveDelta(delta.SessionId, delta.Ref, masker.Masker.MaskText(delta.Text));
                             hub.Delta(live);
                             relay.Publish(machineId, live); // to nodes whose clients watch this machine's sessions
                         }

@@ -36,8 +36,10 @@ public sealed record ProfileDto(string Name, string? Model, string? PermissionMo
     string? SystemPromptMode = null, string? MaxToolGroup = null, Dictionary<string, string>? Environment = null);
 
 /// <summary>Daemon → server, just in time: everything a session's profile resolves to, secrets included. <c>Environment</c>
-/// is for the harness process (and so the agent's shell).</summary>
-public sealed record SessionProfileResponse(ResolvedMcpServer[] McpServers, ResolvedSkill[] Skills, Dictionary<string, string>? Environment = null);
+/// is for the harness process (and so the agent's shell); <c>Mask</c> lists the values in it that are secrets, which the
+/// daemon masks in all it reports from then on (docs/secrets.md §5.2).</summary>
+public sealed record SessionProfileResponse(ResolvedMcpServer[] McpServers, ResolvedSkill[] Skills, Dictionary<string, string>? Environment = null,
+    string[]? Mask = null);
 
 public sealed record ResolvedMcpServer(string Name, McpTransport Transport, string? Command, string[] Args, string? Url,
     Dictionary<string, string> Secrets);

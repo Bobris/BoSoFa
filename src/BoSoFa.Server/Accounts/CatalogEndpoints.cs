@@ -160,10 +160,14 @@ public static partial class CatalogEndpoints
         {
             if (Ambient.Relation<IMcpServerTable>().FindByIdOrDefault(serverName) is not { } server) continue;
             // An older definition whose values have not moved to secrets yet keeps them encrypted in itself.
-            var values = server.ProtectedSecrets.Length > 0
-                ? JsonSerializer.Deserialize(protection.CreateProtector(Purpose, server.SecretId).Unprotect(server.ProtectedSecrets),
-                    ProtocolJsonContext.Default.DictionaryStringString)!
-                : resolver.Resolve(Values(server.Values));
+            Dictionary<string, string> values;
+            if (server.ProtectedSecrets.Length > 0)
+            {
+                values = JsonSerializer.Deserialize(protection.CreateProtector(Purpose, server.SecretId).Unprotect(server.ProtectedSecrets),
+                    ProtocolJsonContext.Default.DictionaryStringString)!;
+                resolver.Remember(values.Values);
+            }
+            else values = resolver.Resolve(Values(server.Values));
             servers.Add(new(server.Name, server.Transport, server.Command is { } command ? resolver.Resolve(command) : null,
                 Strings(server.Args).Select(resolver.Resolve).ToArray(), server.Url is { } url ? resolver.Resolve(url) : null, values));
         }
@@ -195,7 +199,7 @@ public static partial class CatalogEndpoints
             used = resolver.Used;
             var skills = Skills(profile.Skills).Select(skill => Ambient.Relation<ISkillBundleTable>().FindByIdOrDefault(skill.Name, skill.Version))
                 .Where(skill => skill != null).Select(skill => new ResolvedSkill(skill!.Name, skill.Version, skill.Sha256)).ToArray();
-            response = new SessionProfileResponse(servers, skills, environment);
+            response = new SessionProfileResponse(servers, skills, environment, resolver.Secrets);
         }
         if (used != null)
             await AuditEndpoints.RecordAsync(publisher, session.CreatedById, "secret.used", $"session {session.Id}",

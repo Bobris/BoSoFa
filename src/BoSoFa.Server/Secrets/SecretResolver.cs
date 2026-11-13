@@ -17,6 +17,7 @@ public sealed class SecretResolver(ulong personId, IDataProtectionProvider prote
 {
     readonly SortedSet<string> _missing = new(StringComparer.Ordinal);
     readonly SortedDictionary<string, string> _used = new(StringComparer.Ordinal);
+    readonly HashSet<string> _secrets = new(StringComparer.Ordinal);
 
     /// <summary>The value with its references replaced; a missing one is replaced by nothing and remembered.</summary>
     public string Resolve(string value) => SecretReferences.Replace(value, Lookup);
@@ -39,8 +40,16 @@ public sealed class SecretResolver(ulong personId, IDataProtectionProvider prote
             return "";
         }
         _used[reference.Name] = $"{reference.Name} version {entry.Version} ({(entry.OwnerId == 0 ? "shared" : "personal")})";
-        return SecretEndpoints.ValueOf(entry, protection);
+        var value = SecretEndpoints.ValueOf(entry, protection);
+        if (entry.Kind == SecretKind.Secret) _secrets.Add(value);
+        return value;
     }
+
+    /// <summary>Values that are secrets though no reference gave them (those an older MCP definition keeps in itself).</summary>
+    public void Remember(IEnumerable<string> secrets) => _secrets.UnionWith(secrets);
+
+    /// <summary>The secrets among the resolved values, for whoever gets them to mask; variables are not among them.</summary>
+    public string[] Secrets => [.. _secrets];
 
     static string Word(SecretKind kind) => kind == SecretKind.Secret ? "secret" : "variable";
 

@@ -331,12 +331,14 @@ public static class MachineEndpoints
         }
     }
 
-    internal static async Task<OutboxAckMessage> StoreReportsAsync(EventPublisher publisher, ulong machineId, OutboxMessage outbox)
+    /// <param name="masker">Masks the secrets of the server in the reports before they are kept: the event log keeps them forever.</param>
+    internal static async Task<OutboxAckMessage> StoreReportsAsync(EventPublisher publisher, ulong machineId, OutboxMessage outbox, SecretMasker? masker = null)
     {
+        var records = masker == null ? outbox.Records : outbox.Records.Select(record => record with { Report = masker.MaskReport(record.Report) }).ToArray();
         await publisher.PublishAsync(new DaemonReportsReceived
         {
             MachineId = machineId,
-            RecordsJson = JsonSerializer.Serialize(outbox.Records, ProtocolJsonContext.Default.OutboxRecordArray)
+            RecordsJson = JsonSerializer.Serialize(records, ProtocolJsonContext.Default.OutboxRecordArray)
         });
         using var query = publisher.StartQuery();
         var sessions = Ambient.Relation<ISessionTable>();

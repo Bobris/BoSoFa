@@ -103,7 +103,7 @@ public static class Secrets
     }
 }
 
-public sealed class SecretSetHandler : IEventHandler<SecretSet, SecretCommandResult>
+public sealed class SecretSetHandler(IDomainSignals signals) : IEventHandler<SecretSet, SecretCommandResult>
 {
     public SecretCommandResult? Validate(SecretSet ev)
     {
@@ -132,6 +132,7 @@ public sealed class SecretSetHandler : IEventHandler<SecretSet, SecretCommandRes
         });
         Audit.Record(ev.When, ev.UserId, current == null ? "secret.set" : "secret.rotated", ev.Name,
             $"{Secrets.ScopeOf(ev.OwnerId)} {ev.Kind.ToString().ToLowerInvariant()}, version {ev.Version}");
+        if (ev.Kind == SecretKind.Secret) signals.SecretsChanged();
         return new() { Outcome = CommandOutcome.Ok };
     }
 }

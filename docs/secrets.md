@@ -1,6 +1,6 @@
 # Secrets and variables
 
-Status: steps 1 to 3 of §8 (the store, the masker, references and resolution) and the daemon's MCP gateway (§6) are done; the rest is planned. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
+Status: steps 1 to 4 of §8 (the store, the masker, references and resolution, masking) and the daemon's MCP gateway (§6) are done; host-only secrets and the rest are planned. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
 live on the server, protected by .NET Data Protection, as harness accounts already are (plan §5.4.1). No external secret
 store (Key Vault secrets, Vault, 1Password) is supported.
 
@@ -133,28 +133,35 @@ CodeAlta's `AgentSecretMasker`:
 
 ### 5.2 On the daemon
 
-- **One choke point before the outbox**: `SessionHost.Report` masks every report (`ItemReport.Text`, `Data` with
-  `MaskJson`, `StatusReport.Error`, `ApprovalRequestedReport.Input` and `Description`) before `Outbox.Append`, which
-  writes to disk.
-- The live deltas the harness sessions send (`LiveMessages`) go through a per-item `CreateStream()`.
-- Machine tools of the server agent (`ShellTool`, file tools, stdio MCP results) are masked in `AgentToolHost` before
-  they return.
-- The daemon's own log writer masks lines in place.
-- The values are those of the session's resolution, retained for the life of the daemon.
+Done. One `SecretMasker` per daemon (`SessionHost.Masker`), which keeps every value it is given for as long as it runs:
+
+- **What it is given**: the secrets among a profile's resolved values (`SessionProfileResponse.Mask`; the server sends the
+  values of `${secret:…}` references and of older inline MCP values, never variables, so `eu-west` stays readable), the
+  secrets of the accounts it leases, and those of each server agent tool call (`ToolRunRequest.Mask`).
+- **One choke point before the outbox**: everything a session reports goes through `SessionHost.Append`, which masks it
+  (`MaskReport`: `ItemReport.Text`, `Data` as JSON, `StatusReport.Error`, `RunEndedReport.Outcome`,
+  `ApprovalRequestedReport.Input` as JSON and `Description`) before `Outbox.Append` writes it to disk. A run's diff goes
+  through it too.
+- **Live text**: `SessionHost.Delta` masks each item's deltas with a stream of its own, so a secret split across deltas
+  is caught; the item's final report replaces its stream.
+- **Server agent tools**: `AgentToolHost` masks a call's result before it goes back; its streamed output goes through
+  `SessionHost.Delta`.
+- **Log**: `MaskingWriter` wraps the session host's log and the link's.
 
 ### 5.3 On the server, as the second line
 
-The event log is kept forever, so a value that reaches it can never be removed. The server masks again before
-publishing:
+Done. The event log is kept forever, so a value that reaches it can never be removed. `ServerSecretMasker` holds every
+secret the server has: people's and shared secrets, their values replaced in the last 30 days (`SecretVersion`), harness
+accounts, and values older MCP definitions keep. It reads them again at the next use after a handler signals a change
+(`IDomainSignals.SecretsChanged`: a secret set, an account added, MCP values moved); a value read once stays masked. It
+masks, before publishing:
 
-- `DaemonReportsReceived` before it becomes `SessionItem` rows and events, and the live relay to the UI;
-- the server agent's tool results before they enter its transcript **and before they go to the model**, and the
-  model's own text deltas;
-- server logs, through a masking logger provider.
+- `DaemonReportsReceived` (`MachineEndpoints.StoreReportsAsync`), before it becomes `SessionItem` rows and events, and the
+  live deltas a daemon relays, one delta at a time (the daemon already masked them as a stream);
+- the server agent's tool results before they enter its transcript, which is what the model is given next, and
+  everything it records (`AgentItemsRecorded`, `AgentRunFinished`, `AgentApprovalRaised`) and streams.
 
-The server's masker holds the values of the person's scope (personal and shared secrets, their accounts), read again
-when a `Secret*` event commits, and earlier versions from `SecretVersion` for 30 days (at most 256), because a running
-session may still print the old value.
+Not done: masking the server's own logs (a masking logger provider). They hold no session output today.
 
 ### 5.4 What masking does not do
 
@@ -218,10 +225,12 @@ in the UI until machines have a sandbox.
    stream, in place, exceptions, minimum length, retain), plus the `--mcp-config` file fix (done with §6).
 3. **References and resolution** (done): profile `Environment`, references in MCP servers, migration of inline values,
    `SessionProfileResponse` growth, errors that name a missing reference, `secret.used` audit.
-4. **Masking everywhere**: the daemon's choke point and logs, the server's second line, the server agent's tool
-   results and model input. End-to-end test on the recorded provider streams: a session whose profile gives
-   `GRAFANA_TOKEN` runs `echo grafana=$GRAFANA_TOKEN`; the transcript says `grafana=***`, no model request holds the
-   value, and neither the daemon's data directory nor the server's event log, rows or blobs contain it.
+4. **Masking everywhere** (done, but for the server's own logs): the daemon's choke point and logs, the server's second line, the server agent's tool
+   results and model input. End-to-end (`AgentMachineTest`, on the recorded provider streams): a session whose profile
+   gives `DEPLOY_TOKEN` runs `echo "$DEPLOY_TOKEN in $AWS_REGION"`; the transcript says `*** in eu-west`, no model request
+   holds the value, and neither the daemon's data directory nor the server's event log, rows or blobs contain it.
+   `DaemonMaskingTest` covers the outbox, the deltas and the log; `SecretTest` the server masking a report a daemon did
+   not mask, with a rotated secret's earlier value.
 5. **Host-only**: the flag and the refusals (the daemon's MCP gateway for harness sessions is done). Test: a Claude Code (replay) and
    a server agent session reach a host-only HTTP MCP server, and neither the harness's command line, its config files
    nor the shell's environment contain the value.

@@ -193,6 +193,7 @@ namespace BoSoFa.Daemon
             var leaser = new ServerAccountLeaser(state, key);
             await using var host = new Sessions.SessionHost(store.Directory, outbox,
                 harnesses with { Accounts = leaser, Profiles = leaser, Uploader = leaser }, output);
+            output = new MaskingWriter(output, host.Masker); // the link's log too: errors may quote what a session sent
             try
             {
                 using var switching = CancellationTokenSource.CreateLinkedTokenSource(cancellation);

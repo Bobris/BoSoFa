@@ -197,7 +197,8 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         {
             CostUsd = costUsd, ContextTokens = contextTokens, ContextLimit = contextLimit, CacheSeconds = cacheSeconds,
             SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, ActionId = context.ActionId, Attempt = context.Attempt,
-            ItemsJson = JsonSerializer.Serialize(items.ToArray(), ProtocolJsonContext.Default.AgentItemArray),
+            // Masked before it is kept: the transcript is what the model is given next, and the event log keeps it forever.
+            ItemsJson = context.Masker.MaskJson(JsonSerializer.Serialize(items.ToArray(), ProtocolJsonContext.Default.AgentItemArray)),
             InputTokens = usage?.InputTokens ?? 0, CachedInputTokens = usage?.CachedInputTokens ?? 0,
             CacheWriteTokens = usage?.CacheWriteTokens ?? 0, OutputTokens = usage?.OutputTokens ?? 0,
             ReasoningTokens = usage?.ReasoningTokens ?? 0
@@ -211,8 +212,8 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
         await Publisher.PublishAndWaitAsync(new AgentRunFinished
         {
             SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, ActionId = context.ActionId, Attempt = context.Attempt, SeenSeq = view.Session.LastSeq, Outcome = outcome,
-            IsError = isError, Error = error, Interrupted = interrupted, HasQueued = state.HasQueued,
-            ItemsJson = JsonSerializer.Serialize(items.ToArray(), ProtocolJsonContext.Default.AgentItemArray)
+            IsError = isError, Error = context.Masker.MaskText(error), Interrupted = interrupted, HasQueued = state.HasQueued,
+            ItemsJson = context.Masker.MaskJson(JsonSerializer.Serialize(items.ToArray(), ProtocolJsonContext.Default.AgentItemArray))
         }, cancellation);
     }
 
@@ -496,13 +497,13 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
                 await Publisher.PublishAndWaitAsync(new AgentApprovalRaised
                 {
                     SessionId = sessionId, NodeId = context.NodeId, Version = view.Runner.Version, ActionId = context.ActionId, Attempt = context.Attempt, Key = ApprovalKey(view.SeqOf(call)), ToolUseId = call.Id, ToolName = call.Name,
-                    Input = call.Arguments, Description = kind switch
+                    Input = context.Masker.MaskJson(call.Arguments), Description = context.Masker.MaskText(kind switch
                     {
                         AgentToolKind.Ask => Str(arguments["question"]),
                         AgentToolKind.MachineShell => Str(arguments["command"]),
                         AgentToolKind.MachineWrite or AgentToolKind.MachineUpload => Str(arguments["path"]),
                         _ => null
-                    }
+                    })
                 }, stopping);
                 return;
             }
@@ -560,7 +561,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             ], null, stopping);
             return;
         }
-        await RecordAsync(view, [Result(call, result.Text, result.IsError, toolCall.LiveRef, await ImagesOfAsync(result, stopping))], null, stopping);
+        await RecordAsync(view, [Result(call, context.Masker.MaskText(result.Text), result.IsError, toolCall.LiveRef, await ImagesOfAsync(result, stopping))], null, stopping);
     }
 
     /// <summary>The result's images as blobs: a machine's tools stored them already, an MCP server over HTTP sent their content.</summary>

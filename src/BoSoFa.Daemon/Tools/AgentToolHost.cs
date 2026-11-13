@@ -35,8 +35,10 @@ public sealed class AgentToolHost : IAsyncDisposable
 
     /// <param name="useRipgrep">Search with ripgrep when the machine has it.</param>
     /// <param name="uploader">Puts a machine's file in the server's blob store; null where that is not possible.</param>
-    public AgentToolHost(ISessionSink sink, bool useRipgrep = true, IBlobUploader? uploader = null)
+    /// <param name="masker">Masks the secrets requests name in what goes back; null for none.</param>
+    public AgentToolHost(ISessionSink sink, bool useRipgrep = true, IBlobUploader? uploader = null, SecretMasker? masker = null)
     {
+        _masker = masker;
         _uploader = uploader;
         _images = new(uploader);
         _mcp = new(_images);
@@ -78,8 +80,12 @@ public sealed class AgentToolHost : IAsyncDisposable
 
     static string NoDirectory(string directory) => $"The working directory {directory} does not exist on this machine.";
 
+    readonly SecretMasker? _masker;
+
     Task<ToolRunResult> Start(ToolRunRequest request)
     {
+        // Before anything runs, so that what it prints is masked from the first line on.
+        if (request.Mask is { } mask) _masker?.Retain(mask);
         lock (_start)
         {
             if (_calls.TryGetValue(request.Key, out var known)) return known.Result;
@@ -87,7 +93,11 @@ public sealed class AgentToolHost : IAsyncDisposable
             var call = new Call(CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token));
             call.Result = Task.Run(async () =>
             {
-                try { return await ExecuteAsync(request, call.Cancel.Token); }
+                try
+                {
+                    var result = await ExecuteAsync(request, call.Cancel.Token);
+                    return _masker is { IsEmpty: false } masker ? result with { Text = masker.MaskText(result.Text) } : result;
+                }
                 finally { call.EndedAt = DateTime.UtcNow; }
             }, CancellationToken.None);
             _calls[request.Key] = call;
