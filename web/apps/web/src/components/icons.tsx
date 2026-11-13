@@ -115,6 +115,12 @@ export const KeyIcon = (props: IconProps) => (
     <path d="m10.8 12.2 8.2-8.2M16 7l2 2M14 9l2 2" />
   </Icon>
 );
+export const LockIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </Icon>
+);
 export const PackageIcon = (props: IconProps) => (
   <Icon {...props}>
     <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z" />

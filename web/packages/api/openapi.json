@@ -2417,6 +2417,126 @@
         }
       }
     },
+    "/api/v1/secrets": {
+      "get": {
+        "tags": [
+          "SecretEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SecretDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/secrets/{scope}/{name}": {
+      "put": {
+        "tags": [
+          "SecretEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SecretScope"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSecretRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "SecretEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SecretScope"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/auth/desktop/approve": {
       "post": {
         "tags": [
@@ -5510,6 +5630,69 @@
           }
         }
       },
+      "SecretDto": {
+        "required": [
+          "kind",
+          "scope",
+          "name",
+          "version",
+          "hint",
+          "value",
+          "setBy",
+          "setAt"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/SecretKind"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SecretScope"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "hint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "value": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "setBy": {
+            "type": "string"
+          },
+          "setAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SecretKind": {
+        "enum": [
+          "Secret",
+          "Variable"
+        ]
+      },
+      "SecretScope": {
+        "enum": [
+          "Personal",
+          "Shared"
+        ]
+      },
       "SendMessageRequest": {
         "required": [
           "text"
@@ -5866,6 +6049,21 @@
           "Failed"
         ]
       },
+      "SetSecretRequest": {
+        "required": [
+          "kind",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/SecretKind"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
       "SideQuestionRequest": {
         "required": [
           "text"
@@ -6143,6 +6341,9 @@
     },
     {
       "name": "ApiTokens"
+    },
+    {
+      "name": "SecretEndpoints"
     },
     {
       "name": "DesktopEndpoints"

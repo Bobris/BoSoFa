@@ -80,7 +80,7 @@ public static class Domain
 {
     /// <summary>Raise this with every change to persisted relations: a node of a higher generation takes over from older
     /// nodes and publishes its schema, and older builds can never lead again (BTDB <c>Doc/ReplicationHosting.md</c>).</summary>
-    public const ulong ApplicationGeneration = 14;
+    public const ulong ApplicationGeneration = 15;
 
     /// <summary>Every relation of the server database; InitializeRelations registers them under leader authority.</summary>
     public static readonly Type[] Relations =
@@ -91,7 +91,7 @@ public static class Domain
         typeof(IHarnessReleaseTable), typeof(IMachineHarnessTable), typeof(IMcpServerTable),
         typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable), typeof(IAuditEntryTable),
         typeof(IDesktopSessionTable),
-        typeof(IAgentRunnerTable), typeof(ISessionDraftTable), .. BTDB.BackendActions.BackendActions.RelationTypes
+        typeof(IAgentRunnerTable), typeof(ISessionDraftTable), typeof(ISecretTable), typeof(ISecretVersionTable), .. BTDB.BackendActions.BackendActions.RelationTypes
     ];
 
     /// <summary>The domain's handlers and those of <paramref name="actions"/>, whose action types must all be registered.</summary>
@@ -127,6 +127,8 @@ public static class Domain
         .Register(new NodePresenceExpiredHandler(signals))
         .Register(new HarnessAccountAddedHandler())
         .Register(new HarnessAccountRemovedHandler())
+        .Register(new SecretSetHandler())
+        .Register(new SecretDeletedHandler())
         .Register(new HarnessReleasePublishedHandler())
         .Register(new HarnessInstallRequestedHandler(signals))
         .Register(new MachineInventoryReportedHandler())

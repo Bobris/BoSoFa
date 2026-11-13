@@ -12,6 +12,7 @@ export const Router = createRouter({
     { path: "/audit", component: lazy(() => import("./pages/Audit")) },
     { path: "/tokens", component: lazy(() => import("./pages/Tokens")) },
     { path: "/accounts", component: lazy(() => import("./pages/Accounts")) },
+    { path: "/secrets", component: lazy(() => import("./pages/Secrets")) },
     { path: "/machines", component: lazy(() => import("./pages/Machines")) },
     { path: "/machines/:id", matchFilters: { id: int }, component: lazy(() => import("./pages/Machine")) },
     { path: "/people", component: lazy(() => import("./pages/People")) },

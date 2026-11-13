@@ -4,6 +4,7 @@ using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Live;
 using BoSoFa.Server.Machines;
+using BoSoFa.Server.Secrets;
 using BoSoFa.Server.Tokens;
 using BoSoFa.Server.Sessions;
 using BTDB.Replication;
@@ -134,6 +135,7 @@ public static class ServerApp
         app.MapDraftEndpoints();
         app.MapAccountEndpoints();
         app.MapApiTokenEndpoints();
+        app.MapSecretEndpoints();
         BoSoFa.Server.Desktop.DesktopEndpoints.MapDesktopEndpoints(app);
         app.MapAuditEndpoints();
         app.MapCatalogEndpoints();

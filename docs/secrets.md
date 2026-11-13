@@ -1,6 +1,6 @@
 # Secrets and variables
 
-Status: planned; the daemon's MCP gateway (§6) is done. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
+Status: step 1 (the store, §8) and the daemon's MCP gateway (§6) are done; the rest is planned. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
 live on the server, protected by .NET Data Protection, as harness accounts already are (plan §5.4.1). No external secret
 store (Key Vault secrets, Vault, 1Password) is supported.
 
@@ -25,21 +25,25 @@ masking (§5).
 
 | Field | Secret | Variable |
 | --- | --- | --- |
-| `Name` | `[A-Z_][A-Z0-9_]{0,63}`, like an environment variable | same |
+| `Name` | `[A-Za-z_][A-Za-z0-9_]{0,63}`, like an environment variable; one kind per name | same |
 | `Scope` | `Personal` (its owner's sessions) or `Shared` (set by an admin, every member's sessions) | same |
 | `Version` | 1, +1 on every rotation | +1 on every change |
 | Value | `ProtectedValue`: Data Protection ciphertext | `Value`, in clear |
 | `HostOnly` | MCP servers only, never the shell | n/a |
-| Metadata | `Hint` (last 4 characters, as accounts), `SetById`, `SetAt` | `SetById`, `SetAt` |
+| Metadata | `Hint` (`…` and the last 4 characters of a value longer than 12, as accounts), `SetById`, `SetAt` | `SetById`, `SetAt` |
 
 - **Resolution**: a session's creator's personal value wins over the shared one of the same name. So one shared MCP
   server definition (`Authorization: Bearer ${secret:GRAFANA_TOKEN}`) gives every person their own token, and falls
   back to the team's.
-- **Relations** (`BoSoFa.Server.Domain/Secrets.cs`): `Secret` keyed by `(OwnerId, Name)`, with `OwnerId = 0` for shared,
-  and `SecretVersion` for the protected values of earlier versions, kept for masking only (§5.4).
-- **Events**: `SecretSet` (create or rotate; the handler computes the version), `SecretDeleted`, `VariableSet`,
-  `VariableDeleted`. Ciphertext is made in the endpoint before publishing, as `HarnessAccountAdded` is, so handlers stay
-  deterministic. Register the relations in `Domain.Relations` and raise `Domain.ApplicationGeneration`.
+- **Relations** (`BoSoFa.Server.Domain/Secrets.cs`, generation 15): `SecretEntry` keyed by `(OwnerId, Name)`, with
+  `OwnerId = 0` for shared, holding secrets and variables alike (`Kind`), and `SecretVersion` for the protected values a
+  rotation or a deletion replaced, kept 30 days and at most 16 per secret, for masking only (§5.3). (`Secret` would clash
+  with `Microsoft.AspNetCore.DataProtection.Secret` wherever values are protected.)
+- **Events**: `SecretSet` and `SecretDeleted`, for both kinds. The endpoint reads the current row, makes the ciphertext for
+  the next version and publishes it with that version and the secret's id; the handler takes it only if the row is still at
+  the version before (else `Conflict`, and the endpoint tries again), so handlers stay deterministic. A name keeps its
+  kind: making a secret a variable means deleting it first. Every change is audited (`secret.set`, `secret.rotated`,
+  `secret.deleted`), never with its value.
 
 ## 3. Storage: Data Protection only
 
@@ -176,20 +180,22 @@ in the UI until machines have a sandbox.
 
 ## 7. API and UI
 
-- `GET /api/v1/secrets` lists secrets and variables of the caller's personal scope and the shared scope. `PUT
-  /api/v1/secrets/{scope}/{name}` sets or rotates (value in the body only, never in the URL), `DELETE` removes, and the
-  same for `/api/v1/variables`. Shared is admin-only. Then update the contract and `pnpm --dir web gen:api`.
-- **Settings → Secrets** page: personal and (for admins) shared tabs. Each row shows name, the reference to copy,
-  version, hint, host-only, who set it and when, where it is used, and recent uses. **Add**, **Rotate** and delete with
-  an inline confirmation; the value field is write-only and never prefilled. Variables are shown with their values.
+- `GET /api/v1/secrets` lists the caller's own secrets and variables, then the shared ones. `PUT
+  /api/v1/secrets/{scope}/{name}` (`Personal` or `Shared`) sets or rotates, with `{ kind, value }` in the body, never in
+  the URL; `DELETE` removes. Shared is admin-only. Done (`SecretEndpoints`).
+- **Secrets and variables** page (`/secrets`, in the settings menu): the caller's values, then the shared ones (editable by
+  admins). Each row shows the name, the reference (a click copies it), the hint or the variable's value, the version, and
+  who set it and when; **Rotate** (or **Edit**) opens a write-only field in place, and delete asks beside its row. Done.
+  Still to come with the steps that need them: host-only, where a value is used, and recent uses.
 - The profile editor gets an **Environment** section; MCP server editors accept references and warn about a missing
   one.
 - Never hard-code the product name in what people see (`Brand`).
 
 ## 8. Steps
 
-1. **Store**: domain relations and events, Data Protection purpose, endpoints, Settings → Secrets page. Tests: handlers,
-   DTOs never carry values, a ciphertext moved to another secret or version fails to unprotect.
+1. **Store** (done): domain relations and events, Data Protection purpose, endpoints, the Secrets and variables page.
+   `SecretTest`: scopes and admin rights, kinds, rotation and deletion, replaced values kept for masking, a ciphertext
+   moved to another secret or version does not open, and no value in an API answer, the audit or the server's data.
 2. **Masker** in `BoSoFa.Protocol` with its unit tests (chunk boundaries, JSON, minimum length, retain), plus the
    `--mcp-config` file fix.
 3. **References and resolution**: profile `Environment`, references in MCP servers, migration of inline values,

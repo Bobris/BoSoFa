@@ -12,6 +12,7 @@ import {
   DownloadIcon,
   DraftIcon,
   KeyIcon,
+  LockIcon,
   ListIcon,
   MachineIcon,
   NewIcon,
@@ -163,6 +164,7 @@ function UserMenu(props: { onNavigate: () => void }) {
             <p class="px-2.5 pb-1 pt-1.5 text-xs font-medium text-muted">Settings</p>
             <MenuLink href="/machines" icon={<MachineIcon class="size-4 text-muted" />} label="Machines" onPick={pick} />
             <MenuLink href="/accounts" icon={<KeyIcon class="size-4 text-muted" />} label="Accounts" onPick={pick} />
+            <MenuLink href="/secrets" icon={<LockIcon class="size-4 text-muted" />} label="Secrets and variables" onPick={pick} />
             <MenuLink href="/catalog" icon={<PackageIcon class="size-4 text-muted" />} label="Profiles and catalog" onPick={pick} />
             <MenuLink href="/tokens" icon={<TokenIcon class="size-4 text-muted" />} label="API tokens" onPick={pick} />
             <MenuLink href="/install" icon={<DownloadIcon class="size-4 text-muted" />} label="Install the apps" onPick={pick} />
