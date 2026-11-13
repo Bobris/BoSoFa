@@ -85,6 +85,19 @@ public class ProfileTest
             var resolved = await source.GetProfileAsync(session.Id, default);
             Assert.Equal(Secret, Assert.Single(resolved.McpServers).Secrets["ECHO_TOKEN"]);
 
+            // The harness is told the daemon's gateway, in a file only this user reads; the secret stays in the daemon's memory.
+            var mcpConfig = Path.Combine(directory, "mcp", $"{session.Id}.json");
+            await Eventually(() => Task.FromResult(File.Exists(mcpConfig)), found => found);
+            using (var config = JsonDocument.Parse(await File.ReadAllTextAsync(mcpConfig)))
+            {
+                var echo = config.RootElement.GetProperty("mcpServers").GetProperty("echo");
+                Assert.Equal("http", echo.GetProperty("type").GetString());
+                Assert.EndsWith($"/mcp/{session.Id}/echo", echo.GetProperty("url").GetString());
+            }
+            if (!OperatingSystem.IsWindows())
+                Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(mcpConfig));
+            AssertNoFileHolds(directory, Secret);
+
             var otherDirectory = Path.Combine(directory, "other");
             var other = await SessionTest.EnrollAsync(server.BaseAddress, admin, otherDirectory);
             using var otherKey = new DaemonStore(otherDirectory).LoadOrCreateKey();
@@ -100,11 +113,16 @@ public class ProfileTest
             catch (IOException) { }
         }
 
-        var needle = Encoding.UTF8.GetBytes(Secret);
-        foreach (var file in Directory.EnumerateFiles(server.DataDirectory, "*", SearchOption.AllDirectories))
+        AssertNoFileHolds(server.DataDirectory, Secret);
+    }
+
+    static void AssertNoFileHolds(string directory, string secret)
+    {
+        var needle = Encoding.UTF8.GetBytes(secret);
+        foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
         {
             byte[] content;
-            try { content = await File.ReadAllBytesAsync(file); }
+            try { content = File.ReadAllBytes(file); }
             catch (IOException) { continue; }
             Assert.True(content.AsSpan().IndexOf(needle) < 0, $"{file} contains the MCP secret in the clear");
         }
@@ -129,8 +147,8 @@ public class ProfileTest
         Assert.Equal("TOKEN", acp[0]!["env"]![0]!["name"]!.GetValue<string>());
         Assert.Equal("http", acp[1]!["type"]!.GetValue<string>());
 
-        var arguments = ClaudeProcess.Arguments(new("/w", "default", null, null, null, "{}", "/plugin"));
-        Assert.Equal("{}", arguments[arguments.ToList().IndexOf("--mcp-config") + 1]);
+        var arguments = ClaudeProcess.Arguments(new("/w", "default", null, null, null, "/d/mcp/1.json", "/plugin"));
+        Assert.Equal("/d/mcp/1.json", arguments[arguments.ToList().IndexOf("--mcp-config") + 1]);
         Assert.Equal("/plugin", arguments[arguments.ToList().IndexOf("--plugin-dir") + 1]);
     }
 }

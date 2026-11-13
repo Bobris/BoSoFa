@@ -62,13 +62,7 @@ public sealed class DaemonStore(string directory)
         }
         key.GenerateKey(ECCurve.NamedCurves.nistP256);
         System.IO.Directory.CreateDirectory(Directory);
-        var temporary = KeyPath + ".tmp";
-        var fileOptions = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write };
-        if (!OperatingSystem.IsWindows()) fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        using (var stream = new FileStream(temporary, fileOptions))
-        using (var writer = new StreamWriter(stream))
-            writer.Write(key.ExportPkcs8PrivateKeyPem());
-        File.Move(temporary, KeyPath, true);
+        PrivateFile.Write(KeyPath, key.ExportPkcs8PrivateKeyPem());
         return key;
     }
 

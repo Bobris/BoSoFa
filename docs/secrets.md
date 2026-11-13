@@ -1,0 +1,209 @@
+# Secrets and variables
+
+Status: planned; the daemon's MCP gateway (§6) is done. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
+live on the server, protected by .NET Data Protection, as harness accounts already are (plan §5.4.1). No external secret
+store (Key Vault secrets, Vault, 1Password) is supported.
+
+## 1. What and why
+
+Today a value a session needs is either a harness account (plan §5.4.1) or a value typed into one MCP server of the
+catalog (`McpServer.ProtectedSecrets`). Nothing else is possible: a profile cannot give the agent's shell a
+`GRAFANA_TOKEN`, two MCP servers cannot share one token, every person shares the admin's value of an MCP server, and
+nothing rotates or audits a value.
+
+- A **secret** is a named value that is written and used, never read back: not by the UI, the API or an agent.
+- A **variable** is a named value that is not secret, readable and editable (`GRAFANA_URL`).
+- Configuration **refers to them by name**: `${secret:NAME}` and `${var:NAME}`, so no definition holds a value again.
+- Whatever a session returns is **masked**: a value is replaced by `***` before it is written to the outbox, the event
+  log, the live stream, a log, or sent to a model.
+- A **host-only** secret reaches MCP servers only, never the agent's shell.
+
+Harness accounts stay as they are: they have a kind, an expiry, a lease and limits of their own. Their values join the
+masking (§5).
+
+## 2. Model
+
+| Field | Secret | Variable |
+| --- | --- | --- |
+| `Name` | `[A-Z_][A-Z0-9_]{0,63}`, like an environment variable | same |
+| `Scope` | `Personal` (its owner's sessions) or `Shared` (set by an admin, every member's sessions) | same |
+| `Version` | 1, +1 on every rotation | +1 on every change |
+| Value | `ProtectedValue`: Data Protection ciphertext | `Value`, in clear |
+| `HostOnly` | MCP servers only, never the shell | n/a |
+| Metadata | `Hint` (last 4 characters, as accounts), `SetById`, `SetAt` | `SetById`, `SetAt` |
+
+- **Resolution**: a session's creator's personal value wins over the shared one of the same name. So one shared MCP
+  server definition (`Authorization: Bearer ${secret:GRAFANA_TOKEN}`) gives every person their own token, and falls
+  back to the team's.
+- **Relations** (`BoSoFa.Server.Domain/Secrets.cs`): `Secret` keyed by `(OwnerId, Name)`, with `OwnerId = 0` for shared,
+  and `SecretVersion` for the protected values of earlier versions, kept for masking only (§5.4).
+- **Events**: `SecretSet` (create or rotate; the handler computes the version), `SecretDeleted`, `VariableSet`,
+  `VariableDeleted`. Ciphertext is made in the endpoint before publishing, as `HarnessAccountAdded` is, so handlers stay
+  deterministic. Register the relations in `Domain.Relations` and raise `Domain.ApplicationGeneration`.
+
+## 3. Storage: Data Protection only
+
+- Each value is protected by `IDataProtector` with purpose `BoSoFa.Secret.v1` and sub-purposes the secret's id and its
+  version. A ciphertext can then not be swapped into another secret, another person's secret of the same name, or
+  another version.
+- The ciphertext lives in the `SecretSet` event and the `Secret` row, as an account's does. The same consequences hold
+  (§5.4.1 of the plan):
+  - The event log keeps every version's ciphertext forever; deleting or rotating removes the row, not the event.
+  - The key ring is what keeps them unreadable: on AKS in Blob, wrapped by the Key Vault key (`NodeStorage`); on a
+    single node the files under `data/keys`. Never delete old keys.
+- A value is unprotected only when a session is resolved (§4), on the node that answers, and kept in memory for that
+  request alone.
+- **Nothing returns a value**: DTOs carry name, scope, version, hint, host-only, who set it and when, and where it is
+  used (profiles, MCP servers).
+
+## 4. References and delivery
+
+### 4.1 Where references are written
+
+| Where | Example |
+| --- | --- |
+| Environment variable or header of an MCP server of the catalog | `GRAFANA_TOKEN = ${secret:GRAFANA_TOKEN}`, `Authorization = Bearer ${secret:GRAFANA_TOKEN}` |
+| URL or argument of an MCP server | `${var:GRAFANA_URL}` |
+| **New**: `Environment` of a profile, the variables of the agent's shell and harness process | `VAULT_TOKEN = ${secret:VAULT_TOKEN}`, `AWS_REGION = ${var:AWS_REGION}` |
+
+- A variable whose name looks secret (`TOKEN`, `PASSWORD`, `SECRET`, `KEY`) takes only `${secret:…}`; a literal is
+  refused at save time.
+- A host-only secret in a profile's `Environment` is refused at save time, and again at resolution.
+- **Migration**: the inline values of existing MCP servers become personal secrets of the admin who published the
+  server (`<SERVER>_<VAR>`), and the server's definition refers to them. After that, `PublishMcpServer.Secrets` takes
+  references, plain values for non-secret names, and nothing else.
+
+### 4.2 Resolution
+
+- The daemon already asks for a session's profile just in time (`SessionProfileResponse`). Resolution grows:
+  - `Environment`: the profile's variables with references resolved;
+  - `ResolvedMcpServer` with resolved env and headers, and whether each value is host-only;
+  - `Mask`: every value the response holds, plus the session's account secret, for §5.
+- The server resolves with the **session's creator** as the person, checks that the session runs on the asking machine
+  and is not stopped (as the account lease does), and resolves nothing for anybody else.
+- A reference to a missing secret or variable fails the session's start with an error that names it. An empty value is
+  never used instead.
+- The server agent resolves the same way inside its backend action (its HTTP MCP servers on the server, its stdio ones
+  sent over machine RPC as today).
+- **Audit**: one `secret.used` record per resolution (session, machine, names and versions, never values), and the
+  Secrets page shows recent uses.
+- Rotation reaches new sessions and newly started MCP servers. A running harness keeps the value it started with
+  until it is restarted.
+
+### 4.3 What agents see
+
+- Names only: a `bosofa_secrets_list` tool on the session's MCP endpoint lists names, kinds and host-only flags, so an
+  agent can write `${secret:NAME}` into a profile or ask the person to set one. Nothing reads or sets a value.
+
+## 5. Masking
+
+### 5.1 The masker
+
+`SecretMasker` in `BoSoFa.Protocol` (pure code, AOT-compatible, shared by the daemon and the server), ported from
+CodeAlta's `AgentSecretMasker`:
+
+- Ordinal replacement of each value by `***`; values shorter than 4 characters are not masked.
+- Each value also as escaped in JSON (`JavaScriptEncoder.Default` and `UnsafeRelaxedJsonEscaping`), so `MaskJson` keeps
+  JSON valid. Beyond CodeAlta: its URL-encoded and Base64 forms too, cheap and common in headers and curl output.
+- `CreateStream()` for deltas: holds back the end of a chunk that could begin a value until the next chunk or the end.
+- `Retain(value)`: once given, a value stays masked for the life of the process, also after rotation or deletion.
+- `MaskInPlace` for log lines, `MaskException` for exceptions that reach logs or telemetry.
+
+### 5.2 On the daemon
+
+- **One choke point before the outbox**: `SessionHost.Report` masks every report (`ItemReport.Text`, `Data` with
+  `MaskJson`, `StatusReport.Error`, `ApprovalRequestedReport.Input` and `Description`) before `Outbox.Append`, which
+  writes to disk.
+- The live deltas the harness sessions send (`LiveMessages`) go through a per-item `CreateStream()`.
+- Machine tools of the server agent (`ShellTool`, file tools, stdio MCP results) are masked in `AgentToolHost` before
+  they return.
+- The daemon's own log writer masks lines in place.
+- The values are those of the session's resolution, retained for the life of the daemon.
+
+### 5.3 On the server, as the second line
+
+The event log is kept forever, so a value that reaches it can never be removed. The server masks again before
+publishing:
+
+- `DaemonReportsReceived` before it becomes `SessionItem` rows and events, and the live relay to the UI;
+- the server agent's tool results before they enter its transcript **and before they go to the model**, and the
+  model's own text deltas;
+- server logs, through a masking logger provider.
+
+The server's masker holds the values of the person's scope (personal and shared secrets, their accounts), read again
+when a `Secret*` event commits, and earlier versions from `SecretVersion` for 30 days (at most 256), because a running
+session may still print the old value.
+
+### 5.4 What masking does not do
+
+It stops values from landing in transcripts by accident. It does not stop an agent that has a value in its shell from
+leaking it on purpose: `rev`, a substring, a `curl` to another host. When an agent must not hold a credential, the
+secret is host-only (§6).
+
+## 6. Host-only secrets
+
+What "host-only" can promise depends on where the MCP server runs, because the agent's shell runs as the same OS user
+as the daemon:
+
+| Session | MCP server | Where the value is | Strength |
+| --- | --- | --- | --- |
+| Server agent | HTTP | Server memory only | Strong |
+| Server agent | stdio on the daemon | Environment of the MCP process | Weak: same user, `/proc/<pid>/environ`, `ps eww` |
+| Claude Code, Codex, ACP | HTTP, through the gateway | Daemon memory only | Strong |
+| Claude Code, Codex, ACP | stdio, through the gateway | Environment of the MCP process, a child of the daemon | Weak, as above |
+
+**The MCP gateway in the daemon (done)**: no harness is told a server's environment or headers. `McpEndpoint.ServersFor`
+registers the profile's servers with `McpGateway` and gives the harness, for each, `http://localhost:<port>/mcp/<session>/<server>`
+with the session's bearer:
+
+- A stdio server is started by the daemon (`StdioMcpServers`, as for server agent sessions) in the session's working
+  directory, and its JSON-RPC is relayed. `initialize` gets the server's own answer; requests the server sends to its
+  client are refused, and a harness's `notifications/cancelled` is not passed on.
+- A remote server is called by the daemon: the Streamable HTTP exchange passes through (event streams, `Mcp-Session-Id`),
+  with the server's headers in place of the bearer. A 401 loses its `WWW-Authenticate`, so the harness does not try to sign
+  in against the daemon.
+- Claude Code's `--mcp-config` is a `0600` file under the daemon's `mcp/` folder, no longer a command-line argument, which
+  every user of the machine could read with `ps`. It holds only the gateway's addresses and the session's bearer; the folder
+  is emptied when the daemon starts, since the bearers were of the previous run.
+
+HTTP MCP servers are the recommended shape for host-only secrets. A stdio one gets an honest "same user can read it" note
+in the UI until machines have a sandbox.
+
+## 7. API and UI
+
+- `GET /api/v1/secrets` lists secrets and variables of the caller's personal scope and the shared scope. `PUT
+  /api/v1/secrets/{scope}/{name}` sets or rotates (value in the body only, never in the URL), `DELETE` removes, and the
+  same for `/api/v1/variables`. Shared is admin-only. Then update the contract and `pnpm --dir web gen:api`.
+- **Settings → Secrets** page: personal and (for admins) shared tabs. Each row shows name, the reference to copy,
+  version, hint, host-only, who set it and when, where it is used, and recent uses. **Add**, **Rotate** and delete with
+  an inline confirmation; the value field is write-only and never prefilled. Variables are shown with their values.
+- The profile editor gets an **Environment** section; MCP server editors accept references and warn about a missing
+  one.
+- Never hard-code the product name in what people see (`Brand`).
+
+## 8. Steps
+
+1. **Store**: domain relations and events, Data Protection purpose, endpoints, Settings → Secrets page. Tests: handlers,
+   DTOs never carry values, a ciphertext moved to another secret or version fails to unprotect.
+2. **Masker** in `BoSoFa.Protocol` with its unit tests (chunk boundaries, JSON, minimum length, retain), plus the
+   `--mcp-config` file fix.
+3. **References and resolution**: profile `Environment`, references in MCP servers, migration of inline values,
+   `SessionProfileResponse` growth, errors that name a missing reference, `secret.used` audit.
+4. **Masking everywhere**: the daemon's choke point and logs, the server's second line, the server agent's tool
+   results and model input. End-to-end test on the recorded provider streams: a session whose profile gives
+   `GRAFANA_TOKEN` runs `echo grafana=$GRAFANA_TOKEN`; the transcript says `grafana=***`, no model request holds the
+   value, and neither the daemon's data directory nor the server's event log, rows or blobs contain it.
+5. **Host-only**: the flag and the refusals (the daemon's MCP gateway for harness sessions is done). Test: a Claude Code (replay) and
+   a server agent session reach a host-only HTTP MCP server, and neither the harness's command line, its config files
+   nor the shell's environment contain the value.
+6. **Later**: environments with approvals and machine labels (CodeAlta's `environment = "production"`), a machine
+   allow-list per secret, and rotation reminders.
+
+## 9. Limits
+
+- Harnesses keep their own transcripts on the machine (`CLAUDE_CONFIG_DIR/projects/*.jsonl`, `CODEX_HOME/sessions`).
+  They are written by the harness before BoSoFa sees anything, so a value the shell printed is there unmasked. It is on
+  the machine the value was given to, which is no new exposure, but it is not masked.
+- The person's own terminals on a machine are theirs and are not masked.
+- The server can read every value (it holds the key ring). This is the deliberate trade against CodeAlta's sealing:
+  a value set before a machine enrolls works on it, and no device has to approve a new machine.

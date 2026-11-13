@@ -121,7 +121,7 @@ public class HarnessTest
         Assert.Equal("periwinkle", await session.AnswerSideQuestionAsync("What was the code word?", CancellationToken.None));
         Assert.Equal(("main", true, "default"), (launched!.ResumeSessionId, launched.SideQuestion, launched.PermissionMode));
         Assert.Contains("What was the code word?", Assert.Single(side.Calls));
-        var arguments = ClaudeProcess.Arguments(launched with { AllowedTools = ["mcp__bosofa__notify"], McpConfigJson = "{}" });
+        var arguments = ClaudeProcess.Arguments(launched with { AllowedTools = ["mcp__bosofa__notify"], McpConfigPath = "/d/mcp/1.json" });
         Assert.Contains("--fork-session", arguments);
         Assert.Contains("--no-session-persistence", arguments);
         Assert.Contains("--tools=", arguments);

@@ -95,6 +95,8 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         _configuredRoots = options.Roots ?? [];
         _directory = Path.Combine(dataDirectory, "sessions");
         Directory.CreateDirectory(_directory);
+        // Their bearers were of the endpoint of an earlier run; every launch writes its own again.
+        if (Directory.Exists(McpConfigDirectory)) Directory.Delete(McpConfigDirectory, true);
         _outbox = outbox;
         _options = options;
         _log = log;
@@ -300,9 +302,13 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     async Task<ClaudeLaunch> PrepareClaudeAsync(SessionState state, ClaudeLaunch launch)
     {
         var profile = await _profiles.PrepareAsync(state);
+        // Only the gateway's addresses and the session's bearer, in a file: the bearer opens the session's servers.
+        PrivateFile.CreateDirectory(McpConfigDirectory);
+        var mcpConfig = Path.Combine(McpConfigDirectory, $"{state.SessionId}.json");
+        PrivateFile.Write(mcpConfig, McpConfig.ForClaude(ServersOf(state, profile)));
         launch = launch with
         {
-            McpConfigJson = McpConfig.ForClaude(ServersOf(state, profile)), PluginDirectory = profile?.PluginDirectory,
+            McpConfigPath = mcpConfig, PluginDirectory = profile?.PluginDirectory,
             AllowedTools = McpEndpoint.PreApprovedClaudeTools
         };
         if (state.AccountId is not { } accountId) return launch;
@@ -348,8 +354,12 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
     /// <summary>The BoSoFa MCP server every session of this machine gets.</summary>
     public McpEndpoint Mcp { get; }
 
+    /// <summary>Claude Code's <c>--mcp-config</c> files, one per session.</summary>
+    string McpConfigDirectory => Path.Combine(_dataDirectory, "mcp");
+
+    /// <summary>What a harness is told about its MCP servers: addresses of the daemon's gateway, never their secrets.</summary>
     ResolvedMcpServer[] ServersOf(SessionState state, PreparedProfile? profile) =>
-        [Mcp.ServerFor(state.SessionId), ..profile?.McpServers ?? []];
+        Mcp.ServersFor(state.SessionId, state.WorkingDirectory, profile?.McpServers ?? []);
 
     /// <summary>Installed harnesses and failed installs, for the server's inventory.</summary>
     public HarnessInstaller Installer { get; }

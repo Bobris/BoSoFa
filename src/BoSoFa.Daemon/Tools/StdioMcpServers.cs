@@ -6,8 +6,9 @@ using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon.Tools;
 
-/// <summary>The stdio MCP servers of server agent sessions, one process per session and server. The server names what to start in
-/// every call, so a daemon that restarted simply starts them again; those not used for a while are stopped.</summary>
+/// <summary>The stdio MCP servers of a session, one process per session and server: for server agent sessions, whose server names
+/// what to start in every call, and for harness sessions through the daemon's MCP gateway (<see cref="Sessions.McpGateway"/>).
+/// A daemon that restarted simply starts them again; those not used for a while are stopped, and started again when used.</summary>
 sealed class StdioMcpServers(ToolImages images) : IAsyncDisposable
 {
     const string SupportedVersion = "2025-11-25";
@@ -18,6 +19,8 @@ sealed class StdioMcpServers(ToolImages images) : IAsyncDisposable
         public string Signature { get; } = signature;
         public SemaphoreSlim Gate { get; } = new(1, 1);
         public JsonRpcProcess? Process { get; set; }
+        /// <summary>What the process answered to <c>initialize</c>.</summary>
+        public JsonElement Initialized { get; set; }
         public Task Consumer { get; set; } = Task.CompletedTask;
         public DateTime LastUsed { get; set; } = DateTime.UtcNow;
         public bool Alive => Process != null && !Consumer.IsCompleted;
@@ -29,7 +32,8 @@ sealed class StdioMcpServers(ToolImages images) : IAsyncDisposable
         JsonSerializer.Serialize(new[] { workingDirectory, server.Command ?? "", string.Join('\0', server.Args), string.Join('\0', server.Secrets.OrderBy(pair => pair.Key).Select(pair => pair.Key + "=" + pair.Value)) },
             ProtocolJsonContext.Default.StringArray);
 
-    async Task<JsonRpcProcess> ProcessOfAsync(ulong sessionId, string workingDirectory, ResolvedMcpServer server, CancellationToken cancellation)
+    async Task<(JsonRpcProcess Process, JsonElement Initialized)> ProcessOfAsync(ulong sessionId, string workingDirectory, ResolvedMcpServer server,
+        CancellationToken cancellation)
     {
         var key = (sessionId, server.Name);
         var signature = SignatureOf(workingDirectory, server);
@@ -44,19 +48,19 @@ sealed class StdioMcpServers(ToolImages images) : IAsyncDisposable
         try
         {
             running.LastUsed = DateTime.UtcNow;
-            if (running.Alive) return running.Process!;
+            if (running.Alive) return (running.Process!, running.Initialized);
             if (running.Process != null) await running.Process.DisposeAsync();
             running.Process = null;
             var process = Launch(workingDirectory, server);
             running.Consumer = ConsumeAsync(process);
             try
             {
-                await process.RequestAsync("initialize", new JsonObject
+                running.Initialized = (await process.RequestAsync("initialize", new JsonObject
                 {
                     ["protocolVersion"] = SupportedVersion,
                     ["capabilities"] = new JsonObject(),
                     ["clientInfo"] = new JsonObject { ["name"] = Brand.Id, ["version"] = Cli.Version }
-                }, StartTimeout, cancellation);
+                }, StartTimeout, cancellation)).Clone();
                 await process.NotifyAsync("notifications/initialized", new JsonObject());
             }
             catch (Exception problem) when (problem is IOException or TimeoutException or JsonRpcException)
@@ -71,7 +75,7 @@ sealed class StdioMcpServers(ToolImages images) : IAsyncDisposable
                 throw;
             }
             running.Process = process;
-            return process;
+            return (process, running.Initialized);
         }
         finally { running.Gate.Release(); }
     }
@@ -103,7 +107,7 @@ sealed class StdioMcpServers(ToolImages images) : IAsyncDisposable
 
     public async Task<McpToolsResult> ListAsync(McpToolsRequest request, CancellationToken cancellation)
     {
-        var process = await ProcessOfAsync(request.SessionId, request.WorkingDirectory, request.Server, cancellation);
+        var (process, _) = await ProcessOfAsync(request.SessionId, request.WorkingDirectory, request.Server, cancellation);
         var tools = new List<McpToolInfo>();
         string? cursor = null;
         do
@@ -125,7 +129,7 @@ sealed class StdioMcpServers(ToolImages images) : IAsyncDisposable
     public async Task<ToolRunResult> CallAsync(ToolRunRequest request, CancellationToken cancellation)
     {
         var server = request.McpServer!;
-        var process = await ProcessOfAsync(request.SessionId, request.WorkingDirectory, server, cancellation);
+        var (process, _) = await ProcessOfAsync(request.SessionId, request.WorkingDirectory, server, cancellation);
         JsonNode? arguments;
         try { arguments = JsonNode.Parse(request.Arguments.Length == 0 ? "{}" : request.Arguments); }
         catch (JsonException problem) { throw new ToolProblem($"The arguments are not valid JSON: {problem.Message}"); }
@@ -140,6 +144,25 @@ sealed class StdioMcpServers(ToolImages images) : IAsyncDisposable
         catch (IOException) { return new($"The MCP server {server.Name} exited during the call.", true); }
         var content = McpResults.Read(result.ValueKind == JsonValueKind.Undefined ? null : JsonNode.Parse(result.GetRawText()));
         return await images.ResultAsync(content.Text, content.IsError, content.Images, cancellation);
+    }
+
+    /// <summary>
+    /// One request of a harness, passed on as it is; <c>initialize</c> is answered with what the server answered the daemon, which
+    /// started it (and starts it again after a pause), so the harness gets the server's own capabilities and instructions.
+    /// </summary>
+    public async Task<JsonElement> RelayAsync(ulong sessionId, string workingDirectory, ResolvedMcpServer server, string method, JsonNode? parameters,
+        TimeSpan timeout, CancellationToken cancellation)
+    {
+        var (process, initialized) = await ProcessOfAsync(sessionId, workingDirectory, server, cancellation);
+        return method == "initialize" ? initialized : await process.RequestAsync(method, parameters, timeout, cancellation);
+    }
+
+    /// <summary>A notification of a harness, passed on.</summary>
+    public async Task NotifyAsync(ulong sessionId, string workingDirectory, ResolvedMcpServer server, string method, JsonNode? parameters,
+        CancellationToken cancellation)
+    {
+        var (process, _) = await ProcessOfAsync(sessionId, workingDirectory, server, cancellation);
+        await process.NotifyAsync(method, parameters);
     }
 
     public async Task StopIdleAsync()

@@ -25,7 +25,8 @@ public interface IBlobDownloader
 /// <summary>
 /// The BoSoFa MCP server (plan §5.5): one loopback HTTP endpoint for every session, <c>/mcp/&lt;session&gt;</c>, each with
 /// its own bearer. Streamable HTTP with plain JSON responses, which the protocol allows for servers without
-/// server-initiated messages.
+/// server-initiated messages. The MCP servers of the session's profile are served beside it, at
+/// <c>/mcp/&lt;session&gt;/&lt;server&gt;</c> with the same bearer (<see cref="McpGateway"/>), so their secrets stay in the daemon.
 /// </summary>
 public sealed class McpEndpoint : IAsyncDisposable
 {
@@ -42,6 +43,7 @@ public sealed class McpEndpoint : IAsyncDisposable
     readonly ConcurrentDictionary<ulong, string> _tokens = new();
     readonly ConcurrentDictionary<string, (ulong SessionId, TaskCompletionSource<(bool Allow, string? Message)> Answer)> _questions = new();
     readonly Task _serving;
+    readonly McpGateway _gateway = new();
 
     public McpEndpoint(Func<ulong, SessionState?> sessions, ISessionSink sink, IBlobUploader? uploader)
     {
@@ -67,6 +69,17 @@ public sealed class McpEndpoint : IAsyncDisposable
         var token = _tokens.GetOrAdd(sessionId, _ => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)));
         return new(ServerName, McpTransport.Http, null, [], $"http://localhost:{Port}/mcp/{sessionId}",
             new() { ["Authorization"] = "Bearer " + token });
+    }
+
+    /// <summary>
+    /// The server entries a harness gets for this session: this endpoint, then each of the profile's servers as an address of the
+    /// gateway with the session's bearer. The servers themselves, with their environment and headers, stay here.
+    /// </summary>
+    public ResolvedMcpServer[] ServersFor(ulong sessionId, string workingDirectory, IReadOnlyCollection<ResolvedMcpServer> servers)
+    {
+        var own = ServerFor(sessionId);
+        _gateway.Register(sessionId, workingDirectory, servers);
+        return [own, ..servers.Select(server => own with { Name = server.Name, Url = $"{own.Url}/{Uri.EscapeDataString(server.Name)}" })];
     }
 
     /// <summary>A person answered a question of <c>bosofa_ask_user</c>; false when the key is not one of ours.</summary>
@@ -106,11 +119,16 @@ public sealed class McpEndpoint : IAsyncDisposable
         try
         {
             var segments = context.Request.Url!.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            if (segments is not ["mcp", var id] || !ulong.TryParse(id, out var sessionId) || !_tokens.TryGetValue(sessionId, out var token) ||
+            if (segments is not ["mcp", _] and not ["mcp", _, _] || !ulong.TryParse(segments[1], out var sessionId) || !_tokens.TryGetValue(sessionId, out var token) ||
                 !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(context.Request.Headers["Authorization"] ?? ""),
                     Encoding.UTF8.GetBytes("Bearer " + token)))
             {
                 response.StatusCode = 401;
+                return;
+            }
+            if (segments is [_, _, var server])
+            {
+                await _gateway.HandleAsync(context, sessionId, Uri.UnescapeDataString(server));
                 return;
             }
             if (context.Request.HttpMethod != "POST")
@@ -138,7 +156,7 @@ public sealed class McpEndpoint : IAsyncDisposable
         catch (Exception exception) when (exception is JsonException or HttpListenerException or IOException or ObjectDisposedException)
         {
             try { response.StatusCode = 400; }
-            catch (ObjectDisposedException) { }
+            catch (Exception late) when (late is ObjectDisposedException or InvalidOperationException) { } // the response had begun
         }
         finally
         {
@@ -240,5 +258,6 @@ public sealed class McpEndpoint : IAsyncDisposable
     {
         _listener.Close();
         await _serving;
+        await _gateway.DisposeAsync();
     }
 }

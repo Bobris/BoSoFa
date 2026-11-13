@@ -9,11 +9,11 @@ using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon.Harnesses.Claude;
 
-/// <summary>How to start (or resume) one Claude Code conversation.</summary>
 /// <summary>How to start (or resume) one Claude Code conversation. <c>Environment</c> adds to (and overrides) the clean
-/// environment: the leased account's secret and its own <c>CLAUDE_CONFIG_DIR</c>.</summary>
+/// environment: the leased account's secret and its own <c>CLAUDE_CONFIG_DIR</c>. <c>McpConfigPath</c> is a file only this
+/// user reads: the command line of a process is visible to every user of the machine.</summary>
 public sealed record ClaudeLaunch(string WorkingDirectory, string PermissionMode, string? Model, string? ResumeSessionId,
-    IReadOnlyDictionary<string, string>? Environment = null, string? McpConfigJson = null, string? PluginDirectory = null,
+    IReadOnlyDictionary<string, string>? Environment = null, string? McpConfigPath = null, string? PluginDirectory = null,
     string[]? AllowedTools = null, bool SideQuestion = false, string? Effort = null);
 
 /// <summary>The stream-json conversation with one Claude Code process, or a replay of one.</summary>
@@ -86,7 +86,7 @@ public sealed class ClaudeProcess : IClaudeTransport
         if (launch.Model != null) arguments.AddRange(["--model", launch.Model]);
         if (launch.Effort != null) arguments.AddRange(["--effort", launch.Effort]);
         if (launch.ResumeSessionId != null) arguments.Add($"--resume={launch.ResumeSessionId}");
-        if (launch.McpConfigJson != null && !launch.SideQuestion) arguments.AddRange(["--mcp-config", launch.McpConfigJson]);
+        if (launch.McpConfigPath != null && !launch.SideQuestion) arguments.AddRange(["--mcp-config", launch.McpConfigPath]);
         if (launch.AllowedTools is { Length: > 0 } allowed && !launch.SideQuestion) arguments.Add("--allowedTools=" + string.Join(',', allowed));
         if (launch.PluginDirectory != null) arguments.AddRange(["--plugin-dir", launch.PluginDirectory]);
         // A side question works on a copy of the conversation that is never saved, with no tools of its own.

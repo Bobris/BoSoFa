@@ -322,7 +322,8 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
 - **Managed MCP servers:**
   - A server catalog holds definitions (stdio command + args + env secret references, or a remote URL + auth).
   - Profiles bundle `harness + model + MCP servers + skills + approval mode`.
-  - The daemon writes each harness's native config (`--mcp-config` JSON, the `config.toml` `[mcp_servers]` section, ACP `session/new.mcpServers`). It never edits user-owned files.
+  - The daemon writes each harness's native config (an `--mcp-config` file, the `config.toml` `[mcp_servers]` section, ACP `session/new.mcpServers`). It never edits user-owned files.
+  - Those entries are the daemon's own gateway (`/mcp/<session>/<server>`, the session's bearer): the daemon starts stdio servers and calls remote ones itself, so no secret of a server reaches the harness ([secrets.md](secrets.md) §6).
 - **Skills:**
   - Versioned bundles (a zipped `SKILL.md` folder, content-hashed) live in the blob store.
   - The daemon syncs the bundles a profile needs and places them in the harness's skill folder (`$CLAUDE_CONFIG_DIR/skills`, `$CODEX_HOME/skills`, `.agents/skills`).
