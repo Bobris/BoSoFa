@@ -1,6 +1,6 @@
 # Secrets and variables
 
-Status: steps 1 to 4 of §8 (the store, the masker, references and resolution, masking) and the daemon's MCP gateway (§6) are done; host-only secrets and the rest are planned. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
+Status: steps 1 to 5 of §8 (the store, the masker, references and resolution, masking, host-only secrets) are done; step 6 is planned. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
 live on the server, protected by .NET Data Protection, as harness accounts already are (plan §5.4.1). No external secret
 store (Key Vault secrets, Vault, 1Password) is supported.
 
@@ -78,7 +78,8 @@ Done. At save time (`CatalogEndpoints`):
   must contain a `${secret:…}`: `Bearer ${secret:X}` passes, a literal is refused.
 - Environment names are like environment variables, header names HTTP tokens.
 - Whether a reference is set is not checked at save time: it depends on whose session it is.
-- A host-only secret in a profile's `Environment` will be refused at save time and at resolution (step 5).
+- A host-only secret in a profile's `Environment` is refused at save time when the admin's own value of that name, or the
+  shared one, is host-only, and always at resolution, where a person's own host-only value counts (§6).
 - **Migration** (`McpValueMigration`, once at start on every node; a definition already moved is left alone): the values
   older definitions keep encrypted in themselves become **shared** secrets `<SERVER>_<NAME>` (uppercase, other characters
   `_`), set by "the server", and the definition refers to them (`McpValuesMoved`). Shared, because every member's sessions
@@ -91,7 +92,8 @@ Done. At save time (`CatalogEndpoints`):
   - `Environment`: the profile's variables with references resolved (done); the daemon gives them to Claude Code, Codex
     and ACP agents under its own variables, which win, and the server agent sends them with each shell tool call
     (`ToolRunRequest.Environment`);
-  - `ResolvedMcpServer` with resolved env, headers, URL and arguments (done), and whether each value is host-only (step 5);
+  - `ResolvedMcpServer` with resolved env, headers, URL and arguments (done). It needs no host-only flag: the daemon's
+    gateway keeps every MCP value from the harness (§6);
   - `Mask`: every value the response holds, plus the session's account secret, for §5 (step 4).
 - The server resolves with the **session's creator** as the person, checks that the session runs on the asking machine
   and is not stopped (as the account lease does), and resolves nothing for anybody else.
@@ -171,6 +173,15 @@ secret is host-only (§6).
 
 ## 6. Host-only secrets
 
+Done. A secret set with **For MCP servers only** (`SetSecretRequest.HostOnly`, `SecretEntry.HostOnly`; secrets only, and each
+version says it again) goes where MCP servers take it: their environment, headers, URL. It never goes into a session's
+environment: `SecretResolver` refuses it there (`shell: true`, the profile's `Environment`) and the session does not start,
+saying so; saving a profile already refuses one the admin can see. The Secrets page shows such a secret as
+**MCP servers only**. Tests: `SecretTest` (refusals), `AgentMachineTest` (a stdio server gets its host-only secret, the
+shell's `env` has no trace of it), `AgentSessionTest` (the remote server gets its host-only header), `ProfileTest` (a
+host-only MCP secret of a replayed Claude Code session is neither in its MCP configuration nor in any file of the daemon),
+and `HarnessMcpGatewayTest` (the real Claude Code and Codex: not on any command line either).
+
 What "host-only" can promise depends on where the MCP server runs, because the agent's shell runs as the same OS user
 as the daemon:
 
@@ -211,7 +222,7 @@ in the UI until machines have a sandbox.
 - **Secrets and variables** page (`/secrets`, in the settings menu): the caller's values, then the shared ones (editable by
   admins). Each row shows the name, the reference (a click copies it), the hint or the variable's value, the version, and
   who set it and when; **Rotate** (or **Edit**) opens a write-only field in place, and delete asks beside its row. Done.
-  Still to come with the steps that need them: host-only, where a value is used, and recent uses.
+  A secret can be **For MCP servers only** (§6). Still to come: where a value is used, and recent uses.
 - The profile editor gets an **Environment** section; MCP server editors accept references and warn about a missing
   one.
 - Never hard-code the product name in what people see (`Brand`).
@@ -231,7 +242,7 @@ in the UI until machines have a sandbox.
    holds the value, and neither the daemon's data directory nor the server's event log, rows or blobs contain it.
    `DaemonMaskingTest` covers the outbox, the deltas and the log; `SecretTest` the server masking a report a daemon did
    not mask, with a rotated secret's earlier value.
-5. **Host-only**: the flag and the refusals (the daemon's MCP gateway for harness sessions is done). Test: a Claude Code (replay) and
+5. **Host-only** (done): the flag and the refusals (the daemon's MCP gateway for harness sessions is done). Test: a Claude Code (replay) and
    a server agent session reach a host-only HTTP MCP server, and neither the harness's command line, its config files
    nor the shell's environment contain the value.
 6. **Later**: environments with approvals and machine labels (CodeAlta's `environment = "production"`), a machine

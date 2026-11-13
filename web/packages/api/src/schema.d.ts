@@ -4169,6 +4169,8 @@ export interface components {
             setBy: string;
             /** Format: date-time */
             setAt: string;
+            /** @default false */
+            hostOnly: boolean;
         };
         /** @enum {unknown} */
         SecretKind: "Secret" | "Variable";
@@ -4257,6 +4259,8 @@ export interface components {
         SetSecretRequest: {
             kind: components["schemas"]["SecretKind"];
             value: string;
+            /** @default false */
+            hostOnly: boolean;
         };
         SideQuestionRequest: {
             text: string;

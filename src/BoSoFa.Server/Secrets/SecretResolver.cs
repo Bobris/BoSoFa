@@ -16,16 +16,19 @@ public sealed class MissingSecretsException(string message) : Exception(message)
 public sealed class SecretResolver(ulong personId, IDataProtectionProvider protection)
 {
     readonly SortedSet<string> _missing = new(StringComparer.Ordinal);
+    readonly SortedSet<string> _refused = new(StringComparer.Ordinal);
     readonly SortedDictionary<string, string> _used = new(StringComparer.Ordinal);
     readonly HashSet<string> _secrets = new(StringComparer.Ordinal);
 
     /// <summary>The value with its references replaced; a missing one is replaced by nothing and remembered.</summary>
-    public string Resolve(string value) => SecretReferences.Replace(value, Lookup);
+    /// <param name="shell">The value goes to a harness's environment, and so to the agent's shell, where no host-only secret
+    /// goes (docs/secrets.md §6).</param>
+    public string Resolve(string value, bool shell = false) => SecretReferences.Replace(value, reference => Lookup(reference, shell));
 
-    public Dictionary<string, string> Resolve(IReadOnlyDictionary<string, string> values) =>
-        values.ToDictionary(pair => pair.Key, pair => Resolve(pair.Value), StringComparer.Ordinal);
+    public Dictionary<string, string> Resolve(IReadOnlyDictionary<string, string> values, bool shell = false) =>
+        values.ToDictionary(pair => pair.Key, pair => Resolve(pair.Value, shell), StringComparer.Ordinal);
 
-    string Lookup(SecretReference reference)
+    string Lookup(SecretReference reference, bool shell)
     {
         var table = Ambient.Relation<ISecretTable>();
         var entry = (personId == 0 ? null : table.FindByIdOrDefault(personId, reference.Name)) ?? table.FindByIdOrDefault(0, reference.Name);
@@ -37,6 +40,11 @@ public sealed class SecretResolver(ulong personId, IDataProtectionProvider prote
         if (entry.Kind != reference.Kind)
         {
             _missing.Add($"{reference.Name} is a {Word(entry.Kind)}, so write {SecretNames.Reference(entry.Kind, reference.Name)}");
+            return "";
+        }
+        if (shell && entry.HostOnly)
+        {
+            _refused.Add($"{reference.Name} is for MCP servers only, so it cannot be in the environment of a session");
             return "";
         }
         _used[reference.Name] = $"{reference.Name} version {entry.Version} ({(entry.OwnerId == 0 ? "shared" : "personal")})";
@@ -56,10 +64,10 @@ public sealed class SecretResolver(ulong personId, IDataProtectionProvider prote
     /// <summary>Names what is missing: nothing is used with an empty value in its place.</summary>
     public void ThrowIfMissing()
     {
-        if (_missing.Count == 0) return;
-        var what = string.Join("; ", _missing);
+        if (_missing.Count == 0 && _refused.Count == 0) return;
+        var what = string.Join("; ", _missing.Concat(_refused));
         throw new MissingSecretsException(char.ToUpperInvariant(what[0]) + what[1..] +
-            ". Set it under Secrets and variables, or ask an admin to share it.");
+            (_missing.Count > 0 ? ". Set it under Secrets and variables, or ask an admin to share it." : "."));
     }
 
     /// <summary>The names and versions used, never their values; null when nothing was.</summary>

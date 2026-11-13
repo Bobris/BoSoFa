@@ -72,7 +72,7 @@ public class ProfileTest
         (await admin.PostAsJsonAsync("/api/v1/profiles", new ProfileDto("team", "haiku", "acceptEdits", ["echo"],
             [new("greeter", "1")], Environment: new() { ["VAULT_TOKEN"] = "Bearer ${secret:VAULT}", ["AWS_REGION"] = "${var:REGION}" }))).EnsureSuccessStatusCode();
         // The admin's own token, the team's vault and region.
-        (await admin.PutAsJsonAsync("/api/v1/secrets/Personal/ECHO_TOKEN", new SetSecretRequest(SecretKind.Secret, Secret))).EnsureSuccessStatusCode();
+        (await admin.PutAsJsonAsync("/api/v1/secrets/Personal/ECHO_TOKEN", new SetSecretRequest(SecretKind.Secret, Secret, HostOnly: true))).EnsureSuccessStatusCode();
         (await admin.PutAsJsonAsync("/api/v1/secrets/Shared/VAULT", new SetSecretRequest(SecretKind.Secret, "vault-token-abc"))).EnsureSuccessStatusCode();
         (await admin.PutAsJsonAsync("/api/v1/secrets/Shared/REGION", new SetSecretRequest(SecretKind.Variable, "eu-west"))).EnsureSuccessStatusCode();
 
@@ -112,6 +112,7 @@ public class ProfileTest
             Assert.Equal((Secret, "debug"), (resolvedEcho.Secrets["ECHO_TOKEN"], resolvedEcho.Secrets["ECHO_LEVEL"]));
             Assert.Equal(["echo.py", "--loud"], resolvedEcho.Args);
             Assert.Equal(new Dictionary<string, string> { ["AWS_REGION"] = "eu-west", ["VAULT_TOKEN"] = "Bearer vault-token-abc" }, resolved.Environment);
+            Assert.Contains(Secret, resolved.Mask!); // the daemon masks it, and keeps it for the gateway alone
             var audit = await admin.GetStringAsync("/api/v1/audit");
             Assert.Contains($"session {session.Id}", audit);
             Assert.Contains("ECHO_TOKEN version 1 (personal)", audit);

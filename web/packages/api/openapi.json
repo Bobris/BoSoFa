@@ -5704,6 +5704,10 @@
           "setAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "hostOnly": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -6105,6 +6109,10 @@
           },
           "value": {
             "type": "string"
+          },
+          "hostOnly": {
+            "type": "boolean",
+            "default": false
           }
         }
       },

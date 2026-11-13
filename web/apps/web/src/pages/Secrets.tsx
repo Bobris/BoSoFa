@@ -87,7 +87,7 @@ function SecretRow(props: { secret: Secret; editable: boolean; onChanged: () => 
     setBusy(true);
     const { response, error: problem } = await api.PUT("/api/v1/secrets/{scope}/{name}", {
       params: path(),
-      body: { kind: props.secret.kind, value },
+      body: { kind: props.secret.kind, value, hostOnly: props.secret.hostOnly ?? false },
     });
     setBusy(false);
     if (!response.ok) return setError(problemOf(problem, response.status));
@@ -112,6 +112,11 @@ function SecretRow(props: { secret: Secret; editable: boolean; onChanged: () => 
             <span class="font-mono font-medium">{props.secret.name}</span>
             <Show when={props.secret.kind === "Variable"}>
               <span class="rounded bg-hover px-1.5 text-xs text-muted">variable</span>
+            </Show>
+            <Show when={props.secret.hostOnly}>
+              <span class="rounded bg-hover px-1.5 text-xs text-muted" title="Goes to MCP servers, never to an agent's shell or a harness's environment">
+                MCP servers only
+              </span>
             </Show>
             <Reference kind={props.secret.kind} name={props.secret.name} />
           </div>
@@ -197,6 +202,7 @@ export default function Secrets() {
   const [scope, setScope] = createSignal<SecretScope>("Personal");
   const [name, setName] = createSignal("");
   const [value, setValue] = createSignal("");
+  const [hostOnly, setHostOnly] = createSignal(false);
   const [error, setError] = createSignal<string>();
   const [busy, setBusy] = createSignal(false);
   const reload = () => refresh(secrets);
@@ -208,12 +214,13 @@ export default function Secrets() {
     setBusy(true);
     const { response, error: problem } = await api.PUT("/api/v1/secrets/{scope}/{name}", {
       params: { path: { scope: scope(), name: name().trim() } },
-      body: { kind: kind(), value: value() },
+      body: { kind: kind(), value: value(), hostOnly: kind() === "Secret" && hostOnly() },
     });
     setBusy(false);
     if (!response.ok) return setError(problemOf(problem, response.status));
     setName("");
     setValue("");
+    setHostOnly(false);
     setError(undefined);
     reload();
   }
@@ -276,6 +283,23 @@ export default function Secrets() {
               value={value()}
               onInput={(event) => setValue(event.currentTarget.value)}
             />
+            <Show when={kind() === "Secret"}>
+              <label class="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  class="mt-1"
+                  checked={hostOnly()}
+                  onChange={(event) => setHostOnly(event.currentTarget.checked)}
+                />
+                <span>
+                  For MCP servers only
+                  <span class="block text-xs text-muted">
+                    Never in a session's environment, so the agent's commands cannot read it. Best with a remote MCP server: a
+                    local one runs as your user, who can read its environment.
+                  </span>
+                </span>
+              </label>
+            </Show>
             <div class="flex items-center gap-3">
               <button
                 type="submit"

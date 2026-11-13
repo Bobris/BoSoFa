@@ -43,7 +43,8 @@ public static class SecretEndpoints
     /// <summary>Must run inside a query scope.</summary>
     static SecretDto ToDto(SecretEntry secret) => new(secret.Kind, secret.OwnerId == 0 ? SecretScope.Shared : SecretScope.Personal, secret.Name,
         secret.Version, secret.Kind == SecretKind.Secret ? secret.Hint : null, secret.Kind == SecretKind.Variable ? secret.Value : null,
-        secret.SetById == 0 ? "the server" : Ambient.Relation<IUserTable>().FindByIdOrDefault(secret.SetById)?.Name ?? "", secret.SetAt);
+        secret.SetById == 0 ? "the server" : Ambient.Relation<IUserTable>().FindByIdOrDefault(secret.SetById)?.Name ?? "", secret.SetAt,
+        secret.HostOnly);
 
     static ulong OwnerOf(SecretScope scope, HttpContext http) => scope == SecretScope.Shared ? 0 : http.User.UserId() ?? 0;
 
@@ -66,6 +67,7 @@ public static class SecretEndpoints
         var value = request.Value.Trim();
         if (value.Length == 0) return TypedResults.BadRequest("A value is required.");
         if (value.Length > SecretNames.MaxValueLength) return TypedResults.BadRequest($"A value is at most {SecretNames.MaxValueLength / 1024} KB.");
+        if (request.HostOnly && request.Kind != SecretKind.Secret) return TypedResults.BadRequest("Only a secret can be for MCP servers only.");
         var owner = OwnerOf(scope, http);
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
         // A rotation is the next version of what is there; two at once make one of them try again.
@@ -86,7 +88,7 @@ public static class SecretEndpoints
             {
                 UserId = http.User.UserId() ?? 0, OwnerId = owner, Name = name, Kind = request.Kind, SecretId = secretId, Version = version,
                 ProtectedValue = secret ? Protect(protection, secretId, version, value) : "", Value = secret ? "" : value,
-                Hint = secret ? AccountSecrets.Hint(value) : ""
+                Hint = secret ? AccountSecrets.Hint(value) : "", HostOnly = request.HostOnly
             }, http.RequestAborted);
             if (result.Conflict) continue;
             switch (result.Outcome)

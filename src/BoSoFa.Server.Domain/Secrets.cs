@@ -24,6 +24,9 @@ public class SecretEntry
     public string Hint { get; set; } = "";
     public ulong SetById { get; set; }
     public DateTime SetAt { get; set; }
+
+    /// <summary>Goes to MCP servers only, never to an agent's shell or a harness's environment (docs/secrets.md §6).</summary>
+    public bool HostOnly { get; set; }
 }
 
 public interface ISecretTable : IRelation<SecretEntry>
@@ -71,6 +74,7 @@ public class SecretSet : EventWithResult<SecretCommandResult>
     public string ProtectedValue { get; set; } = "";
     public string Value { get; set; } = "";
     public string Hint { get; set; } = "";
+    public bool HostOnly { get; set; }
 }
 
 public class SecretDeleted : EventWithResult<SecretCommandResult>
@@ -110,7 +114,7 @@ public sealed class SecretSetHandler(IDomainSignals signals) : IEventHandler<Sec
         var valid = SecretNames.IsValid(ev.Name) && !string.IsNullOrEmpty(ev.SecretId) && ev.Version >= 1 && ev.Kind switch
         {
             SecretKind.Secret => ev.ProtectedValue.Length > 0 && ev.Value.Length == 0,
-            SecretKind.Variable => ev.ProtectedValue.Length == 0 && ev.Value.Length is > 0 and <= SecretNames.MaxValueLength,
+            SecretKind.Variable => ev.ProtectedValue.Length == 0 && ev.Value.Length is > 0 and <= SecretNames.MaxValueLength && !ev.HostOnly,
             _ => false
         };
         return valid ? null : new() { Outcome = CommandOutcome.Invalid };
@@ -128,10 +132,10 @@ public sealed class SecretSetHandler(IDomainSignals signals) : IEventHandler<Sec
         table.Upsert(new()
         {
             OwnerId = ev.OwnerId, Name = ev.Name, Kind = ev.Kind, SecretId = ev.SecretId, Version = ev.Version,
-            ProtectedValue = ev.ProtectedValue, Value = ev.Value, Hint = ev.Hint, SetById = ev.UserId, SetAt = ev.When
+            ProtectedValue = ev.ProtectedValue, Value = ev.Value, Hint = ev.Hint, SetById = ev.UserId, SetAt = ev.When, HostOnly = ev.HostOnly
         });
         Audit.Record(ev.When, ev.UserId, current == null ? "secret.set" : "secret.rotated", ev.Name,
-            $"{Secrets.ScopeOf(ev.OwnerId)} {ev.Kind.ToString().ToLowerInvariant()}, version {ev.Version}");
+            $"{Secrets.ScopeOf(ev.OwnerId)} {(ev.HostOnly ? "host-only " : "")}{ev.Kind.ToString().ToLowerInvariant()}, version {ev.Version}");
         if (ev.Kind == SecretKind.Secret) signals.SecretsChanged();
         return new() { Outcome = CommandOutcome.Ok };
     }

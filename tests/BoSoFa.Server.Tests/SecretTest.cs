@@ -209,4 +209,38 @@ public class SecretTest
             catch (IOException) { }
         }
     }
+
+    /// <summary>A host-only secret goes to MCP servers, never into a session's environment, where the agent's commands read it.</summary>
+    [Fact]
+    public async Task AHostOnlySecretStaysOutOfEnvironments()
+    {
+        await using var server = await TestServer.StartAsync();
+        using var boris = await SignIn(server, "boris@example.com");
+        var borisId = (await boris.GetFromJsonAsync<UserDto>("/api/v1/me"))!.Id;
+        Assert.Equal(HttpStatusCode.BadRequest, (await boris.PutAsJsonAsync("/api/v1/secrets/Personal/REGION",
+            new SetSecretRequest(SecretKind.Variable, "eu-west", HostOnly: true))).StatusCode);
+        var vault = (await (await boris.PutAsJsonAsync("/api/v1/secrets/Shared/VAULT",
+            new SetSecretRequest(SecretKind.Secret, Team, HostOnly: true))).Content.ReadFromJsonAsync<SecretDto>())!;
+        Assert.True(vault.HostOnly);
+        (await boris.PostAsJsonAsync("/api/v1/mcp-servers", new PublishMcpServer("vault", McpTransport.Http, null, null, "https://vault.example/mcp",
+            new() { ["Authorization"] = "Bearer ${secret:VAULT}" }))).EnsureSuccessStatusCode(); // where it belongs
+        var refused = await boris.PostAsJsonAsync("/api/v1/profiles", new ProfileDto("ops", null, null, ["vault"], [],
+            Environment: new() { ["VAULT_TOKEN"] = "${secret:VAULT}" }));
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Contains("VAULT is for MCP servers only", await refused.Content.ReadAsStringAsync());
+
+        // A person's own host-only secret of a name the profile uses is refused when their session starts.
+        await SetOk(boris, SecretScope.Personal, "GRAFANA_TOKEN", SecretKind.Secret, Grafana);
+        (await boris.PostAsJsonAsync("/api/v1/profiles", new ProfileDto("ops", null, null, ["vault"], [],
+            Environment: new() { ["GRAFANA_TOKEN"] = "${secret:GRAFANA_TOKEN}" }))).EnsureSuccessStatusCode();
+        (await boris.PutAsJsonAsync("/api/v1/secrets/Personal/GRAFANA_TOKEN", new SetSecretRequest(SecretKind.Secret, Rotated, HostOnly: true))).EnsureSuccessStatusCode();
+        var protection = server.Service<IDataProtectionProvider>();
+        using var query = server.Node.Publisher!.StartQuery();
+        var profile = Ambient.Relation<IProfileTable>().FindByIdOrDefault("ops")!;
+        var resolver = new SecretResolver(borisId, protection);
+        var (servers, _) = BoSoFa.Server.Accounts.CatalogEndpoints.Resolve(profile, resolver, protection);
+        Assert.Equal($"Bearer {Team}", Assert.Single(servers).Secrets["Authorization"]); // the MCP server gets it
+        var missing = Assert.Throws<MissingSecretsException>(resolver.ThrowIfMissing);
+        Assert.Equal("GRAFANA_TOKEN is for MCP servers only, so it cannot be in the environment of a session.", missing.Message);
+    }
 }

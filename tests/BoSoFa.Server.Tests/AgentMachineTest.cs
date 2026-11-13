@@ -302,7 +302,8 @@ public class AgentMachineTest(ITestOutputHelper output)
         await using var m = await Machine.StartAsync();
         var script = AgentToolHostTest.WriteFakeMcpServer(m.Root);
         // The server's secret and the profile's environment are references, resolved for the session's creator.
-        (await m.H.Boris.PutAsJsonAsync("/api/v1/secrets/Personal/LOCAL_MCP_SECRET", new SetSecretRequest(SecretKind.Secret, "s3"))).EnsureSuccessStatusCode();
+        // The MCP servers' secrets are host-only: the servers get them, the agent's commands do not.
+        (await m.H.Boris.PutAsJsonAsync("/api/v1/secrets/Personal/LOCAL_MCP_SECRET", new SetSecretRequest(SecretKind.Secret, "s3", HostOnly: true))).EnsureSuccessStatusCode();
         (await m.H.Boris.PutAsJsonAsync("/api/v1/secrets/Personal/DEPLOY", new SetSecretRequest(SecretKind.Secret, "deploy-token-77"))).EnsureSuccessStatusCode();
         (await m.H.Boris.PutAsJsonAsync("/api/v1/secrets/Shared/REGION", new SetSecretRequest(SecretKind.Variable, "eu-west"))).EnsureSuccessStatusCode();
         (await m.H.Boris.PostAsJsonAsync("/api/v1/mcp-servers", new PublishMcpServer("local", McpTransport.Stdio, "/bin/bash", [script], null,
@@ -311,6 +312,7 @@ public class AgentMachineTest(ITestOutputHelper output)
             Environment: new() { ["DEPLOY_TOKEN"] = "${secret:DEPLOY}", ["AWS_REGION"] = "${var:REGION}" }))).EnsureSuccessStatusCode();
         m.H.Backend.Call("c1", "mcp__local__where", "{}");
         m.H.Backend.Call("c2", Tool.Shell, Args(("command", "echo \"$DEPLOY_TOKEN in $AWS_REGION\"")));
+        m.H.Backend.Call("c3", Tool.Shell, Args(("command", "env")));
         m.H.Backend.Answer("Done.");
         var session = await m.StartSessionAsync("Where?", "bypassPermissions", "onmachine");
         var results = (await m.H.RunEndedAsync(session.Id)).Where(item => item.Kind == SessionItemKind.ToolResult).ToArray();
@@ -318,6 +320,9 @@ public class AgentMachineTest(ITestOutputHelper output)
         Assert.Equal("in work with s3", results[0].Text);
         // The command had the secret; what it printed is masked, a variable is not (docs/secrets.md §5).
         Assert.Contains("*** in eu-west", results[1].Text);
+        Assert.Contains("AWS_REGION=eu-west", results[2].Text);
+        Assert.DoesNotContain("MCP_SECRET", results[2].Text);
+        Assert.DoesNotContain("mcp-secret", results[2].Text);
         var audit = await m.H.Boris.GetStringAsync("/api/v1/audit");
         Assert.Contains("secret.used", audit);
         Assert.Contains("DEPLOY version 1 (personal)", audit);

@@ -21,12 +21,13 @@ public enum SecretScope
 }
 
 /// <summary>A secret or a variable as people see it. <c>Value</c> is set for variables only; a secret shows its
-/// <c>Hint</c>, never its value.</summary>
+/// <c>Hint</c>, never its value. A <c>HostOnly</c> secret goes to MCP servers, never to an agent's shell (docs/secrets.md §6).</summary>
 public sealed record SecretDto(SecretKind Kind, SecretScope Scope, string Name, int Version, string? Hint, string? Value, string SetBy,
-    DateTime SetAt);
+    DateTime SetAt, bool HostOnly = false);
 
-/// <summary>Sets a value, or rotates it: a name keeps its kind, so turning a secret into a variable means deleting it first.</summary>
-public sealed record SetSecretRequest(SecretKind Kind, string Value);
+/// <summary>Sets a value, or rotates it: a name keeps its kind, so turning a secret into a variable means deleting it first.
+/// <c>HostOnly</c> is for secrets only, and each version says it again.</summary>
+public sealed record SetSecretRequest(SecretKind Kind, string Value, bool HostOnly = false);
 
 public static partial class SecretNames
 {

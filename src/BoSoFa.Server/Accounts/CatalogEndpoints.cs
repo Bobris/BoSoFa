@@ -141,6 +141,16 @@ public static partial class CatalogEndpoints
         var environment = request.Environment ?? [];
         if (Problem(environment, headers: false) is { } problem) return TypedResults.BadRequest(problem);
         var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        // What the admin sees as host-only is refused now; a person's own host-only secret of that name, at their session's start.
+        using (publisher.StartQuery())
+        {
+            var secrets = Ambient.Relation<ISecretTable>();
+            var userId = http.User.UserId() ?? 0;
+            if (environment.Values.SelectMany(SecretReferences.In).Where(reference => reference.Kind == SecretKind.Secret)
+                    .FirstOrDefault(reference => (secrets.FindByIdOrDefault(userId, reference.Name) ?? secrets.FindByIdOrDefault(0, reference.Name)) is { HostOnly: true })
+                is { Name: not null } hostOnly)
+                return TypedResults.BadRequest($"{hostOnly.Name} is for MCP servers only: it cannot be in the environment of a session.");
+        }
         return Result(await publisher.PublishAndWaitAsync(new ProfileSaved
         {
             UserId = http.User.UserId() ?? 0, Name = request.Name, Model = request.Model, PermissionMode = request.PermissionMode,
@@ -169,9 +179,9 @@ public static partial class CatalogEndpoints
             }
             else values = resolver.Resolve(Values(server.Values));
             servers.Add(new(server.Name, server.Transport, server.Command is { } command ? resolver.Resolve(command) : null,
-                Strings(server.Args).Select(resolver.Resolve).ToArray(), server.Url is { } url ? resolver.Resolve(url) : null, values));
+                Strings(server.Args).Select(argument => resolver.Resolve(argument)).ToArray(), server.Url is { } url ? resolver.Resolve(url) : null, values));
         }
-        return (servers.ToArray(), resolver.Resolve(Values(profile.Environment)));
+        return (servers.ToArray(), resolver.Resolve(Values(profile.Environment), shell: true));
     }
 
     /// <summary>

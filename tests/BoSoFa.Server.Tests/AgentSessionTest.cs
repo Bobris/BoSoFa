@@ -40,7 +40,7 @@ public class AgentSessionTest
             harness.Server = await TestServer.StartAsync(extraArgs: liveKey != null ? [] : ["--BoSoFa:Agent:OpenAIEndpoint", harness.Backend.ResponsesUrl, "--BoSoFa:Agent:AnthropicEndpoint", harness.Backend.MessagesUrl, "--BoSoFa:Agent:OpenCodeGoBaseUrl", harness.Backend.GoBaseUrl, "--BoSoFa:Agent:WebFetchAllowPrivateNetworks", allowPrivateFetch ? "true" : "false"]);
             harness.Boris = harness.Server.Client();
             (await harness.Boris.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("boris@example.com", "Boris"))).EnsureSuccessStatusCode();
-            (await harness.Boris.PutAsJsonAsync("/api/v1/secrets/Shared/FACTS_SECRET", new SetSecretRequest(SecretKind.Secret, "mcp-secret"))).EnsureSuccessStatusCode();
+            (await harness.Boris.PutAsJsonAsync("/api/v1/secrets/Shared/FACTS_SECRET", new SetSecretRequest(SecretKind.Secret, "mcp-secret", HostOnly: true))).EnsureSuccessStatusCode();
             (await harness.Boris.PostAsJsonAsync("/api/v1/mcp-servers", new PublishMcpServer("facts", McpTransport.Http, null, null, harness.Backend.McpUrl,
                 new() { ["X-Secret"] = "${secret:FACTS_SECRET}" }))).EnsureSuccessStatusCode();
             (await harness.Boris.PostAsJsonAsync("/api/v1/profiles", new ProfileDto("research", null, null, ["facts"], []))).EnsureSuccessStatusCode();
