@@ -1,6 +1,6 @@
 # Secrets and variables
 
-Status: step 1 (the store, §8) and the daemon's MCP gateway (§6) are done; the rest is planned. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
+Status: steps 1 (the store) and 2 (the masker) of §8, and the daemon's MCP gateway (§6), are done; the rest is planned. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
 live on the server, protected by .NET Data Protection, as harness accounts already are (plan §5.4.1). No external secret
 store (Key Vault secrets, Vault, 1Password) is supported.
 
@@ -103,15 +103,22 @@ masking (§5).
 
 ### 5.1 The masker
 
-`SecretMasker` in `BoSoFa.Protocol` (pure code, AOT-compatible, shared by the daemon and the server), ported from
+`SecretMasker` in `BoSoFa.Protocol` (pure code, AOT-compatible, shared by the daemon and the server; done), after
 CodeAlta's `AgentSecretMasker`:
 
-- Ordinal replacement of each value by `***`; values shorter than 4 characters are not masked.
-- Each value also as escaped in JSON (`JavaScriptEncoder.Default` and `UnsafeRelaxedJsonEscaping`), so `MaskJson` keeps
-  JSON valid. Beyond CodeAlta: its URL-encoded and Base64 forms too, cheap and common in headers and curl output.
-- `CreateStream()` for deltas: holds back the end of a chunk that could begin a value until the next chunk or the end.
-- `Retain(value)`: once given, a value stays masked for the life of the process, also after rotation or deletion.
-- `MaskInPlace` for log lines, `MaskException` for exceptions that reach logs or telemetry.
+- Ordinal replacement of each value by `***`, found with one `SearchValues<string>`; where values begin one another, the
+  longest wins. Values shorter than 4 characters are not masked.
+- From 8 characters on, also the forms a value takes in text: escaped in JSON (`JavaScriptEncoder.Default` and
+  `UnsafeRelaxedJsonEscaping`, with upper- and lowercase `\uXXXX`), URL-encoded (`%XX` both cases, and `+` for spaces), and
+  in Base64 (with and without padding, Base64url), including the start of the Base64 of a longer text that begins with it
+  (`echo $TOKEN | base64`, up to the value's last whole 3-byte group).
+- `MaskJson` masks inside strings only, so a secret that looks like a number of the JSON leaves the JSON valid.
+- `CreateStream()` for deltas: holds back the end of a part that could begin a value; a value that begins before that end
+  is complete already and is masked whole. Masking a text cut anywhere shows what masking it whole shows (tested at every
+  cut and on random cuts).
+- `Retain(value)`: once given, a value stays masked for the life of the masker, also after rotation or deletion.
+- `MaskInPlace` for log lines, `MaskException` (a `MaskedException` that tells the same, masked) for exceptions that reach
+  logs or telemetry.
 
 ### 5.2 On the daemon
 
@@ -196,8 +203,8 @@ in the UI until machines have a sandbox.
 1. **Store** (done): domain relations and events, Data Protection purpose, endpoints, the Secrets and variables page.
    `SecretTest`: scopes and admin rights, kinds, rotation and deletion, replaced values kept for masking, a ciphertext
    moved to another secret or version does not open, and no value in an API answer, the audit or the server's data.
-2. **Masker** in `BoSoFa.Protocol` with its unit tests (chunk boundaries, JSON, minimum length, retain), plus the
-   `--mcp-config` file fix.
+2. **Masker** (done) in `BoSoFa.Protocol` with `SecretMaskerTest` (forms, JSON validity, every cut and random cuts of a
+   stream, in place, exceptions, minimum length, retain), plus the `--mcp-config` file fix (done with §6).
 3. **References and resolution**: profile `Environment`, references in MCP servers, migration of inline values,
    `SessionProfileResponse` growth, errors that name a missing reference, `secret.used` audit.
 4. **Masking everywhere**: the daemon's choke point and logs, the server's second line, the server agent's tool
