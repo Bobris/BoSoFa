@@ -1,7 +1,7 @@
 namespace BoSoFa.Daemon;
 
 /// <summary>Files only this user may read: keys, and configurations that hold secrets.</summary>
-static class PrivateFile
+public static class PrivateFile
 {
     const UnixFileMode Owner = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 

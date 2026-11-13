@@ -85,6 +85,14 @@ sealed class McpGateway : IAsyncDisposable
             return;
         }
         var body = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone() };
+        if (method == "server/discover")
+        {
+            // The probe of the stateless protocol (2026-07-28): the daemon holds an initialized session with the server, so the
+            // harness falls back to initialize. Passed on, a server that ignores it would leave the harness waiting.
+            body["error"] = Error(-32601, "Method not found.");
+            await WriteAsync(response, body);
+            return;
+        }
         try
         {
             var result = await _stdio.RelayAsync(sessionId, workingDirectory, server, method, parameters,
@@ -95,6 +103,11 @@ sealed class McpGateway : IAsyncDisposable
         catch (ToolProblem exception) { body["error"] = Error(-32603, exception.Message); }
         catch (TimeoutException) { body["error"] = Error(-32603, $"The MCP server {server.Name} did not answer in time."); }
         catch (IOException) { body["error"] = Error(-32603, $"The MCP server {server.Name} exited."); }
+        await WriteAsync(response, body);
+    }
+
+    static async Task WriteAsync(HttpListenerResponse response, JsonObject body)
+    {
         var bytes = Encoding.UTF8.GetBytes(body.ToJsonString());
         response.ContentType = "application/json";
         response.ContentLength64 = bytes.Length;

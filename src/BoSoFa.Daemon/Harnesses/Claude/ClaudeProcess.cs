@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading.Channels;
 using BoSoFa.Protocol;
@@ -158,6 +159,15 @@ public sealed class ClaudeProcess : IClaudeTransport
 
     public Task<JsonElement> InterruptAsync(TimeSpan timeout) =>
         RequestAsync(new InterruptRequest(), ClaudeJson.Default.ControlRequestLineInterruptRequest, timeout);
+
+    /// <summary>A control request of another subtype, such as <c>mcp_status</c> or <c>mcp_call</c> (which calls an MCP tool
+    /// without the model), its fields given as they go on the wire.</summary>
+    public Task<JsonElement> ControlAsync(string subtype, JsonObject fields, TimeSpan timeout)
+    {
+        var request = (JsonObject)fields.DeepClone();
+        request["subtype"] = subtype;
+        return RequestAsync(request, ClaudeJson.Default.ControlRequestLineJsonObject, timeout);
+    }
 
     async Task<JsonElement> RequestAsync<T>(T request, JsonTypeInfo<ControlRequestLine<T>> typeInfo, TimeSpan timeout)
     {

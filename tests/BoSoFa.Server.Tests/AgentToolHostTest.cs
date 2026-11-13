@@ -432,9 +432,10 @@ public class AgentToolHostTest : IAsyncLifetime
             while IFS= read -r line; do
               id=$(printf '%s' "$line" | sed -n 's/^{"id":\([0-9]*\).*/\1/p')
               case "$line" in
-                *'"method":"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"fake"}}}\n' "$id" ;;
+                *'"method":"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"fake","version":"1"}}}\n' "$id" ;;
                 *'"method":"tools/list"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"where","description":"Says where it runs.","inputSchema":{"type":"object","properties":{}}}]}}\n' "$id" ;;
                 *'"method":"tools/call"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"in %s with %s"}]}}\n' "$id" "$(basename "$PWD")" "$MCP_SECRET" ;;
+                *) [ -n "$id" ] && printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"Method not found."}}\n' "$id" ;;
               esac
             done
             """.Replace("\r\n", "\n"));

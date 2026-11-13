@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace BoSoFa.Daemon.Harnesses.Claude;
@@ -77,6 +78,7 @@ sealed record EmptyObject;
 [JsonSerializable(typeof(UserLine<ContentBlock[]>))]
 [JsonSerializable(typeof(ControlRequestLine<InitializeRequest>))]
 [JsonSerializable(typeof(ControlRequestLine<InterruptRequest>))]
+[JsonSerializable(typeof(ControlRequestLine<JsonObject>))]
 [JsonSerializable(typeof(ControlResponseLine))]
 [JsonSerializable(typeof(PermissionResult))]
 [JsonSerializable(typeof(EmptyObject))]

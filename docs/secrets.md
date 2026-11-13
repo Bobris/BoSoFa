@@ -158,13 +158,18 @@ with the session's bearer:
 
 - A stdio server is started by the daemon (`StdioMcpServers`, as for server agent sessions) in the session's working
   directory, and its JSON-RPC is relayed. `initialize` gets the server's own answer; requests the server sends to its
-  client are refused, and a harness's `notifications/cancelled` is not passed on.
+  client are refused, and a harness's `notifications/cancelled` is not passed on. The gateway answers `server/discover` (the
+  probe of the stateless protocol, which Claude Code sends first) with "method not found" itself, so the harness falls back
+  to `initialize` at once.
 - A remote server is called by the daemon: the Streamable HTTP exchange passes through (event streams, `Mcp-Session-Id`),
   with the server's headers in place of the bearer. A 401 loses its `WWW-Authenticate`, so the harness does not try to sign
   in against the daemon.
 - Claude Code's `--mcp-config` is a `0600` file under the daemon's `mcp/` folder, no longer a command-line argument, which
   every user of the machine could read with `ps`. It holds only the gateway's addresses and the session's bearer; the folder
   is emptied when the daemon starts, since the bearers were of the previous run.
+
+`HarnessMcpGatewayTest` runs the real Claude Code and Codex, where installed, against the gateway: each calls a tool of a stdio
+server holding a secret without the model (`mcp_call`, `mcpServer/tool/call`), so it needs no account and costs nothing.
 
 HTTP MCP servers are the recommended shape for host-only secrets. A stdio one gets an honest "same user can read it" note
 in the UI until machines have a sandbox.

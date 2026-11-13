@@ -126,6 +126,9 @@ public class McpEndpointTest
             using var client = Bearer(local);
             Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync(entries[0].Url + "/other", new StringContent("{}"))).StatusCode);
 
+            // Claude Code probes for the stateless protocol first; the gateway answers it, so the harness falls back to initialize at once.
+            using (var probe = await Post(client, local.Url!, """{"jsonrpc":"2.0","id":"p","method":"server/discover","params":{}}"""))
+                Assert.Equal(-32601, probe.RootElement.GetProperty("error").GetProperty("code").GetInt32());
             using (var initialized = await Post(client, local.Url!, """{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{}}}"""))
             {
                 Assert.Equal("a", initialized.RootElement.GetProperty("id").GetString());
