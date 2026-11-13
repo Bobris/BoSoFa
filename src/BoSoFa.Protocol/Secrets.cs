@@ -42,3 +42,49 @@ public static partial class SecretNames
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,63}$")]
     private static partial Regex Simple();
 }
+
+/// <summary>A <c>${secret:NAME}</c> or <c>${var:NAME}</c> in a value of the configuration.</summary>
+public readonly record struct SecretReference(SecretKind Kind, string Name)
+{
+    public override string ToString() => SecretNames.Reference(Kind, Name);
+}
+
+/// <summary>References to secrets and variables in configuration values (docs/secrets.md §4).</summary>
+public static partial class SecretReferences
+{
+    /// <summary>The references of a value, in order.</summary>
+    public static IEnumerable<SecretReference> In(string value) =>
+        Reference().Matches(value).Select(match => new SecretReference(KindOf(match.Groups["kind"].Value)!.Value, match.Groups["name"].Value));
+
+    /// <summary>What is wrong with the references of a value, or <see langword="null"/>: every <c>${</c> must begin one.</summary>
+    public static string? Problem(string value)
+    {
+        foreach (Match match in Opening().Matches(value))
+        {
+            var reference = Reference().Match(value, match.Index);
+            if (reference.Success && reference.Index == match.Index) continue;
+            var end = value.IndexOf('}', match.Index);
+            var text = end < 0 ? value[match.Index..] : value[match.Index..(end + 1)];
+            return $"{text} is not a reference: write ${{secret:NAME}} or ${{var:NAME}}, NAME being letters, digits and _.";
+        }
+        return null;
+    }
+
+    /// <summary>The value with each reference replaced by what <paramref name="resolve"/> gives for it.</summary>
+    public static string Replace(string value, Func<SecretReference, string> resolve) =>
+        Reference().Replace(value, match => resolve(new(KindOf(match.Groups["kind"].Value)!.Value, match.Groups["name"].Value)));
+
+    /// <summary>A name whose value is likely a credential, so it must come from a secret, never be written in the clear.</summary>
+    public static bool LooksSecret(string name) => SecretLike().IsMatch(name);
+
+    static SecretKind? KindOf(string word) => word switch { "secret" => SecretKind.Secret, "var" => SecretKind.Variable, _ => null };
+
+    [GeneratedRegex(@"\$\{(?<kind>secret|var):(?<name>[A-Za-z_][A-Za-z0-9_]{0,63})\}")]
+    private static partial Regex Reference();
+
+    [GeneratedRegex(@"\$\{")]
+    private static partial Regex Opening();
+
+    [GeneratedRegex("token|passw|secret|key|authorization|cookie|credential", RegexOptions.IgnoreCase)]
+    private static partial Regex SecretLike();
+}

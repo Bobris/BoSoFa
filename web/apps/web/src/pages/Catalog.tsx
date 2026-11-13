@@ -8,14 +8,28 @@ const field = "w-full rounded-md border border-line bg-panel px-3 py-2 text-sm";
 const button = "rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50";
 const section = "space-y-3 rounded-lg border border-line bg-panel p-4";
 
-/** "KEY=value" lines as a map. */
-function parseSecrets(text: string): Record<string, string> {
-  const secrets: Record<string, string> = {};
+/** "NAME=value" lines as a map. */
+function parseValues(text: string): Record<string, string> {
+  const values: Record<string, string> = {};
   for (const line of text.split("\n")) {
     const at = line.indexOf("=");
-    if (at > 0) secrets[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+    if (at > 0) values[line.slice(0, at).trim()] = line.slice(at + 1).trim();
   }
-  return secrets;
+  return values;
+}
+
+const valuesHelp = "Write a credential as ${secret:NAME} and a setting as ${var:NAME}, set under Secrets and variables; never in the clear.";
+
+function ValueList(props: { values: Record<string, string> }) {
+  return (
+    <For each={Object.entries(props.values)} keyed={([name]) => name}>
+      {(entry) => (
+        <span class="block font-mono text-xs text-muted">
+          {entry()[0]}={entry()[1]}
+        </span>
+      )}
+    </For>
+  );
 }
 
 /** MCP servers, skill bundles and profiles. Everyone sees them; admins change them. */
@@ -34,33 +48,33 @@ export default function Catalog() {
   const isAdmin = () => me()?.role === "Admin";
   const [error, setError] = createSignal<string>();
 
-  function report(what: string, response: Response) {
-    setError(response.ok ? undefined : `${what} failed (${response.status}).`);
+  function report(what: string, response: Response, problem?: unknown) {
+    setError(response.ok ? undefined : typeof problem === "string" ? problem : `${what} failed (${response.status}).`);
     return response.ok;
   }
 
   const [serverName, setServerName] = createSignal("");
   const [serverTarget, setServerTarget] = createSignal("");
-  const [serverSecrets, setServerSecrets] = createSignal("");
+  const [serverValues, setServerValues] = createSignal("");
   async function addServer(event: SubmitEvent) {
     event.preventDefault();
     const target = serverTarget().trim();
     const remote = /^https?:\/\//.test(target);
     const [command, ...args] = target.split(/\s+/);
-    const { response } = await api.POST("/api/v1/mcp-servers", {
+    const { response, error: problem } = await api.POST("/api/v1/mcp-servers", {
       body: {
         name: serverName().trim(),
         transport: remote ? "Http" : "Stdio",
         command: remote ? null : command,
         args: remote ? [] : args,
         url: remote ? target : null,
-        secrets: parseSecrets(serverSecrets()),
+        values: parseValues(serverValues()),
       },
     });
-    if (report("Saving the MCP server", response)) {
+    if (report("Saving the MCP server", response, problem)) {
       setServerName("");
       setServerTarget("");
-      setServerSecrets("");
+      setServerValues("");
       refresh(servers);
     }
   }
@@ -89,12 +103,13 @@ export default function Catalog() {
   const [profilePrompt, setProfilePrompt] = createSignal("");
   const [profilePromptMode, setProfilePromptMode] = createSignal("append");
   const [profileTools, setProfileTools] = createSignal("");
+  const [profileEnvironment, setProfileEnvironment] = createSignal("");
   const [chosenServers, setChosenServers] = createSignal<string[]>([]);
   const [chosenSkills, setChosenSkills] = createSignal<string[]>([]);
   const toggle = (list: string[], value: string, on: boolean) => (on ? [...list, value] : list.filter((item) => item !== value));
   async function addProfile(event: SubmitEvent) {
     event.preventDefault();
-    const { response } = await api.POST("/api/v1/profiles", {
+    const { response, error: problem } = await api.POST("/api/v1/profiles", {
       body: {
         name: profileName().trim(),
         model: profileModel().trim() || null,
@@ -103,16 +118,18 @@ export default function Catalog() {
         systemPromptMode: profilePrompt().trim() ? profilePromptMode() : null,
         maxToolGroup: profileTools() || null,
         mcpServers: chosenServers(),
+        environment: parseValues(profileEnvironment()),
         skills: chosenSkills().map((key) => {
           const [name, version] = key.split("@");
           return { name, version };
         }),
       },
     });
-    if (report("Saving the profile", response)) {
+    if (report("Saving the profile", response, problem)) {
       setProfileName("");
       setProfilePrompt("");
       setProfileTools("");
+      setProfileEnvironment("");
       setChosenServers([]);
       setChosenSkills([]);
       refresh(profiles);
@@ -135,6 +152,7 @@ export default function Catalog() {
                   <span class="text-muted">
                     {[...profile().mcpServers, ...profile().skills.map((skill) => `${skill.name}@${skill.version}`)].join(", ")}
                   </span>
+                  <ValueList values={profile().environment ?? {}} />
                 </li>
               )}
             </For>
@@ -158,6 +176,14 @@ export default function Catalog() {
                 <option value="read">Server agent may only read a machine</option>
                 <option value="none">Server agent gets no machine tools</option>
               </select>
+              <textarea
+                class={[field, "font-mono"]}
+                rows={2}
+                placeholder="Environment of its sessions, one NAME=value per line (optional)"
+                value={profileEnvironment()}
+                onInput={(e) => setProfileEnvironment(e.currentTarget.value)}
+              />
+              <p class="text-xs text-muted">{valuesHelp} The agent's commands see these variables.</p>
               <For each={servers()} keyed={(server) => server.name}>
                 {(server) => (
                   <label class="flex items-center gap-2 text-sm">
@@ -196,9 +222,13 @@ export default function Catalog() {
               {(server) => (
                 <li>
                   {server().name}{" "}
-                  <span class="font-mono text-xs text-muted">
-                    {server().url ?? [server().command, ...server().args].join(" ")} {server().secretNames.join(" ")}
-                  </span>
+                  <span class="font-mono text-xs text-muted">{server().url ?? [server().command, ...server().args].join(" ")}</span>
+                  <ValueList values={server().values} />
+                  <Show when={server().inlineValueNames.length > 0}>
+                    <span class="block text-xs text-muted">
+                      Kept in the definition until the server moves them to shared secrets: {server().inlineValueNames.join(", ")}
+                    </span>
+                  </Show>
                 </li>
               )}
             </For>
@@ -207,7 +237,14 @@ export default function Catalog() {
             <form class="space-y-2 border-t border-line pt-3" onSubmit={addServer}>
               <input class={field} required placeholder="Name" value={serverName()} onInput={(e) => setServerName(e.currentTarget.value)} />
               <input class={[field, "font-mono"]} required placeholder="Command and arguments, or https:// URL" value={serverTarget()} onInput={(e) => setServerTarget(e.currentTarget.value)} />
-              <textarea class={[field, "font-mono"]} rows={2} placeholder="Secrets, one KEY=value per line (environment, or headers for a URL)" value={serverSecrets()} onInput={(e) => setServerSecrets(e.currentTarget.value)} />
+              <textarea
+                class={[field, "font-mono"]}
+                rows={2}
+                placeholder="Environment, or headers for a URL, one NAME=value per line"
+                value={serverValues()}
+                onInput={(e) => setServerValues(e.currentTarget.value)}
+              />
+              <p class="text-xs text-muted">{valuesHelp}</p>
               <button type="submit" class={button} disabled={!serverName().trim() || !serverTarget().trim()}>
                 Save server
               </button>

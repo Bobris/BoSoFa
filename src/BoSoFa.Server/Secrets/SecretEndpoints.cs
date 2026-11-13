@@ -39,7 +39,7 @@ public static class SecretEndpoints
     /// <summary>Must run inside a query scope.</summary>
     static SecretDto ToDto(SecretEntry secret) => new(secret.Kind, secret.OwnerId == 0 ? SecretScope.Shared : SecretScope.Personal, secret.Name,
         secret.Version, secret.Kind == SecretKind.Secret ? secret.Hint : null, secret.Kind == SecretKind.Variable ? secret.Value : null,
-        Ambient.Relation<IUserTable>().FindByIdOrDefault(secret.SetById)?.Name ?? "", secret.SetAt);
+        secret.SetById == 0 ? "the server" : Ambient.Relation<IUserTable>().FindByIdOrDefault(secret.SetById)?.Name ?? "", secret.SetAt);
 
     static ulong OwnerOf(SecretScope scope, HttpContext http) => scope == SecretScope.Shared ? 0 : http.User.UserId() ?? 0;
 

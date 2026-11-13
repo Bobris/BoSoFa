@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using BoSoFa.Protocol;
 using BoSoFa.Server.Accounts;
 using BoSoFa.Server.Btdb;
+using BoSoFa.Server.Secrets;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Live;
 using BoSoFa.Server.Machines;
@@ -146,7 +147,8 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
         string secret;
         AccountKind kind;
         ResolvedMcpServer[] servers;
-        string? os = null, profilePrompt = null, profileMode = null;
+        Dictionary<string, string> environment;
+        string? os = null, profilePrompt = null, profileMode = null, used;
         using (publisher.StartQuery())
         {
             if (Ambient.Relation<IHarnessAccountTable>().FindByIdOrDefault(session.AccountId) is not { } account || account.OwnerId != session.CreatedById)
@@ -155,9 +157,18 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
             if (session.MachineId != 0) os = Ambient.Relation<IMachineTable>().FindByIdOrDefault(session.MachineId)?.Os ?? "an unknown operating system";
             secret = AccountEndpoints.SecretOf(account, protection);
             var profile = session.ProfileName == null ? null : Ambient.Relation<IProfileTable>().FindByIdOrDefault(session.ProfileName);
-            servers = profile != null ? CatalogEndpoints.ResolveServers(profile, protection) : [];
+            // The references of the profile, resolved for the session's creator; what is missing stops the run with its names.
+            var resolver = new SecretResolver(session.CreatedById, protection);
+            (servers, environment) = profile != null ? CatalogEndpoints.Resolve(profile, resolver, protection) : ([], []);
+            try { resolver.ThrowIfMissing(); }
+            catch (MissingSecretsException missing) { throw new AgentSetupException(missing.Message); }
+            used = resolver.Used;
             (profilePrompt, profileMode) = (profile?.SystemPrompt, profile?.SystemPromptMode);
         }
+        if (used != null)
+            await AuditEndpoints.RecordAsync(publisher, session.CreatedById, "secret.used", $"session {session.Id}",
+                session.MachineId == 0 ? used : $"on machine {session.MachineId}: {used}", logger);
+        var machine = session.MachineId == 0 ? null : new AgentMachine(rpc, session.MachineId, session.WorkingDirectory, session.Id, time, environment);
         IModelTurnExecutor executor = kind switch
         {
             AccountKind.OpenAIApiKey => OpenAIResponsesExecutor.WithApiKey(Http, secret,
@@ -167,7 +178,7 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
             AccountKind.OpenCodeGoApiKey => OpenCodeGo.ExecutorFor(Http, secret, session.Model!, options.Agent.OpenCodeGoBaseUrl),
             _ => throw new AgentSetupException($"The server agent cannot use a {kind} account yet.")
         };
-        var (tools, problems) = await AgentToolbox.LoadAsync(Http, servers, MachineOf(session), 
+        var (tools, problems) = await AgentToolbox.LoadAsync(Http, servers, machine, 
             offersPatch: kind == AccountKind.OpenAIApiKey || (kind == AccountKind.OpenCodeGoApiKey && OpenCodeGo.OffersPatch(session.Model!)), ToolGroupOf(session),
             async (url, offset, stop) =>
             {

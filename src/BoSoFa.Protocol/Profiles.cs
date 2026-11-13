@@ -10,12 +10,16 @@ public enum McpTransport
     Http
 }
 
-/// <summary>An MCP server in the catalog as people see it: names of its secret values, never the values.</summary>
-public sealed record McpServerDto(string Name, McpTransport Transport, string? Command, string[] Args, string? Url, string[] SecretNames);
+/// <summary>An MCP server in the catalog as people see it. <c>Values</c> are environment variables of a stdio server, or HTTP
+/// headers of a remote one, as written: references to secrets (<c>${secret:NAME}</c>) and variables, or plain values that are
+/// not secret. <c>InlineValueNames</c> name values of an older definition, kept encrypted in it until they move to secrets.</summary>
+public sealed record McpServerDto(string Name, McpTransport Transport, string? Command, string[] Args, string? Url,
+    Dictionary<string, string> Values, string[] InlineValueNames);
 
-/// <summary><c>Secrets</c> are environment variables of a stdio server, or HTTP headers of a remote one.</summary>
+/// <summary><c>Values</c> are environment variables of a stdio server, or HTTP headers of a remote one; a credential is written
+/// as <c>${secret:NAME}</c>, never in the clear (docs/secrets.md §4.1).</summary>
 public sealed record PublishMcpServer(string Name, McpTransport Transport, string? Command, string[]? Args, string? Url,
-    Dictionary<string, string>? Secrets);
+    Dictionary<string, string>? Values);
 
 /// <summary>A versioned skill: a zip in the blob store with <c>SKILL.md</c> at its root.</summary>
 public sealed record SkillBundleDto(string Name, string Version, string Sha256, string Description, DateTime PublishedAt);
@@ -27,11 +31,13 @@ public sealed record SkillRef(string Name, string Version);
 /// <summary>What sessions of a profile get (plan §5.5).</summary>
 /// <param name="SystemPrompt">For server agent sessions, with <c>SystemPromptMode</c> saying whether it extends or replaces the built-in one.</param>
 /// <param name="MaxToolGroup">The most of a machine's tools a server agent session of this profile may have; null for all.</param>
+/// <param name="Environment">Variables of the session's harness and of the commands its agent runs, references allowed.</param>
 public sealed record ProfileDto(string Name, string? Model, string? PermissionMode, string[] McpServers, SkillRef[] Skills, string? SystemPrompt = null,
-    string? SystemPromptMode = null, string? MaxToolGroup = null);
+    string? SystemPromptMode = null, string? MaxToolGroup = null, Dictionary<string, string>? Environment = null);
 
-/// <summary>Daemon → server, just in time: everything a session's profile resolves to, secrets included.</summary>
-public sealed record SessionProfileResponse(ResolvedMcpServer[] McpServers, ResolvedSkill[] Skills);
+/// <summary>Daemon → server, just in time: everything a session's profile resolves to, secrets included. <c>Environment</c>
+/// is for the harness process (and so the agent's shell).</summary>
+public sealed record SessionProfileResponse(ResolvedMcpServer[] McpServers, ResolvedSkill[] Skills, Dictionary<string, string>? Environment = null);
 
 public sealed record ResolvedMcpServer(string Name, McpTransport Transport, string? Command, string[] Args, string? Url,
     Dictionary<string, string> Secrets);

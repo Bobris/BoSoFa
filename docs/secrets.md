@@ -1,6 +1,6 @@
 # Secrets and variables
 
-Status: steps 1 (the store) and 2 (the masker) of §8, and the daemon's MCP gateway (§6), are done; the rest is planned. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
+Status: steps 1 to 3 of §8 (the store, the masker, references and resolution) and the daemon's MCP gateway (§6) are done; the rest is planned. Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
 live on the server, protected by .NET Data Protection, as harness accounts already are (plan §5.4.1). No external secret
 store (Key Vault secrets, Vault, 1Password) is supported.
 
@@ -66,31 +66,42 @@ masking (§5).
 
 | Where | Example |
 | --- | --- |
-| Environment variable or header of an MCP server of the catalog | `GRAFANA_TOKEN = ${secret:GRAFANA_TOKEN}`, `Authorization = Bearer ${secret:GRAFANA_TOKEN}` |
-| URL or argument of an MCP server | `${var:GRAFANA_URL}` |
-| **New**: `Environment` of a profile, the variables of the agent's shell and harness process | `VAULT_TOKEN = ${secret:VAULT_TOKEN}`, `AWS_REGION = ${var:AWS_REGION}` |
+| Environment variable or header of an MCP server of the catalog (`PublishMcpServer.Values`) | `GRAFANA_TOKEN = ${secret:GRAFANA_TOKEN}`, `Authorization = Bearer ${secret:GRAFANA_TOKEN}` |
+| URL of an MCP server | `${var:GRAFANA_URL}/mcp`, or a secret |
+| Command or argument of an MCP server | `${var:GRAFANA_URL}`, never a secret (a command line is visible to every user of the machine) |
+| `Environment` of a profile: the harness process, and so the agent's shell, and the server agent's shell tool | `VAULT_TOKEN = ${secret:VAULT_TOKEN}`, `AWS_REGION = ${var:AWS_REGION}` |
 
-- A variable whose name looks secret (`TOKEN`, `PASSWORD`, `SECRET`, `KEY`) takes only `${secret:…}`; a literal is
-  refused at save time.
-- A host-only secret in a profile's `Environment` is refused at save time, and again at resolution.
-- **Migration**: the inline values of existing MCP servers become personal secrets of the admin who published the
-  server (`<SERVER>_<VAR>`), and the server's definition refers to them. After that, `PublishMcpServer.Secrets` takes
-  references, plain values for non-secret names, and nothing else.
+Done. At save time (`CatalogEndpoints`):
+
+- Every `${` must begin a reference: `${secret:NAME}` or `${var:NAME}`; `${env:…}` and malformed ones are refused.
+- A value whose name looks like a credential (`token`, `passw`, `secret`, `key`, `authorization`, `cookie`, `credential`)
+  must contain a `${secret:…}`: `Bearer ${secret:X}` passes, a literal is refused.
+- Environment names are like environment variables, header names HTTP tokens.
+- Whether a reference is set is not checked at save time: it depends on whose session it is.
+- A host-only secret in a profile's `Environment` will be refused at save time and at resolution (step 5).
+- **Migration** (`McpValueMigration`, once at start on every node; a definition already moved is left alone): the values
+  older definitions keep encrypted in themselves become **shared** secrets `<SERVER>_<NAME>` (uppercase, other characters
+  `_`), set by "the server", and the definition refers to them (`McpValuesMoved`). Shared, because every member's sessions
+  used those values before; a person can set their own under the same name. A shared secret of that name that exists is
+  kept. Until a definition moves (its key ring cannot open it, say), its values keep working and the catalog names them.
 
 ### 4.2 Resolution
 
 - The daemon already asks for a session's profile just in time (`SessionProfileResponse`). Resolution grows:
-  - `Environment`: the profile's variables with references resolved;
-  - `ResolvedMcpServer` with resolved env and headers, and whether each value is host-only;
-  - `Mask`: every value the response holds, plus the session's account secret, for §5.
+  - `Environment`: the profile's variables with references resolved (done); the daemon gives them to Claude Code, Codex
+    and ACP agents under its own variables, which win, and the server agent sends them with each shell tool call
+    (`ToolRunRequest.Environment`);
+  - `ResolvedMcpServer` with resolved env, headers, URL and arguments (done), and whether each value is host-only (step 5);
+  - `Mask`: every value the response holds, plus the session's account secret, for §5 (step 4).
 - The server resolves with the **session's creator** as the person, checks that the session runs on the asking machine
   and is not stopped (as the account lease does), and resolves nothing for anybody else.
-- A reference to a missing secret or variable fails the session's start with an error that names it. An empty value is
-  never used instead.
+- A reference to a missing secret or variable, or to a variable written as a secret, fails the session's start with an
+  error that names all of them (`409` with the message; the daemon shows it on the session). An empty value is never used
+  instead.
 - The server agent resolves the same way inside its backend action (its HTTP MCP servers on the server, its stdio ones
   sent over machine RPC as today).
-- **Audit**: one `secret.used` record per resolution (session, machine, names and versions, never values), and the
-  Secrets page shows recent uses.
+- **Audit**: one `secret.used` record per resolution (session, machine, names, versions and scopes, never values): per
+  start of a harness, and per run of the server agent. The Secrets page showing recent uses is still to come.
 - Rotation reaches new sessions and newly started MCP servers. A running harness keeps the value it started with
   until it is restarted.
 
@@ -205,7 +216,7 @@ in the UI until machines have a sandbox.
    moved to another secret or version does not open, and no value in an API answer, the audit or the server's data.
 2. **Masker** (done) in `BoSoFa.Protocol` with `SecretMaskerTest` (forms, JSON validity, every cut and random cuts of a
    stream, in place, exceptions, minimum length, retain), plus the `--mcp-config` file fix (done with §6).
-3. **References and resolution**: profile `Environment`, references in MCP servers, migration of inline values,
+3. **References and resolution** (done): profile `Environment`, references in MCP servers, migration of inline values,
    `SessionProfileResponse` growth, errors that name a missing reference, `secret.used` audit.
 4. **Masking everywhere**: the daemon's choke point and logs, the server's second line, the server agent's tool
    results and model input. End-to-end test on the recorded provider streams: a session whose profile gives

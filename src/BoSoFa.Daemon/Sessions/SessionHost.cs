@@ -133,7 +133,8 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
                              Path.Combine(home, $".{name}", "bin"), "/opt/homebrew/bin", "/usr/local/bin") ??
                          throw new IOException($"The {name} executable was not found on this machine.");
         var profile = await _profiles.PrepareAsync(state);
-        return new(JsonRpcProcess.Start(executable, arguments, state.WorkingDirectory, HarnessEnvironment.Clean(), includeVersion: true),
+        return new(JsonRpcProcess.Start(executable, arguments, state.WorkingDirectory, PreparedProfile.Merge(profile, HarnessEnvironment.Clean()),
+                includeVersion: true),
             McpConfig.ForAcp(ServersOf(state, profile)));
     }
 
@@ -151,9 +152,9 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         var home = Path.Combine(_dataDirectory, "profiles", state.AccountId is { } id ? $"account-{id}" : "machine", "codex");
         Directory.CreateDirectory(home);
         await File.WriteAllTextAsync(Path.Combine(home, "config.toml"), CodexConfig);
-        var environment = HarnessEnvironment.Clean();
-        environment["CODEX_HOME"] = home;
         var profile = await _profiles.PrepareAsync(state);
+        var environment = PreparedProfile.Merge(profile, HarnessEnvironment.Clean());
+        environment["CODEX_HOME"] = home;
         if (profile?.PluginDirectory is { } plugin) SessionProfiles.CopyDirectory(Path.Combine(plugin, "skills"), Path.Combine(home, "skills"));
         return new(JsonRpcProcess.Start(executable, ["app-server"], state.WorkingDirectory,
             environment, includeVersion: false), apiKey, McpConfig.ForCodex(ServersOf(state, profile)));
@@ -309,7 +310,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         launch = launch with
         {
             McpConfigPath = mcpConfig, PluginDirectory = profile?.PluginDirectory,
-            AllowedTools = McpEndpoint.PreApprovedClaudeTools
+            AllowedTools = McpEndpoint.PreApprovedClaudeTools, Environment = PreparedProfile.Merge(profile, new Dictionary<string, string>())
         };
         if (state.AccountId is not { } accountId) return launch;
         if (_options.Accounts is not { } accounts)
@@ -317,8 +318,11 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         var lease = await accounts.LeaseAsync(accountId, state.SessionId, CancellationToken.None);
         var configDirectory = Path.Combine(_dataDirectory, "profiles", $"account-{accountId}", "claude");
         Directory.CreateDirectory(configDirectory);
-        var environment = new Dictionary<string, string> { ["CLAUDE_CONFIG_DIR"] = configDirectory };
-        environment[lease.Kind == AccountKind.ClaudeOAuthToken ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"] = lease.Secret;
+        var environment = PreparedProfile.Merge(profile, new Dictionary<string, string>
+        {
+            ["CLAUDE_CONFIG_DIR"] = configDirectory,
+            [lease.Kind == AccountKind.ClaudeOAuthToken ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"] = lease.Secret
+        });
         return launch with { Environment = environment };
     }
 

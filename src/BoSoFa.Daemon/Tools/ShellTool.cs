@@ -32,7 +32,9 @@ sealed class ShellTool(Action<string> stream)
         return (File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh", ["-c", command]);
     }
 
-    public async Task<ToolRunResult> RunAsync(string workingDirectory, ToolArguments arguments, int timeoutSeconds, CancellationToken cancellation)
+    /// <param name="environment">The profile's variables, resolved; the shell's own settings below win over them.</param>
+    public async Task<ToolRunResult> RunAsync(string workingDirectory, ToolArguments arguments, int timeoutSeconds, CancellationToken cancellation,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var command = arguments.Required("command");
         var (executable, shellArguments) = Shell(command);
@@ -43,6 +45,7 @@ sealed class ShellTool(Action<string> stream)
         foreach (var argument in shellArguments) start.ArgumentList.Add(argument);
         start.Environment.Clear();
         foreach (var (name, value) in HarnessEnvironment.Clean(DeveloperVariables)) start.Environment[name] = value;
+        foreach (var (name, value) in environment ?? new Dictionary<string, string>()) start.Environment[name] = value;
         start.Environment["TERM"] = "dumb";
         start.Environment["NO_COLOR"] = "1";
         start.Environment["PAGER"] = "cat";

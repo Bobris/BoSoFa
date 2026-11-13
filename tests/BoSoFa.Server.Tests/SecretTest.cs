@@ -127,4 +127,44 @@ public class SecretTest
         Assert.Equal(BoSoFa.Server.Domain.Secrets.RetainedVersions, kept.Length);
         Assert.Equal(row.Version - 1, kept.Max());
     }
+
+    /// <summary>An older definition kept its values encrypted in itself: they move to shared secrets it then refers to.</summary>
+    [Fact]
+    public async Task OlderMcpValuesMoveToSharedSecrets()
+    {
+        await using var server = await TestServer.StartAsync();
+        using var boris = await SignIn(server, "boris@example.com");
+        var borisId = (await boris.GetFromJsonAsync<UserDto>("/api/v1/me"))!.Id;
+        var protection = server.Service<IDataProtectionProvider>();
+        var publisher = server.Node.Publisher!;
+        var secretId = Guid.NewGuid().ToString("N");
+        var older = new Dictionary<string, string> { ["GRAFANA_TOKEN"] = Grafana, ["x-api-key"] = Team };
+        Assert.Equal(CommandOutcome.Ok, (await publisher.PublishAndWaitAsync(new McpServerPublished
+        {
+            UserId = borisId, Name = "grafana-mcp", Transport = McpTransport.Http, Url = "https://grafana.example/mcp", Args = "[]",
+            SecretNames = "[\"GRAFANA_TOKEN\",\"x-api-key\"]", SecretId = secretId,
+            ProtectedSecrets = protection.CreateProtector(BoSoFa.Server.Accounts.CatalogEndpoints.Purpose, secretId)
+                .Protect(System.Text.Json.JsonSerializer.Serialize(older, ProtocolJsonContext.Default.DictionaryStringString))
+        })).Outcome);
+        // Until it moves, the definition says which values it keeps.
+        Assert.Equal(["GRAFANA_TOKEN", "x-api-key"], Assert.Single((await boris.GetFromJsonAsync<McpServerDto[]>("/api/v1/mcp-servers"))!).InlineValueNames);
+        // A shared secret of one of those names is kept as it is.
+        await SetOk(boris, SecretScope.Shared, "GRAFANA_MCP_X_API_KEY", SecretKind.Secret, "kept-as-it-was-1234");
+
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+        Assert.Equal(1, await McpValueMigration.MoveAsync(publisher, protection, logger, default));
+        Assert.Equal(0, await McpValueMigration.MoveAsync(publisher, protection, logger, default)); // every node may run it
+
+        Assert.Equal("the server", (await List(boris)).Single(secret => secret.Name == "GRAFANA_MCP_GRAFANA_TOKEN").SetBy); // nobody set it by hand
+        var moved = Assert.Single((await boris.GetFromJsonAsync<McpServerDto[]>("/api/v1/mcp-servers"))!);
+        Assert.Empty(moved.InlineValueNames);
+        Assert.Equal(new Dictionary<string, string>
+        {
+            ["GRAFANA_TOKEN"] = "${secret:GRAFANA_MCP_GRAFANA_TOKEN}", ["x-api-key"] = "${secret:GRAFANA_MCP_X_API_KEY}"
+        }, moved.Values);
+        Assert.Equal(Grafana, SecretEndpoints.ValueOf(Row(server, 0, "GRAFANA_MCP_GRAFANA_TOKEN"), protection));
+        Assert.Equal("kept-as-it-was-1234", SecretEndpoints.ValueOf(Row(server, 0, "GRAFANA_MCP_X_API_KEY"), protection));
+        using var query = publisher.StartQuery();
+        Assert.Equal("", Ambient.Relation<IMcpServerTable>().FindByIdOrDefault("grafana-mcp")!.ProtectedSecrets);
+    }
 }

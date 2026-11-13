@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using BoSoFa.Protocol;
 
 namespace BoSoFa.Daemon;
@@ -106,6 +107,12 @@ public sealed class ServerClient(Uri server, HttpMessageHandler? handler = null)
     {
         if (response.IsSuccessStatusCode) return;
         var body = await response.Content.ReadAsStringAsync(cancellation);
+        // The server's own messages come as a JSON string: shown as the sentence they are.
+        if (body.StartsWith('"'))
+        {
+            try { body = JsonSerializer.Deserialize(body, ProtocolJsonContext.Default.String) ?? body; }
+            catch (JsonException) { }
+        }
         throw new HttpRequestException($"{(int)response.StatusCode} {response.ReasonPhrase}: {body}", null, response.StatusCode);
     }
 

@@ -301,14 +301,26 @@ public class AgentMachineTest(ITestOutputHelper output)
         if (OperatingSystem.IsWindows()) return;
         await using var m = await Machine.StartAsync();
         var script = AgentToolHostTest.WriteFakeMcpServer(m.Root);
-        (await m.H.Boris.PostAsJsonAsync("/api/v1/mcp-servers", new PublishMcpServer("local", McpTransport.Stdio, "/bin/bash", [script], null, new() { ["MCP_SECRET"] = "s3" }))).EnsureSuccessStatusCode();
-        (await m.H.Boris.PostAsJsonAsync("/api/v1/profiles", new ProfileDto("onmachine", null, null, ["local", "facts"], []))).EnsureSuccessStatusCode();
+        // The server's secret and the profile's environment are references, resolved for the session's creator.
+        (await m.H.Boris.PutAsJsonAsync("/api/v1/secrets/Personal/LOCAL_MCP_SECRET", new SetSecretRequest(SecretKind.Secret, "s3"))).EnsureSuccessStatusCode();
+        (await m.H.Boris.PutAsJsonAsync("/api/v1/secrets/Personal/DEPLOY", new SetSecretRequest(SecretKind.Secret, "deploy-token-77"))).EnsureSuccessStatusCode();
+        (await m.H.Boris.PutAsJsonAsync("/api/v1/secrets/Shared/REGION", new SetSecretRequest(SecretKind.Variable, "eu-west"))).EnsureSuccessStatusCode();
+        (await m.H.Boris.PostAsJsonAsync("/api/v1/mcp-servers", new PublishMcpServer("local", McpTransport.Stdio, "/bin/bash", [script], null,
+            new() { ["MCP_SECRET"] = "${secret:LOCAL_MCP_SECRET}" }))).EnsureSuccessStatusCode();
+        (await m.H.Boris.PostAsJsonAsync("/api/v1/profiles", new ProfileDto("onmachine", null, null, ["local", "facts"], [],
+            Environment: new() { ["DEPLOY_TOKEN"] = "${secret:DEPLOY}", ["AWS_REGION"] = "${var:REGION}" }))).EnsureSuccessStatusCode();
         m.H.Backend.Call("c1", "mcp__local__where", "{}");
+        m.H.Backend.Call("c2", Tool.Shell, Args(("command", "echo \"$DEPLOY_TOKEN in $AWS_REGION\"")));
         m.H.Backend.Answer("Done.");
         var session = await m.StartSessionAsync("Where?", "bypassPermissions", "onmachine");
-        var result = (await m.H.RunEndedAsync(session.Id)).First(item => item.Kind == SessionItemKind.ToolResult);
-        Assert.False(result.IsError, result.Text);
-        Assert.Equal("in work with s3", result.Text);
+        var results = (await m.H.RunEndedAsync(session.Id)).Where(item => item.Kind == SessionItemKind.ToolResult).ToArray();
+        Assert.All(results, result => Assert.False(result.IsError, result.Text));
+        Assert.Equal("in work with s3", results[0].Text);
+        Assert.Contains("deploy-token-77 in eu-west", results[1].Text);
+        var audit = await m.H.Boris.GetStringAsync("/api/v1/audit");
+        Assert.Contains("secret.used", audit);
+        Assert.Contains("DEPLOY version 1 (personal)", audit);
+        Assert.DoesNotContain("deploy-token-77", audit);
         var offered = AgentSessionTest.Tools(m.H.Backend.ModelRequests.First());
         Assert.Contains("mcp__local__where", offered);
         Assert.Contains("mcp__facts__lookup", offered);

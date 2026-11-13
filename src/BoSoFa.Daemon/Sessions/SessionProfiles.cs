@@ -13,7 +13,17 @@ public interface IProfileSource : IBlobDownloader
 }
 
 /// <summary>A profile made ready for a harness: its MCP servers, and a folder holding <c>skills/&lt;name&gt;/</c>.</summary>
-public sealed record PreparedProfile(ResolvedMcpServer[] McpServers, string? PluginDirectory);
+/// <param name="Environment">The profile's variables, resolved: for the harness process, and so the agent's shell.</param>
+public sealed record PreparedProfile(ResolvedMcpServer[] McpServers, string? PluginDirectory, IReadOnlyDictionary<string, string> Environment)
+{
+    /// <summary>The variables of a harness process: the profile's, then the daemon's own, which win.</summary>
+    public static Dictionary<string, string> Merge(PreparedProfile? profile, IReadOnlyDictionary<string, string> own)
+    {
+        var merged = new Dictionary<string, string>(profile?.Environment ?? new Dictionary<string, string>(), StringComparer.Ordinal);
+        foreach (var (name, value) in own) merged[name] = value;
+        return merged;
+    }
+}
 
 /// <summary>
 /// Materializes profiles on the machine (plan §5.5). Skill bundles are verified against their hash and cached by it.
@@ -27,7 +37,8 @@ public sealed class SessionProfiles(string dataDirectory, IProfileSource? source
         if (!state.HasProfile) return null;
         if (source == null) throw new InvalidOperationException("This daemon cannot load profiles.");
         var profile = await source.GetProfileAsync(state.SessionId, CancellationToken.None);
-        if (profile.Skills.Length == 0) return new(profile.McpServers, null);
+        var environment = profile.Environment ?? [];
+        if (profile.Skills.Length == 0) return new(profile.McpServers, null, environment);
         var folder = Path.Combine(dataDirectory, "session-skills", state.SessionId.ToString());
         if (!Directory.Exists(folder))
         {
@@ -48,7 +59,7 @@ public sealed class SessionProfiles(string dataDirectory, IProfileSource? source
                 if (Directory.Exists(staging)) Directory.Delete(staging, true);
             }
         }
-        return new(profile.McpServers, folder);
+        return new(profile.McpServers, folder, environment);
     }
 
     async Task<string> CachedAsync(ResolvedSkill skill)

@@ -416,6 +416,15 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
             };
         };
         put?: never;
@@ -4062,7 +4071,10 @@ export interface components {
             command: null | string;
             args: string[];
             url: null | string;
-            secretNames: string[];
+            values: {
+                [key: string]: string;
+            };
+            inlineValueNames: string[];
         };
         /** @enum {unknown} */
         McpTransport: "Stdio" | "Http";
@@ -4080,6 +4092,9 @@ export interface components {
             systemPrompt?: null | string;
             systemPromptMode?: null | string;
             maxToolGroup?: null | string;
+            environment?: null | {
+                [key: string]: string;
+            };
         };
         PublishHarnessRelease: {
             harness: string;
@@ -4092,7 +4107,7 @@ export interface components {
             command: null | string;
             args: null | string[];
             url: null | string;
-            secrets: null | {
+            values: null | {
                 [key: string]: string;
             };
         };
@@ -4232,6 +4247,9 @@ export interface components {
         SessionProfileResponse: {
             mcpServers: components["schemas"]["ResolvedMcpServer"][];
             skills: components["schemas"]["ResolvedSkill"][];
+            environment?: null | {
+                [key: string]: string;
+            };
         };
         /** @enum {unknown} */
         SessionStatus: "Starting" | "Running" | "WaitingForApproval" | "Idle" | "Stopped" | "Failed";

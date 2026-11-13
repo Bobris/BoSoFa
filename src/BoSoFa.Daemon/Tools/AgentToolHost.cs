@@ -126,7 +126,7 @@ public sealed class AgentToolHost : IAsyncDisposable
                 ToolNames.EditFile => await files.EditAsync(arguments, timeout.Token),
                 ToolNames.ApplyPatch => await new ApplyPatchTool(files).RunAsync(arguments, timeout.Token),
                 ToolNames.Shell => await new ShellTool(text => _sink.Delta(request.SessionId, request.LiveRef, text))
-                    .RunAsync(request.WorkingDirectory, arguments, timeoutSeconds, timeout.Token),
+                    .RunAsync(request.WorkingDirectory, arguments, timeoutSeconds, timeout.Token, request.Environment),
                 _ => new($"This daemon has no tool named {request.Tool}.", true)
             };
         }

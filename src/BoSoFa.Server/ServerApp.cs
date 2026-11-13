@@ -111,6 +111,7 @@ public static class ServerApp
         builder.Services.AddSingleton<BoSoFa.Server.Agents.AgentSideQuestionHandler>();
         builder.Services.AddSingleton(sp => new BTDB.BackendActions.BackendActions().RegisterGenerated(type => sp.GetRequiredService(type)));
         builder.Services.AddHostedService<BackendActionsService>(); // after the node: stops first, while the publisher still runs
+        builder.Services.AddHostedService<McpValueMigration>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<BoSoFa.Server.Agents.AgentRunnerService>());
 
         var app = builder.Build();
