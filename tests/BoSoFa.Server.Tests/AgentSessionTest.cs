@@ -37,7 +37,7 @@ public class AgentSessionTest
         public static async Task<Harness> StartAsync(string? liveKey = null, bool allowPrivateFetch = false)
         {
             var harness = new Harness { Backend = await FakeAgentBackend.StartAsync() };
-            harness.Server = await TestServer.StartAsync(extraArgs: liveKey != null ? [] : ["--BoSoFa:Agent:OpenAIEndpoint", harness.Backend.ResponsesUrl, "--BoSoFa:Agent:AnthropicEndpoint", harness.Backend.MessagesUrl, "--BoSoFa:Agent:OpenCodeGoBaseUrl", harness.Backend.GoBaseUrl, "--BoSoFa:Agent:WebFetchAllowPrivateNetworks", allowPrivateFetch ? "true" : "false"]);
+            harness.Server = await TestServer.StartAsync(extraArgs: liveKey != null ? [] : ["--BoSoFa:Agent:OpenAIEndpoint", harness.Backend.ResponsesUrl, "--BoSoFa:Agent:AnthropicEndpoint", harness.Backend.MessagesUrl, "--BoSoFa:Agent:OpenCodeGoBaseUrl", harness.Backend.GoBaseUrl, "--BoSoFa:Agent:OpenCodeZenBaseUrl", harness.Backend.ZenBaseUrl, "--BoSoFa:Agent:WebFetchAllowPrivateNetworks", allowPrivateFetch ? "true" : "false"]);
             harness.Boris = harness.Server.Client();
             (await harness.Boris.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("boris@example.com", "Boris"))).EnsureSuccessStatusCode();
             (await harness.Boris.PutAsJsonAsync("/api/v1/secrets/Shared/FACTS_SECRET", new SetSecretRequest(SecretKind.Secret, "mcp-secret", HostOnly: true))).EnsureSuccessStatusCode();

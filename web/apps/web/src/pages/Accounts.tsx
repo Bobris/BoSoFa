@@ -23,6 +23,11 @@ const kinds: { value: AccountKind; label: string; help: string }[] = [
     label: "OpenCode Go API key",
     help: "From the OpenCode Console. Only for your own server agent sessions: a Go key belongs to one person.",
   },
+  {
+    value: "OpenCodeZenApiKey",
+    label: "OpenCode Zen API key",
+    help: "From the OpenCode Console, billed pay as you go to its workspace. Only for the server agent; OpenCode keeps its free models for its own app.",
+  },
 ];
 
 function expiresSoon(account: HarnessAccount): boolean {

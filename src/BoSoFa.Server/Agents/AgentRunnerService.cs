@@ -183,6 +183,9 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
             mask = resolver.Secrets;
             (profilePrompt, profileMode) = (profile?.SystemPrompt, profile?.SystemPromptMode);
         }
+        var gateway = OpenCodeGateway.Of(kind);
+        if (gateway != null && OpenCodeGateway.IsFree(session.Model!))
+            throw new AgentSetupException($"{gateway.Name} serves its free models only to OpenCode's own app; choose a paid model.");
         await resolver.RecordAsync(publisher, session, logger);
         var machine = session.MachineId == 0 ? null : new AgentMachine(rpc, session.MachineId, session.WorkingDirectory, session.Id, time, environment, mask);
         IModelTurnExecutor executor = kind switch
@@ -191,11 +194,11 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
                 options.Agent.OpenAIEndpoint is { Length: > 0 } endpoint ? new Uri(endpoint) : null),
             AccountKind.AnthropicApiKey => AnthropicMessagesExecutor.WithApiKey(Http, secret,
                 options.Agent.AnthropicEndpoint is { Length: > 0 } endpoint ? new Uri(endpoint) : null),
-            AccountKind.OpenCodeGoApiKey => OpenCodeGo.ExecutorFor(Http, secret, session.Model!, options.Agent.OpenCodeGoBaseUrl),
+            _ when gateway != null => gateway.ExecutorFor(Http, secret, session.Model!, gateway.ConfiguredBaseUrl(options.Agent)),
             _ => throw new AgentSetupException($"The server agent cannot use a {kind} account yet.")
         };
         var (tools, problems) = await AgentToolbox.LoadAsync(Http, servers, machine, 
-            offersPatch: kind == AccountKind.OpenAIApiKey || (kind == AccountKind.OpenCodeGoApiKey && OpenCodeGo.OffersPatch(session.Model!)), ToolGroupOf(session),
+            offersPatch: kind == AccountKind.OpenAIApiKey || (gateway != null && OpenCodeGateway.OffersPatch(session.Model!)), ToolGroupOf(session),
             async (url, offset, stop) =>
             {
                 var result = await _webFetcher.FetchAsync(url, offset, stop);
@@ -210,7 +213,7 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
             });
         var model = ModelCatalog.Find(kind, session.Model!);
         // The Messages API needs a limit, and an older model's is lower than the usual one; the Responses API has no need of one.
-        var speaksMessages = kind == AccountKind.AnthropicApiKey || (kind == AccountKind.OpenCodeGoApiKey && OpenCodeGo.UsesMessages(session.Model!));
+        var speaksMessages = kind == AccountKind.AnthropicApiKey || gateway?.UsesMessages(session.Model!) == true;
         var maxOutput = speaksMessages && model?.OutputLimit is { } limit ? (int)Math.Min(limit, AnthropicMessagesExecutor.DefaultMaxOutputTokens) : (int?)null;
         return (new AgentEnvironment(new RetryingTurnExecutor(executor, time), tools, AgentInstructions.Shared(profilePrompt, profileMode),
             AgentInstructions.Runtime(time.GetUtcNow(), os, session.WorkingDirectory, ToolGroupOf(session)), model, maxOutput, kind == AccountKind.AnthropicApiKey ? AnthropicCacheSeconds : 0), problems);

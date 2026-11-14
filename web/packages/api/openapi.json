@@ -3522,7 +3522,8 @@
           "ClaudeOAuthToken",
           "AnthropicApiKey",
           "OpenAIApiKey",
-          "OpenCodeGoApiKey"
+          "OpenCodeGoApiKey",
+          "OpenCodeZenApiKey"
         ]
       },
       "AccountLeaseRequest": {

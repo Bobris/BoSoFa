@@ -38,6 +38,7 @@ sealed class FakeAgentBackend : IAsyncDisposable
     public string ResponsesUrl => Address + "/v1/responses";
     public string MessagesUrl => Address + "/v1/messages";
     public string GoBaseUrl => Address + "/go";
+    public string ZenBaseUrl => Address + "/zen";
     public ConcurrentQueue<string> ModelPaths { get; } = new();
     public ConcurrentQueue<string> GoSessions { get; } = new();
     public ConcurrentQueue<string> GoModelListAuthorizations { get; } = new();
@@ -54,6 +55,9 @@ sealed class FakeAgentBackend : IAsyncDisposable
         app.MapPost("/go/openai/v1/responses", backend.ModelAsync);
         app.MapPost("/go/anthropic/v1/messages", backend.ModelAsync);
         app.MapGet("/go/v1/models", backend.GoModelsAsync);
+        app.MapPost("/zen/openai/v1/responses", backend.ModelAsync);
+        app.MapPost("/zen/anthropic/v1/messages", backend.ModelAsync);
+        app.MapGet("/zen/v1/models", backend.GoModelsAsync);
         app.MapGet("/v1/models", (HttpContext http) =>
         {
             if (backend.ModelListFails)
@@ -263,7 +267,9 @@ sealed class FakeAgentBackend : IAsyncDisposable
         return http.Response.WriteAsync(new JsonObject
         {
             ["object"] = "list",
-            ["data"] = new JsonArray(Model("glm-5.3", "GLM-5.3", "chat", true), Model("qwen3.8-max", "Qwen3.8 Max", "chat", true), Model("no-tools", "No Tools", "chat", false), Model("draw", "Draw", "image", true))
+            ["data"] = new JsonArray(Model("glm-5.3", "GLM-5.3", "chat", true), Model("qwen3.8-max", "Qwen3.8 Max", "chat", true), Model("no-tools", "No Tools", "chat", false), Model("draw", "Draw", "image", true),
+                // OpenCode refuses its free models outside its own app.
+                Model("big-pickle", "Big Pickle", "chat", true), Model("longcat-2.5-free", "LongCat 2.5 Free", "chat", true))
         }.ToJsonString());
     }
 

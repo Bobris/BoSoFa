@@ -10,11 +10,12 @@ public static class ProviderModels
 {
     public static async Task<AgentModelDto[]> ListAsync(HttpClient http, AccountKind kind, string secret, ServerOptions options, CancellationToken cancellation)
     {
-        var known = ModelCatalog.ToolModels(kind).ToDictionary(model => model.Id, model => model.Info);
+        var gateway = OpenCodeGateway.Of(kind);
+        var known = ModelCatalog.ToolModels(kind).Where(model => gateway == null || !OpenCodeGateway.IsFree(model.Id)).ToDictionary(model => model.Id, model => model.Info);
         try
         {
-            if (kind == AccountKind.OpenCodeGoApiKey)
-                return (await OpenCodeGo.ListModelsAsync(http, options.Agent.OpenCodeGoBaseUrl, cancellation))
+            if (gateway != null)
+                return (await gateway.ListModelsAsync(http, gateway.ConfiguredBaseUrl(options.Agent), cancellation))
                     .Select(model => known.TryGetValue(model.Id, out var info) ? model with { InputPrice = info.InputPrice, OutputPrice = info.OutputPrice, AcceptsImages = info.Images } : model).ToArray();
             // Providers also list embeddings, image models and retired ones; only those the snapshot knows can run an agent here.
             var offered = await ProviderIdsAsync(http, kind, secret, options, cancellation);

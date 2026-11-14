@@ -30,18 +30,17 @@ public sealed partial class AnthropicMessagesExecutor(HttpClient http, Uri endpo
     public const int CompatibleMaxOutputTokens = 16384;
 
     public static readonly Uri AnthropicEndpoint = new("https://api.anthropic.com/v1/messages");
-    public static readonly Uri OpenCodeGoEndpoint = new("https://opencode.ai/inference/go/anthropic/v1/messages");
 
     public static AnthropicMessagesExecutor WithApiKey(HttpClient http, string apiKey, Uri? endpoint = null) =>
         new(http, endpoint ?? AnthropicEndpoint, (message, _) => message.Headers.TryAddWithoutValidation("x-api-key", apiKey), eagerToolInput: true, hostedSearch: true);
 
-    /// <summary>OpenCode Go's Messages route: its key, and the stable session id it asks for in <c>x-opencode-session</c>.</summary>
-    public static AnthropicMessagesExecutor ForOpenCodeGo(HttpClient http, string apiKey, Uri? endpoint = null) =>
-        new(http, endpoint ?? OpenCodeGoEndpoint, (message, request) =>
+    /// <summary>The Messages route of OpenCode Zen or Go (<see cref="OpenCodeGateway"/>): its key, and the stable session id it asks for in <c>x-opencode-session</c>.</summary>
+    public static AnthropicMessagesExecutor ForOpenCode(HttpClient http, string apiKey, Uri endpoint, string provider) =>
+        new(http, endpoint, (message, request) =>
         {
             message.Headers.TryAddWithoutValidation("x-api-key", apiKey);
             message.Headers.TryAddWithoutValidation("x-opencode-session", request.SessionId);
-        }, "OpenCode Go", defaultMaxOutputTokens: CompatibleMaxOutputTokens);
+        }, provider, defaultMaxOutputTokens: CompatibleMaxOutputTokens);
 
     public string Api => ApiName;
     public string Endpoint { get; } = endpoint.ToString();

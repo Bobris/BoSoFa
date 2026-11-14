@@ -18,8 +18,8 @@ The **server agent** is a harness of our own:
   own tools such as asking the person).
 - **Providers:**
   - the OpenAI **Responses** API, with an OpenAI API key, a ChatGPT subscription signed in through OAuth (as
-    CodeAlta does), or an OpenCode Go API key;
-  - the Anthropic **Messages** API, with an Anthropic API key (OpenCode Go also serves it).
+    CodeAlta does), or an OpenCode Zen or Go API key;
+  - the Anthropic **Messages** API, with an Anthropic API key (OpenCode Zen and Go also serve it).
 - **The system prompt can be set** in a profile and per session.
 
 What it gives over a daemon harness:
@@ -63,7 +63,7 @@ A session with harness `agent` has:
 
 | Setting | Where it comes from |
 |---|---|
-| Provider account | One of the creator's harness accounts: OpenAI API key, OpenAI subscription, OpenCode Go key, Anthropic API key. The harness list shows each such account under the name its owner gave it (§9). |
+| Provider account | One of the creator's harness accounts: OpenAI API key, OpenAI subscription, OpenCode Zen or Go key, Anthropic API key. The harness list shows each such account under the name its owner gave it (§9). |
 | Model | Chosen when starting; the profile may give a default. Listed from the provider where it can say (`/v1/models`). |
 | Reasoning effort | Optional; providers that cannot take it ignore it. |
 | System prompt | Built-in base, then the profile's, then the session's (§7). |
@@ -85,7 +85,7 @@ profile allows.
 person ─ message ─▶ backend action "agent-run", on a node the leader picks
                       │  build request from the session's items + tools + instructions
                       ▼
-                 IModelTurnExecutor ── HTTPS, streamed ──▶ OpenAI / ChatGPT / OpenCode Go / Anthropic
+                 IModelTurnExecutor ── HTTPS, streamed ──▶ OpenAI / ChatGPT / OpenCode / Anthropic
                       │  deltas ──▶ LiveHub (and other nodes)
                       │  assistant message + tool calls ──▶ event: AgentStepRecorded
                       ▼
@@ -246,24 +246,32 @@ read.
 
 This uses a person's own subscription for their own sessions only. An account is never shared.
 
-### 5.3 OpenCode Go
+### 5.3 OpenCode Zen and Go
 
-- An API key from the OpenCode console, a new account kind `OpenCodeGoApiKey`.
-- Endpoints from [the Go docs](https://opencode.ai/docs/go/):
-  - Responses: `https://opencode.ai/inference/go/openai/v1/responses`
-  - Messages: `https://opencode.ai/inference/go/anthropic/v1/messages`
-  - models: `https://opencode.ai/inference/go/v1/models`
+Both are built in, as in CodeAlta (its #420): Zen is pay as you go, Go the subscription. `OpenCodeGateway` holds what
+differs between them.
+
+- An API key from the OpenCode console, as the account kind `OpenCodeZenApiKey` or `OpenCodeGoApiKey`.
+- Endpoints from [the Zen docs](https://opencode.ai/docs/zen/) and [the Go docs](https://opencode.ai/docs/go/), below
+  `https://opencode.ai/inference` for Zen and `https://opencode.ai/inference/go` for Go (`BoSoFa:Agent:OpenCodeZenBaseUrl`
+  and `OpenCodeGoBaseUrl` change them):
+  - Responses: `/openai/v1/responses`
+  - Messages: `/anthropic/v1/messages`
+  - models: `/v1/models`
 
   Every text model works through either API, because OpenCode translates. We call each model on its native one, and
-  Responses otherwise: Messages for Claude, Qwen and MiniMax M3, from the table in the docs, since the model list does not
-  say. Encrypted reasoning is asked for only from models that speak Responses themselves.
-- The new-session form lists the chat models with tools from `/v1/models`.
+  Responses otherwise, from the table in each docs page, since the model list does not say. On Go that is Messages for
+  Claude, Qwen and MiniMax M3; on Zen for Claude and Qwen except Qwen3.8 Max. Encrypted reasoning is asked for only from
+  models that speak Responses themselves.
+- The new-session form lists the paid chat models with tools from `/v1/models`. The free ones (`-free`, `big-pickle`,
+  `grok-code`) are left out: OpenCode answers 403 for them outside its own app, so a session that names one stops
+  before it calls anything, with that reason.
 - Requirements OpenCode states:
   - a stable `x-opencode-session` header for each conversation (the session id);
   - our own User-Agent, not a library's;
   - typical coding-agent traffic.
 - A Go key is for a single-member workspace, and Go Teams excludes service accounts, so a Go key is always a person's
-  own account, never a shared one.
+  own account, never a shared one. A Zen key is billed to its workspace, like any other API key.
 
 ### 5.4 Anthropic Messages
 
@@ -486,8 +494,8 @@ at the start, the session goes on without it and says so.
    *Done (2026-11-09):*
    - The code is in `src/BoSoFa.Server/Agents`:
      - `IModelTurnExecutor` and its contracts;
-     - `OpenAIResponsesExecutor`, for an API key and OpenCode Go;
-     - `AnthropicMessagesExecutor`, for an API key and OpenCode Go;
+     - `OpenAIResponsesExecutor`, for an API key and OpenCode Zen and Go;
+     - `AnthropicMessagesExecutor`, for an API key and OpenCode Zen and Go;
      - `RetryingTurnExecutor`;
      - error classification.
    - `ProviderTest` covers them with fake streams:
@@ -543,10 +551,12 @@ at the start, the session goes on without it and says so.
    the ChatGPT request rules. *Done when* a person signs in and runs a session on their plan.
 6. **OpenCode Go.** The account kind, the model list, its headers, native API per model.
    *Done (2026-11-09), except for a run against the real service:*
-   - `OpenCodeGo` chooses the API per model; `AccountKind.OpenCodeGoApiKey` serves only the agent.
+   - `OpenCodeGateway` chooses the API per model; `AccountKind.OpenCodeGoApiKey` serves only the agent.
    - Approvals are now tied to the call's place in the transcript, because open models reuse ids like `call_0`.
-   - `AgentOpenCodeGoTest` runs against a fake service. No Go key was available, so `LiveOpenCodeGoRunsAToolCall` waits for
+   - `AgentOpenCodeTest` runs against a fake service. No Go key was available, so `LiveOpenCodeGoRunsAToolCall` waits for
      `BOSOFA_TEST_OPENCODE_KEY_FILE` (`BOSOFA_TEST_OPENCODE_MODEL` is optional).
+   - *Added (2026-11-14):* OpenCode Zen, with `AccountKind.OpenCodeZenApiKey`, its own table of native APIs, and the free
+     models of both left out of the form and refused before a call.
 7. **System prompt and profiles.** The layers of §7, the profile and new-session fields, `AGENTS.md`.
    *Done (2026-11-09):*
    - `AgentInstructions` builds the layers; `AgentLoop` stores them once as an `Instructions` item. `Domain.ApplicationGeneration` is 6.

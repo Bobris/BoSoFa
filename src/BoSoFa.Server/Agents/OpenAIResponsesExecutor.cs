@@ -17,19 +17,18 @@ public sealed class OpenAIResponsesExecutor(HttpClient http, Uri endpoint, Actio
 {
     public const string ApiName = "openai-responses";
     public static readonly Uri OpenAIEndpoint = new("https://api.openai.com/v1/responses");
-    public static readonly Uri OpenCodeGoEndpoint = new("https://opencode.ai/inference/go/openai/v1/responses");
 
     /// <summary>The OpenAI API with an API key (<c>Authorization: Bearer</c>).</summary>
     public static OpenAIResponsesExecutor WithApiKey(HttpClient http, string apiKey, Uri? endpoint = null) =>
         new(http, endpoint ?? OpenAIEndpoint, (message, _) => message.Headers.Authorization = new("Bearer", apiKey), hostedSearch: true);
 
-    /// <summary>OpenCode Go: its key, and the stable session id it asks for in <c>x-opencode-session</c>.</summary>
-    public static OpenAIResponsesExecutor ForOpenCodeGo(HttpClient http, string apiKey, Uri? endpoint = null, bool includeEncryptedReasoning = true) =>
-        new(http, endpoint ?? OpenCodeGoEndpoint, (message, request) =>
+    /// <summary>OpenCode Zen or Go (<see cref="OpenCodeGateway"/>): its key, and the stable session id it asks for in <c>x-opencode-session</c>.</summary>
+    public static OpenAIResponsesExecutor ForOpenCode(HttpClient http, string apiKey, Uri endpoint, string provider, bool includeEncryptedReasoning = true) =>
+        new(http, endpoint, (message, request) =>
         {
             message.Headers.Authorization = new("Bearer", apiKey);
             message.Headers.TryAddWithoutValidation("x-opencode-session", request.SessionId);
-        }, "OpenCode Go", includeEncryptedReasoning);
+        }, provider, includeEncryptedReasoning);
 
     public string Api => ApiName;
     public string Endpoint { get; } = endpoint.ToString();

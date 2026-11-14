@@ -16,7 +16,7 @@ public class ModelCatalogTest
         return directory;
     }
 
-    static readonly string[] Providers = ["anthropic", "openai", "opencode-go"];
+    static readonly string[] Providers = ["anthropic", "openai", "opencode", "opencode-go"];
 
     [Fact]
     public async Task SnapshotCanBeRefreshed()
@@ -61,6 +61,7 @@ public class ModelCatalogTest
         Assert.Null(ModelCatalog.Find(AccountKind.AnthropicApiKey, "no-such-model"));
         Assert.Null(ModelCatalog.Find(AccountKind.ClaudeOAuthToken, "claude-opus-5-5"));
         Assert.NotNull(ModelCatalog.Find(AccountKind.OpenCodeGoApiKey, "glm-5.3"));
+        Assert.NotNull(ModelCatalog.Find(AccountKind.OpenCodeZenApiKey, "glm-5.3"));
         Assert.NotNull(ModelCatalog.Find(AccountKind.OpenAIApiKey, "gpt-5.5"));
         Assert.True(opus.ToDto("claude-opus-5-5").AcceptsImages);
         Assert.False(ModelCatalog.Find(AccountKind.OpenAIApiKey, "gpt-4")!.ToDto("gpt-4").AcceptsImages);

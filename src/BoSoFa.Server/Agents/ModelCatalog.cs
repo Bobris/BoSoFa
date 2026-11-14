@@ -36,6 +36,7 @@ public static class ModelCatalog
         AccountKind.OpenAIApiKey => "openai",
         AccountKind.AnthropicApiKey => "anthropic",
         AccountKind.OpenCodeGoApiKey => "opencode-go",
+        AccountKind.OpenCodeZenApiKey => "opencode",
         _ => null
     };
 

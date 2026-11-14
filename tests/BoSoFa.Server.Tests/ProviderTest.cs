@@ -137,16 +137,20 @@ public class ProviderTest
         Assert.Equal("""{"a":21,"b":55}""", (string)otherModel[1]!["arguments"]!); // rebuilt from the call itself
     }
 
-    [Fact]
-    public async Task OpenCodeGoGetsItsSessionHeaderOnBothApis()
+    [Theory]
+    [InlineData(false, "https://opencode.ai/inference/go")]
+    [InlineData(true, "https://opencode.ai/inference")]
+    public async Task OpenCodeGetsItsSessionHeaderOnBothApis(bool zen, string baseUrl)
     {
+        var gateway = zen ? OpenCodeGateway.Zen : OpenCodeGateway.Go;
         var fake = new FakeProvider().Stream("openai/final-answer.sse").Stream("anthropic/final-answer.sse");
-        await RunAsync(OpenAIResponsesExecutor.ForOpenCodeGo(new HttpClient(fake), "go-key"), Request("gpt-6-luna", [new UserMessage("hi")]));
-        await RunAsync(AnthropicMessagesExecutor.ForOpenCodeGo(new HttpClient(fake), "go-key"), Request("qwen3.8-max", [new UserMessage("hi")]));
-        Assert.Equal(OpenAIResponsesExecutor.OpenCodeGoEndpoint, fake.Calls[0].Request.RequestUri);
-        Assert.Equal(AnthropicMessagesExecutor.OpenCodeGoEndpoint, fake.Calls[1].Request.RequestUri);
+        await RunAsync(gateway.ExecutorFor(new HttpClient(fake), "oc-key", "gpt-6-luna", null), Request("gpt-6-luna", [new UserMessage("hi")]));
+        await RunAsync(gateway.ExecutorFor(new HttpClient(fake), "oc-key", "claude-haiku-5-5", null), Request("claude-haiku-5-5", [new UserMessage("hi")]));
+        Assert.Equal(new Uri(baseUrl + "/openai/v1/responses"), fake.Calls[0].Request.RequestUri);
+        Assert.Equal(new Uri(baseUrl + "/anthropic/v1/messages"), fake.Calls[1].Request.RequestUri);
         Assert.All(fake.Calls, call => Assert.Equal("session-1", call.Request.Headers.GetValues("x-opencode-session").Single()));
-        Assert.Equal("go-key", fake.Calls[1].Request.Headers.GetValues("x-api-key").Single());
+        Assert.Equal("Bearer oc-key", fake.Calls[0].Request.Headers.Authorization!.ToString());
+        Assert.Equal("oc-key", fake.Calls[1].Request.Headers.GetValues("x-api-key").Single());
     }
 
     [Fact]
@@ -399,7 +403,7 @@ public class ProviderTest
         var key = File.ReadAllText(Environment.GetEnvironmentVariable("BOSOFA_TEST_OPENCODE_KEY_FILE")!).Trim();
         var model = Environment.GetEnvironmentVariable("BOSOFA_TEST_OPENCODE_MODEL") is { Length: > 0 } chosen ? chosen : "glm-5.3";
         using var http = new HttpClient();
-        var executor = new RetryingTurnExecutor(OpenCodeGo.ExecutorFor(http, key, model, null), TimeProvider.System);
+        var executor = new RetryingTurnExecutor(OpenCodeGateway.Go.ExecutorFor(http, key, model, null), TimeProvider.System);
         List<ConversationItem> conversation = [new UserMessage("Use the add tool to add 1234 and 4321, then answer with the sum only.")];
         for (var step = 0; step < 6; step++)
         {
@@ -431,9 +435,34 @@ public class ProviderTest
     [InlineData("grok-4.7", false, true)]
     public void OpenCodeGoCallsEachModelOnItsOwnApi(string model, bool messages, bool nativeResponses)
     {
-        Assert.Equal(messages, OpenCodeGo.UsesMessages(model));
-        Assert.Equal(nativeResponses, OpenCodeGo.IsNativeResponses(model));
+        Assert.Equal(messages, OpenCodeGateway.Go.UsesMessages(model));
+        Assert.Equal(nativeResponses, OpenCodeGateway.Go.IsNativeResponses(model));
     }
+
+    /// <summary>Zen's table differs from Go's: Qwen3.8 Max and MiniMax M3 are on Chat Completions there, so they go to Responses, translated.</summary>
+    [Theory]
+    [InlineData("glm-5.3", false, false)]
+    [InlineData("minimax-m3", false, false)]
+    [InlineData("qwen3.8-max", false, false)]
+    [InlineData("qwen3.8-flash", true, false)]
+    [InlineData("claude-opus-5-5", true, false)]
+    [InlineData("gpt-5.5", false, true)]
+    [InlineData("grok-4.7", false, true)]
+    [InlineData("muse-wonder-1.0", false, true)]
+    public void OpenCodeZenCallsEachModelOnItsOwnApi(string model, bool messages, bool nativeResponses)
+    {
+        Assert.Equal(messages, OpenCodeGateway.Zen.UsesMessages(model));
+        Assert.Equal(nativeResponses, OpenCodeGateway.Zen.IsNativeResponses(model));
+    }
+
+    [Theory]
+    [InlineData("big-pickle", true)]
+    [InlineData("grok-code", true)]
+    [InlineData("longcat-2.5-free", true)]
+    [InlineData("grok-code-fast", false)]
+    [InlineData("free-model", false)]
+    [InlineData("glm-5.3", false)]
+    public void OpenCodeKeepsItsFreeModelsForItself(string model, bool free) => Assert.Equal(free, OpenCodeGateway.IsFree(model));
 
     [Theory]
     [InlineData("claude-opus-5-5", true)]

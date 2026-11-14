@@ -17,7 +17,10 @@ public enum AccountKind
     OpenAIApiKey,
 
     /// <summary>An OpenCode Go API key, from a person's own workspace; only the server agent uses it.</summary>
-    OpenCodeGoApiKey
+    OpenCodeGoApiKey,
+
+    /// <summary>An OpenCode Zen API key (pay as you go, billed to its workspace); only the server agent uses it.</summary>
+    OpenCodeZenApiKey
 }
 
 /// <summary>A harness account as people see it; the secret never leaves the server except to a daemon's lease.</summary>
@@ -69,12 +72,13 @@ public static partial class AccountSecrets
         kind switch
         {
             AccountKind.OpenAIApiKey => Harnesses.Codex,
-            AccountKind.OpenCodeGoApiKey => Harnesses.Agent,
+            AccountKind.OpenCodeGoApiKey or AccountKind.OpenCodeZenApiKey => Harnesses.Agent,
             _ => Harnesses.Claude
         };
 
     /// <summary>Whether the server's own loop can run on this account (docs/server-agent.md).</summary>
-    public static bool ServesAgent(AccountKind kind) => kind is AccountKind.OpenAIApiKey or AccountKind.AnthropicApiKey or AccountKind.OpenCodeGoApiKey;
+    public static bool ServesAgent(AccountKind kind) => kind is AccountKind.OpenAIApiKey or AccountKind.AnthropicApiKey or AccountKind.OpenCodeGoApiKey or
+        AccountKind.OpenCodeZenApiKey;
 
     /// <summary>A loose shape check that catches pasting the wrong thing; the provider has the final word.</summary>
     public static bool LooksValid(AccountKind kind, string secret) => kind switch
@@ -82,7 +86,7 @@ public static partial class AccountSecrets
         AccountKind.ClaudeOAuthToken => ClaudeOAuthToken().IsMatch(secret),
         AccountKind.AnthropicApiKey => AnthropicApiKey().IsMatch(secret),
         AccountKind.OpenAIApiKey => OpenAIApiKey().IsMatch(secret),
-        AccountKind.OpenCodeGoApiKey => OpenCodeGoApiKey().IsMatch(secret),
+        AccountKind.OpenCodeGoApiKey or AccountKind.OpenCodeZenApiKey => OpenCodeApiKey().IsMatch(secret),
         _ => false
     };
 
@@ -101,5 +105,5 @@ public static partial class AccountSecrets
 
     // OpenCode does not document the format.
     [GeneratedRegex(@"^\S{20,}$")]
-    private static partial Regex OpenCodeGoApiKey();
+    private static partial Regex OpenCodeApiKey();
 }

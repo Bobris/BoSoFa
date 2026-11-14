@@ -5,14 +5,14 @@ using BoSoFa.Protocol;
 
 namespace BoSoFa.Server.Tests;
 
-/// <summary>Agent sessions on an OpenCode Go key, against a fake service (docs/server-agent.md §5.3).</summary>
-public class AgentOpenCodeGoTest
+/// <summary>Agent sessions on OpenCode Go and Zen keys, against a fake service (docs/server-agent.md §5.3).</summary>
+public class AgentOpenCodeTest
 {
     const string Key = "go-testtesttesttesttesttesttest";
 
-    static async Task<HarnessAccountDto> AddAccountAsync(AgentSessionTest.Harness h)
+    static async Task<HarnessAccountDto> AddAccountAsync(AgentSessionTest.Harness h, AccountKind kind = AccountKind.OpenCodeGoApiKey)
     {
-        var response = await h.Boris.PostAsJsonAsync("/api/v1/accounts", new CreateHarnessAccountRequest(AccountKind.OpenCodeGoApiKey, "My Go", Key));
+        var response = await h.Boris.PostAsJsonAsync("/api/v1/accounts", new CreateHarnessAccountRequest(kind, "My OpenCode", Key));
         Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
         var account = (await response.Content.ReadFromJsonAsync<HarnessAccountDto>())!;
         h.AccountId = account.Id;
@@ -78,6 +78,47 @@ public class AgentOpenCodeGoTest
         using var other = h.Server.Client();
         (await other.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("eve@example.com", "Eve"))).EnsureSuccessStatusCode();
         Assert.Equal(HttpStatusCode.NotFound, (await other.GetAsync($"/api/v1/accounts/{account.Id}/models")).StatusCode);
+    }
+
+    [Fact]
+    public async Task AZenKeyCallsZenOnEachModelsOwnApi()
+    {
+        await using var h = await AgentSessionTest.Harness.StartAsync();
+        var account = await AddAccountAsync(h, AccountKind.OpenCodeZenApiKey);
+        Assert.True(account.ServesAgent);
+        Assert.Equal(Harnesses.Agent, account.Harness);
+        h.Backend.Answer("Hello.");
+        var first = await h.StartSessionAsync(profile: null, model: "glm-5.3");
+        Assert.Equal("completed", (await h.RunEndedAsync(first.Id))[^1].Text);
+        h.Backend.AnthropicAnswer("Hello.");
+        var second = await h.StartSessionAsync(profile: null, model: "claude-sonnet-5-5");
+        Assert.Equal("completed", (await h.RunEndedAsync(second.Id))[^1].Text);
+        Assert.Equal(["/zen/openai/v1/responses", "/zen/anthropic/v1/messages"], h.Backend.ModelPaths);
+        Assert.Equal([first.Id.ToString(), second.Id.ToString()], h.Backend.GoSessions);
+        Assert.Equal(["Bearer " + Key, Key], h.Backend.ModelAuthorizations);
+    }
+
+    [Theory]
+    [InlineData(AccountKind.OpenCodeGoApiKey)]
+    [InlineData(AccountKind.OpenCodeZenApiKey)]
+    public async Task TheFormLeavesOutTheFreeModels(AccountKind kind)
+    {
+        await using var h = await AgentSessionTest.Harness.StartAsync();
+        var account = await AddAccountAsync(h, kind);
+        var models = await h.Boris.GetFromJsonAsync<AgentModelDto[]>($"/api/v1/accounts/{account.Id}/models");
+        Assert.Equal(["glm-5.3", "qwen3.8-max"], models!.Select(model => model.Id));
+    }
+
+    [Fact]
+    public async Task AFreeModelStopsWithAReasonBeforeAnyCall()
+    {
+        await using var h = await AgentSessionTest.Harness.StartAsync();
+        await AddAccountAsync(h, AccountKind.OpenCodeZenApiKey);
+        var session = await h.StartSessionAsync(profile: null, model: "big-pickle");
+        var items = await h.RunEndedAsync(session.Id);
+        Assert.Equal("failed", items[^1].Text);
+        Assert.Contains(items, item => $"{item.Text} {item.Data}".Contains("free models only to OpenCode's own app", StringComparison.Ordinal));
+        Assert.Empty(h.Backend.ModelPaths);
     }
 
     [Fact]

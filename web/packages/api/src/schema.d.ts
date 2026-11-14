@@ -4101,7 +4101,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** @enum {unknown} */
-        AccountKind: "ClaudeOAuthToken" | "AnthropicApiKey" | "OpenAIApiKey" | "OpenCodeGoApiKey";
+        AccountKind: "ClaudeOAuthToken" | "AnthropicApiKey" | "OpenAIApiKey" | "OpenCodeGoApiKey" | "OpenCodeZenApiKey";
         AccountLeaseRequest: {
             /** Format: uint64 */
             sessionId: number | string;
