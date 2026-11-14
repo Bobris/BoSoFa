@@ -292,9 +292,14 @@ public class AgentToolHostTest : IAsyncLifetime
         var ok = await Run(Tool.Shell, ("command", "echo hello"));
         Assert.False(ok.IsError);
         Assert.Equal("hello", ok.Text.Trim());
+        Assert.Equal(0, ok.ExitCode);
+        Assert.False(ok.TimedOut);
         var failed = await Run(Tool.Shell, ("command", OperatingSystem.IsWindows() ? "cmd /c exit 3; exit $LASTEXITCODE" : "echo oops >&2; exit 3"));
         Assert.True(failed.IsError);
         Assert.Contains("[Exit code 3]", failed.Text);
+        Assert.Equal(3, failed.ExitCode);
+        Assert.False(failed.TimedOut);
+        Assert.Null((await Run(Tool.ListDir)).ExitCode); // only the shell has one
     }
 
     [Fact]
@@ -332,7 +337,13 @@ public class AgentToolHostTest : IAsyncLifetime
         Assert.False(running.IsCompleted);
         Assert.True(_host.IsBusy);
         await _host.HandleAsync(new ToolCancelRequest($"key-{_next}"), default);
-        Assert.Equal("The tool was stopped.", Assert.IsType<ToolRunResult>(await running.WaitAsync(TimeSpan.FromSeconds(15))).Text);
+        // What it printed before it was stopped is kept.
+        var stopped = Assert.IsType<ToolRunResult>(await running.WaitAsync(TimeSpan.FromSeconds(15)));
+        Assert.Equal("early\n[Stopped.]", stopped.Text);
+        Assert.True(stopped.IsError);
+        Assert.True(stopped.Stopped);
+        Assert.Null(stopped.ExitCode);
+        Assert.False(stopped.TimedOut);
         Assert.False(_host.IsBusy);
     }
 
@@ -345,6 +356,8 @@ public class AgentToolHostTest : IAsyncLifetime
         Assert.True(result.IsError);
         Assert.Contains("begun", result.Text);
         Assert.Contains("Stopped after 1 seconds", result.Text);
+        Assert.True(result.TimedOut);
+        Assert.Null(result.ExitCode);
     }
 
     [Fact]

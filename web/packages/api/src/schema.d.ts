@@ -2331,6 +2331,117 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{id}/shell-commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RunShellCommandRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{id}/shell-commands/{seq}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                    seq: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{id}/stop": {
         parameters: {
             query?: never;
@@ -4450,7 +4561,7 @@ export interface components {
                 /** Format: int64 */
                 seq: number | string;
                 /** @enum {unknown} */
-                kind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff" | "Instructions" | "Compaction" | "Cleared" | "SideQuestion" | "SideAnswer";
+                kind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff" | "Instructions" | "Compaction" | "Cleared" | "SideQuestion" | "SideAnswer" | "ShellCommand" | "ShellOutput";
                 /** Format: date-time */
                 at: string;
                 text: string;
@@ -4627,6 +4738,9 @@ export interface components {
             sha256: string;
         };
         RpcDone: Record<string, never>;
+        RunShellCommandRequest: {
+            command: string;
+        };
         RuntimeRequestDto: {
             /** Format: uint64 */
             id: number | string;
@@ -4702,6 +4816,7 @@ export interface components {
             text: string;
             mode?: null | components["schemas"]["DispatchMode"];
             images?: null | string[];
+            shellOutputs?: null | (number | string)[];
         };
         SessionDraftDto: {
             /** Format: uint64 */
@@ -4767,7 +4882,7 @@ export interface components {
             ref: null | string;
         };
         /** @enum {unknown} */
-        SessionItemKind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff" | "Instructions" | "Compaction" | "Cleared" | "SideQuestion" | "SideAnswer";
+        SessionItemKind: "User" | "Assistant" | "Thinking" | "ToolUse" | "ToolResult" | "RunEnded" | "Notice" | "Diff" | "Instructions" | "Compaction" | "Cleared" | "SideQuestion" | "SideAnswer" | "ShellCommand" | "ShellOutput";
         SessionProfileResponse: {
             mcpServers: components["schemas"]["ResolvedMcpServer"][];
             skills: components["schemas"]["ResolvedSkill"][];

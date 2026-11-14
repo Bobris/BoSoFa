@@ -21,20 +21,38 @@ public sealed class AgentMachine(MachineRpcClient rpc, ulong machineId, string w
 
     public async Task<McpToolResult> RunAsync(AgentToolCall call, string tool, string arguments, int timeoutSeconds, ResolvedMcpServer? server, CancellationToken cancellation)
     {
+        var result = await CallAsync(call, tool, arguments, timeoutSeconds, server, server == null && MachineTools.Changes(tool), cancellation);
+        return new(result.Text, result.IsError, result.Images);
+    }
+
+    /// <summary>A command the person runs in the session's folder (docs/shell-commands.md): the shell tool with the session's variables,
+    /// and no checkpoint, since no run of the agent made the change.</summary>
+    /// <param name="cancellation">Stops waiting and leaves the command running, for another attempt to join by its key; <see cref="StopAsync"/>
+    /// stops it.</param>
+    public Task<ToolRunResult> RunCommandAsync(AgentToolCall call, string command, CancellationToken cancellation) =>
+        CallAsync(call, MachineTools.Shell, JsonSerializer.Serialize(new Dictionary<string, string> { ["command"] = command },
+            ProtocolJsonContext.Default.DictionaryStringString), MachineTools.LongestShellSeconds, null, false, cancellation, stopOnCancel: false);
+
+    /// <summary>Stops a call; its own request then answers with what it did.</summary>
+    public Task StopAsync(string key) => CancelAsync(key);
+
+    async Task<ToolRunResult> CallAsync(AgentToolCall call, string tool, string arguments, int timeoutSeconds, ResolvedMcpServer? server, bool checkpoints,
+        CancellationToken cancellation, bool stopOnCancel = true)
+    {
         var isRetry = false;
         DateTimeOffset? lostAt = null;
         try
         {
             while (true)
             {
-                var checkpoint = server == null && MachineTools.Changes(tool) ? CheckpointRef(call.RunNumber, "before") : null;
+                var checkpoint = checkpoints ? CheckpointRef(call.RunNumber, "before") : null;
                 var answer = await rpc.CallAsync(machineId, new ToolRunRequest(call.Key, sessionId, workingDirectory, tool, arguments, timeoutSeconds, call.LiveRef, isRetry,
                     checkpoint, server, server == null && tool == MachineTools.Shell && environment is { Count: > 0 } ? new(environment) : null,
                     mask is { Length: > 0 } ? mask : null), cancellation);
                 switch (answer)
                 {
                     case ToolRunResult result:
-                        return new(result.Text, result.IsError, result.Images);
+                        return result;
                     case RpcFailure failure when MachineRpcClient.IsOffline(failure) && !isRetry:
                         return new(failure.Message + " The tool did not run.", true);
                     case RpcFailure failure when MachineRpcClient.IsOffline(failure) || MachineRpcClient.IsDisconnected(failure):
@@ -52,7 +70,7 @@ public sealed class AgentMachine(MachineRpcClient rpc, ulong machineId, string w
                 }
             }
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested && stopOnCancel)
         {
             await CancelAsync(call.Key);
             throw;

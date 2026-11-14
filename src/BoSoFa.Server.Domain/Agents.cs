@@ -294,9 +294,10 @@ public static class AgentRunners
     }
 
     /// <summary>What the loop needs of a person's message beyond the shown text; null when that is nothing.</summary>
-    public static string? UserReplay(string text, bool queued)
+    /// <param name="shown">What the transcript shows, when the model gets more (the outputs of shell commands before it).</param>
+    public static string? UserReplay(string text, bool queued, string? shown = null)
     {
-        var full = text.Length > ItemReport.InlineLimit ? text : null;
+        var full = text.Length > ItemReport.InlineLimit || (shown != null && shown != text) ? text : null;
         return full == null && !queued
             ? null
             : JsonSerializer.Serialize(new AgentUserReplay(full, queued), ProtocolJsonContext.Default.AgentUserReplay);

@@ -39,7 +39,8 @@ public class AgentMachineTest(ITestOutputHelper output)
 
         string DaemonDirectory => Path.Combine(Root, "daemon");
 
-        public static async Task<Machine> StartAsync(bool connect = true, string? liveKey = null)
+        /// <param name="replayFixture">Offers the replay harness, playing this transcript.</param>
+        public static async Task<Machine> StartAsync(bool connect = true, string? liveKey = null, string? replayFixture = null)
         {
             var machine = new Machine { H = await AgentSessionTest.Harness.StartAsync(liveKey), Root = Directory.CreateTempSubdirectory("bosofa-agent-").FullName };
             machine.Work = Directory.CreateDirectory(Path.Combine(machine.Root, "work")).FullName;
@@ -47,7 +48,8 @@ public class AgentMachineTest(ITestOutputHelper output)
             machine.Id = machine._state.MachineId;
             machine._key = new DaemonStore(machine.DaemonDirectory).LoadOrCreateKey();
             machine._outbox = new Outbox(Path.Combine(machine.DaemonDirectory, "outbox"));
-            machine._host = new SessionHost(machine.DaemonDirectory, machine._outbox, new(Uploader: new TestUploader(machine.H.Boris)), TextWriter.Null);
+            machine._host = new SessionHost(machine.DaemonDirectory, machine._outbox, new(Uploader: new TestUploader(machine.H.Boris), ReplayFixture: replayFixture),
+                TextWriter.Null);
             if (connect) await machine.ConnectAsync();
             return machine;
         }

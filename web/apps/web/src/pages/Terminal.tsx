@@ -1,5 +1,5 @@
 import { api } from "@bosofa/api";
-import { useNavigate, useParams } from "@solidjs/router";
+import { useLocation, useNavigate, useParams } from "@solidjs/router";
 import { createMemo, createSignal, Show } from "solid-js";
 import { CloseIcon, TerminalIcon } from "../components/icons";
 import { TerminalView } from "../components/Terminals";
@@ -10,6 +10,7 @@ export default function TerminalPage() {
   const params = useParams<{ machine: string; terminal: string }>();
   const workspace = useWorkspace();
   const navigate = useNavigate();
+  const location = useLocation<{ type?: string } | undefined>();
   const [exited, setExited] = createSignal(false);
   const entry = createMemo(() =>
     workspace.terminals().find((candidate) => String(candidate.machineId) === params.machine && candidate.terminal.id === params.terminal),
@@ -60,6 +61,7 @@ export default function TerminalPage() {
             class="min-h-0 flex-1"
             machineId={Number(params.machine)}
             terminalId={params.terminal}
+            typeOnce={typeof location.state?.type === "string" ? location.state.type : undefined}
             onExit={() => {
               setExited(true);
               workspace.refreshTerminals();

@@ -80,7 +80,7 @@ public static class Domain
 {
     /// <summary>Raise this with every change to persisted relations: a node of a higher generation takes over from older
     /// nodes and publishes its schema, and older builds can never lead again (BTDB <c>Doc/ReplicationHosting.md</c>).</summary>
-    public const ulong ApplicationGeneration = 18;
+    public const ulong ApplicationGeneration = 19;
 
     /// <summary>Every relation of the server database; InitializeRelations registers them under leader authority.</summary>
     public static readonly Type[] Relations =
@@ -92,7 +92,7 @@ public static class Domain
         typeof(ISkillBundleTable), typeof(IProfileTable), typeof(IApiTokenTable), typeof(IAuditEntryTable),
         typeof(IDesktopSessionTable),
         typeof(IAgentRunnerTable), typeof(ISessionDraftTable), typeof(ISecretTable), typeof(ISecretVersionTable),
-        typeof(ISecretUseTable), typeof(ISecretEnvironmentTable), typeof(IEnvironmentApprovalTable), .. BTDB.BackendActions.BackendActions.RelationTypes
+        typeof(ISecretUseTable), typeof(ISecretEnvironmentTable), typeof(IEnvironmentApprovalTable), typeof(IShellCommandRunTable), .. BTDB.BackendActions.BackendActions.RelationTypes
     ];
 
     /// <summary>The domain's handlers and those of <paramref name="actions"/>, whose action types must all be registered.</summary>
@@ -119,6 +119,8 @@ public static class Domain
         .Register(new SessionCompactRequestedHandler(signals, actions))
         .Register(new SessionClearRequestedHandler(signals))
         .Register(new SessionSideQuestionAskedHandler(signals, actions))
+        .Register(new SessionShellCommandRunHandler(signals, actions))
+        .Register(new SessionShellCommandStopRequestedHandler(actions))
         .Register(new SessionStopRequestedHandler(signals, actions))
         .Register(new RuntimeRequestAnsweredHandler(signals, actions))
         .Register(new MachineCommandsAckedHandler())

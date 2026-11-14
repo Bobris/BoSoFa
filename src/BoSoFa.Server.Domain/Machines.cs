@@ -334,6 +334,7 @@ public sealed class MachineRemovedHandler(IDomainSignals signals, BTDB.BackendAc
                      .ToList())
         {
             if (session.Harness == Harnesses.Agent) AgentRunners.Release(signals, actions, session);
+            ShellCommands.StopAll(actions, session);
             Sessions.CancelPending(session, ev.When);
             session.Status = SessionStatus.Stopped;
             Sessions.AppendItem(session, SessionItemKind.Notice, ev.When, $"The machine {machine.Name} was removed, so this session stopped.");

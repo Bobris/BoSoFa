@@ -15,11 +15,23 @@ function toBase64(text: string): string {
 }
 
 /** One terminal on screen. Output is identified by its byte offset, so a reconnect shows every byte exactly once. */
-export function TerminalView(props: { machineId: number; terminalId: string; onExit: () => void; class?: string }) {
+/** `typeOnce` is typed into a shell that runs once its output first arrives, without Enter (a command from the prompt's `!`). */
+export function TerminalView(props: { machineId: number; terminalId: string; onExit: () => void; class?: string; typeOnce?: string }) {
   let element!: HTMLDivElement;
 
   onSettled(() => {
     const { machineId, terminalId } = props;
+    let toType = props.typeOnce;
+    let typing: ReturnType<typeof setTimeout> | undefined;
+    // Typed once the shell has gone quiet, so that its prompt is drawn and does not echo the text a second time.
+    const typeWhenQuiet = () => {
+      if (!toType) return;
+      clearTimeout(typing);
+      typing = setTimeout(() => {
+        if (toType) send({ t: "terminalInput", terminalId, data: toBase64(toType) });
+        toType = undefined;
+      }, 300);
+    };
     const terminal = new XTerm({ convertEol: false, cursorBlink: true, fontSize: 13, scrollback: 5000 });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -61,13 +73,19 @@ export function TerminalView(props: { machineId: number; terminalId: string; onE
           for (const chunk of early) apply(chunk.offset, chunk.data);
           early = [];
           if (message.exited) terminal.write(`\r\n[exited with code ${message.exitCode}]\r\n`);
-          else send({ t: "terminalResize", terminalId, cols: terminal.cols, rows: terminal.rows });
+          else {
+            send({ t: "terminalResize", terminalId, cols: terminal.cols, rows: terminal.rows });
+            typeWhenQuiet();
+          }
           break;
         case "terminalOutput": {
           if (message.terminalId !== terminalId) break;
           const data = fromBase64(message.data);
           if (expected === null) early.push({ offset: Number(message.offset), data });
-          else apply(Number(message.offset), data);
+          else {
+            apply(Number(message.offset), data);
+            typeWhenQuiet();
+          }
           break;
         }
         case "terminalExited":
@@ -109,6 +127,7 @@ export function TerminalView(props: { machineId: number; terminalId: string; onE
     return () => {
       closed = true;
       clearTimeout(retry);
+      clearTimeout(typing);
       socket?.close();
       observer.disconnect();
       input.dispose();

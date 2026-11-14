@@ -60,7 +60,12 @@ public sealed record ToolDiffRequest(string WorkingDirectory, string BeforeRef, 
 public sealed record McpToolsRequest(ulong SessionId, string WorkingDirectory, ResolvedMcpServer Server) : ToolRpc;
 
 /// <param name="Images">Images the tool gave the model, already uploaded as blobs.</param>
-public sealed record ToolRunResult(string Text, bool IsError, PromptImage[]? Images = null) : MachineRpcResult;
+/// <param name="ExitCode">How the shell's command exited; null for other tools, for a command that did not end by itself, and from
+/// daemons before it.</param>
+/// <param name="TimedOut">The shell's command was stopped at its timeout.</param>
+/// <param name="Stopped">The shell's command was stopped on request (<see cref="ToolCancelRequest"/>); <c>Text</c> has what it printed.</param>
+public sealed record ToolRunResult(string Text, bool IsError, PromptImage[]? Images = null, int? ExitCode = null, bool TimedOut = false,
+    bool Stopped = false) : MachineRpcResult;
 
 /// <summary>Both are null when nothing changed or the folder is not a repository. <c>Data</c> is the JSON of a <c>Diff</c> item.</summary>
 public sealed record ToolDiffResult(string? Patch, string? Data) : MachineRpcResult;

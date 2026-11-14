@@ -7,6 +7,21 @@ import { StatusBadge } from "../components/StatusBadge";
 import { ArrowUpIcon, StopIcon } from "../components/icons";
 import { invokedCommand, matchingCommands, SlashMenu, type SlashCommand } from "../components/SlashCommands";
 import { createLiveSession, isThinking, isToolOutput, type Draft } from "../live";
+import {
+  CarriedOutputs,
+  carriedOutputs,
+  commandHistory,
+  commandSeqOf,
+  isShellDraft,
+  pendingOutputs,
+  SHELL_COMMAND_MAX_LENGTH,
+  SHELL_COMMANDS_RUNNING,
+  SHELL_OUTPUTS_PER_MESSAGE,
+  shellData,
+  ShellCommandCard,
+  ShellOutputChips,
+  shellRef,
+} from "../components/ShellCommands";
 import { paths } from "../router";
 import { fetchMe } from "../session";
 
@@ -112,6 +127,17 @@ type ToolView = {
   draftOf: (seq: number) => Draft | undefined;
   waitingFor: (item: SessionItem) => boolean;
   running: () => boolean;
+  shell: ShellView;
+};
+
+/** What the cards of shell commands need from their session. */
+type ShellView = {
+  sessionId: number;
+  machineId: () => number;
+  canControl: () => boolean;
+  draftOf: (seq: number) => Draft | undefined;
+  commandOf: (outputSeq: number) => string | undefined;
+  run: (command: string) => Promise<string | undefined>;
 };
 
 /** Each result goes with the latest call of its id: some models use the same id at every step. A side question's answer goes
@@ -129,6 +155,11 @@ function pairTools(items: readonly SessionItem[]): { results: Map<number, Sessio
     }
     if (item.kind === "SideAnswer" && item.ref && !results.has(Number(item.ref))) {
       results.set(Number(item.ref), item);
+      paired.add(Number(item.seq));
+    }
+    const command = item.kind === "ShellOutput" ? commandSeqOf(item.ref) : undefined;
+    if (command !== undefined && !results.has(command)) {
+      results.set(command, item);
       paired.add(Number(item.seq));
     }
   }
@@ -257,6 +288,11 @@ function Item(props: { item: SessionItem; tools?: ToolView }) {
       <Match when={props.item.kind === "User"}>
         <div class="flex justify-end">
           <div class="max-w-[85%] rounded-lg bg-accent/10 px-3 py-2 whitespace-pre-wrap">
+            <Show when={carriedOutputs(props.item).length > 0}>
+              <CarriedOutputs
+                commands={carriedOutputs(props.item).map((seq) => props.tools?.shell.commandOf(seq) ?? "a command")}
+              />
+            </Show>
             <SentImages data={props.item.data} />
             {props.item.text}
           </div>
@@ -275,6 +311,22 @@ function Item(props: { item: SessionItem; tools?: ToolView }) {
       </Match>
       <Match when={props.item.kind === "SideQuestion"}>
         <SideQuestionCard item={props.item} answer={props.tools?.results.get(Number(props.item.seq))} />
+      </Match>
+      <Match when={props.item.kind === "ShellCommand" && props.tools}>
+        {(tools) => (
+          <ShellCommandCard
+            item={props.item}
+            output={tools().results.get(Number(props.item.seq))}
+            draft={tools().shell.draftOf(Number(props.item.seq))?.text}
+            sessionId={tools().shell.sessionId}
+            machineId={tools().shell.machineId()}
+            canControl={tools().shell.canControl()}
+            onRunAgain={(command) => void tools().shell.run(command)}
+          />
+        )}
+      </Match>
+      <Match when={props.item.kind === "ShellOutput" && !props.tools?.paired.has(Number(props.item.seq))}>
+        <p class="text-sm text-muted">Output of a command: {shellData(props.item)?.command}</p>
       </Match>
       <Match when={props.item.kind === "SideAnswer" && !props.tools?.paired.has(Number(props.item.seq))}>
         <p class={["text-sm whitespace-pre-wrap", props.item.isError ? "text-red-600" : "text-muted"]}>{props.item.text}</p>
@@ -546,18 +598,76 @@ function Approval(props: { request: RuntimeRequest; canControl: boolean; session
   );
 }
 
-function Composer(props: { sessionId: number; disabled: boolean; stopped: boolean; running: boolean; session?: Session }) {
+/** Runs a command in the session's folder on its machine (`!`); what went wrong, if anything. */
+async function runShellCommand(sessionId: number, command: string): Promise<string | undefined> {
+  const { response, error } = await api.POST("/api/v1/sessions/{id}/shell-commands", {
+    params: { path: { id: sessionId } },
+    body: { command },
+  });
+  if (response.ok) return undefined;
+  return response.status === 400
+    ? `The command cannot run now: at most ${SHELL_COMMANDS_RUNNING} run at once, and only in a session on a machine.`
+    : typeof error === "string"
+      ? error
+      : `Running the command failed (${response.status}).`;
+}
+
+function Composer(props: {
+  sessionId: number;
+  disabled: boolean;
+  stopped: boolean;
+  running: boolean;
+  session?: Session;
+  items: readonly SessionItem[];
+}) {
   const [text, setText] = createSignal("");
   const [error, setError] = createSignal<string>();
   const attachments = createAttachments();
+  // A `!` that starts an empty prompt is not written: the prompt takes a shell command instead.
+  const [shellMode, setShellMode] = createSignal(false);
+  // Outputs the person took out of the next message, by item seq.
+  const [excluded, setExcluded] = createSignal<ReadonlySet<string>>(new Set());
+  // Where ↑ and ↓ are in the commands run before, in shell mode; null while not recalling.
+  const [recalled, setRecalled] = createSignal<number | null>(null);
   // A slash at the start offers the commands; Escape puts the menu away until the text changes.
   const [picked, setPicked] = createSignal(0);
   const [dismissed, setDismissed] = createSignal(false);
-  const commands = createMemo(() => (dismissed() ? [] : matchingCommands(text(), props.session)));
+  const commands = createMemo(() => (dismissed() || shellMode() ? [] : matchingCommands(text(), props.session)));
+  const canShell = () =>
+    !props.disabled && !!props.session && Number(props.session.machineId) !== 0 && props.session.status !== "Failed";
+  const pending = createMemo(() => pendingOutputs(props.items));
+  const carried = createMemo(() =>
+    pending()
+      .filter((output) => !excluded().has(String(output.seq)))
+      .slice(-SHELL_OUTPUTS_PER_MESSAGE),
+  );
+  const runningCommands = createMemo(
+    () =>
+      props.items.filter(
+        (item) => item.kind === "ShellCommand" && !props.items.some((other) => other.kind === "ShellOutput" && other.ref === shellRef(item.seq)),
+      ).length,
+  );
+
+  function clear() {
+    setText("");
+    if (textarea) textarea.value = "";
+    grow();
+  }
+
+  function enterShell() {
+    setShellMode(true);
+    setRecalled(null);
+    setError(undefined);
+    textarea?.focus();
+  }
 
   /** A command that takes text is first written out, then runs with what follows its name. */
   async function runCommand(command: SlashCommand, argument?: string) {
     if (!props.session) return;
+    if (command.name === "shell") {
+      clear();
+      return enterShell();
+    }
     if (command.takesText && argument === undefined) {
       setText(`/${command.name} `);
       textarea?.focus();
@@ -565,27 +675,59 @@ function Composer(props: { sessionId: number; disabled: boolean; stopped: boolea
     }
     const problem = await command.run(props.session, argument ?? "");
     if (problem) return setError(problem);
-    setText("");
     setError(undefined);
-    if (textarea) textarea.value = "";
-    grow();
+    clear();
+  }
+
+  async function runShell() {
+    const command = (textarea?.value ?? text()).trim();
+    if (!command) return;
+    if (command.length > SHELL_COMMAND_MAX_LENGTH) return setError(`A command can have at most ${SHELL_COMMAND_MAX_LENGTH} characters.`);
+    const problem = await runShellCommand(props.sessionId, command);
+    if (problem) return setError(problem);
+    setError(undefined);
+    setShellMode(false);
+    setRecalled(null);
+    clear();
   }
 
   /** Queue waits for the running turn; Steer redirects it now. */
   async function send(mode: "Queue" | "Steer" = "Queue") {
+    if (shellMode()) return runShell();
     const invoked = invokedCommand(text(), props.session);
     if (invoked) return runCommand(invoked.command, invoked.argument);
     const value = text().trim();
-    if (!value || attachments.uploading()) return;
+    if (!value || attachments.uploading() || props.stopped) return;
+    const outputs = carried().map((output) => Number(output.seq));
     const { response, error: problem } = await api.POST("/api/v1/sessions/{id}/messages", {
       params: { path: { id: props.sessionId } },
-      body: { text: value, mode, images: attachments.hashes() },
+      body: { text: value, mode, images: attachments.hashes(), shellOutputs: outputs.length > 0 ? outputs : null },
     });
     if (response.ok) {
       setText("");
       setError(undefined);
+      setExcluded(new Set<string>());
       attachments.clear();
     } else setError(typeof problem === "string" ? problem : `Sending failed (${response.status}).`);
+  }
+
+  /** ↑ and ↓ in shell mode: the commands run before, the latest first. */
+  function recall(direction: -1 | 1): boolean {
+    const history = commandHistory(props.items);
+    const current = recalled();
+    if (history.length === 0 || (current === null && (text() !== "" || direction === 1))) return false;
+    const next = current === null ? history.length - 1 : current + direction;
+    if (next < 0) return true;
+    if (next >= history.length) {
+      setRecalled(null);
+      setText("");
+    } else {
+      setRecalled(next);
+      setText(history[next]);
+    }
+    if (textarea) textarea.value = text();
+    grow();
+    return true;
   }
 
   async function interrupt() {
@@ -598,74 +740,161 @@ function Composer(props: { sessionId: number; disabled: boolean; stopped: boolea
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, window.innerHeight * 0.4)}px`;
   };
+  const folder = () => props.session?.workingDirectory.split(/[\\/]/).filter(Boolean).slice(-2).join("/") ?? "";
   const placeholder = () =>
-    props.stopped
-      ? "This session has stopped."
+    shellMode()
+      ? `Run a command on ${props.session?.machineName || "the machine"} in ${folder() || "the session's folder"}`
       : props.disabled
         ? "Only the machine's owner can write here."
-        : props.running
-          ? "Queue a message, or steer this turn"
-          : "Reply, or / for commands";
+        : props.stopped
+          ? canShell()
+            ? "This session has stopped. Type ! to run a command in its folder."
+            : "This session has stopped."
+          : props.running
+            ? "Queue a message, or steer this turn"
+            : canShell()
+              ? "Reply, / for commands, ! for a shell command"
+              : "Reply, or / for commands";
 
   return (
     <div class="sticky bottom-0 -mx-4 bg-gradient-to-t from-canvas from-70% to-transparent px-4 pb-4 pt-6 sm:-mx-6 sm:px-6">
       <Show when={props.session}>{(session) => <SessionBar session={session()} />}</Show>
-      <div class="relative rounded-2xl border border-line bg-panel shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.05)] transition-shadow focus-within:border-accent/40">
+      <div
+        class={[
+          "relative rounded-2xl border bg-panel shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.05)] transition-shadow",
+          shellMode() ? "border-amber-500/70 focus-within:border-amber-500" : "border-line focus-within:border-accent/40",
+        ]}
+        data-shell={shellMode() || undefined}
+      >
         <Show when={commands().length > 0}>
           <SlashMenu commands={commands()} selected={picked()} onPick={(command) => void runCommand(command)} onHover={setPicked} />
+        </Show>
+        <Show when={!shellMode() && !props.stopped}>
+          <ShellOutputChips
+            outputs={pending().slice(-SHELL_OUTPUTS_PER_MESSAGE)}
+            excluded={excluded()}
+            onToggle={(seq) => setExcluded((before) => new Set([...before, seq]))}
+          />
         </Show>
         <div class="px-3 pt-2 empty:hidden">
           <AttachmentStrip attachments={attachments} />
         </div>
-        <textarea
-          ref={(element) => (textarea = element)}
-          class="block max-h-[40vh] min-h-11 w-full resize-none bg-transparent px-4 pt-3 text-[15px] leading-relaxed outline-none placeholder:text-muted disabled:cursor-not-allowed"
-          onPaste={attachments.onPaste}
-          onDragOver={attachments.onDragOver}
-          onDrop={attachments.onDrop}
-          rows={1}
-          placeholder={placeholder()}
-          disabled={props.disabled}
-          value={text()}
-          onInput={(event) => {
-            setText(event.currentTarget.value);
-            setPicked(0);
-            setDismissed(false);
-            grow();
-          }}
-          onKeyDown={(event) => {
-            const offered = commands();
-            if (offered.length > 0 && !event.isComposing) {
-              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        <div class="flex items-start">
+          <Show when={shellMode()}>
+            <span class="select-none pl-4 pt-3 font-mono text-[15px] font-semibold leading-relaxed text-amber-600 dark:text-amber-400">!</span>
+          </Show>
+          <textarea
+            ref={(element) => (textarea = element)}
+            class={[
+              "block max-h-[40vh] min-h-11 w-full resize-none bg-transparent pt-3 text-[15px] leading-relaxed outline-none placeholder:text-muted disabled:cursor-not-allowed",
+              shellMode() ? "pl-2 pr-4 font-mono" : "px-4",
+            ]}
+            onPaste={(event) => {
+              // A pasted text that starts with `!` into an empty prompt is a command.
+              const pasted = event.clipboardData?.getData("text/plain") ?? "";
+              if (pasted.startsWith("!") && !shellMode() && text() === "" && canShell()) {
                 event.preventDefault();
-                setPicked((index) => (index + (event.key === "ArrowDown" ? 1 : offered.length - 1)) % offered.length);
+                enterShell();
+                setText(pasted.slice(1));
+                if (textarea) textarea.value = pasted.slice(1);
+                grow();
                 return;
               }
-              if (event.key === "Escape") {
+              attachments.onPaste(event);
+            }}
+            onDragOver={attachments.onDragOver}
+            onDrop={attachments.onDrop}
+            rows={1}
+            placeholder={placeholder()}
+            disabled={props.disabled}
+            value={text()}
+            onInput={(event) => {
+              // A `!` that reached an empty prompt another way than its key (an input method, a tool that types).
+              const value = event.currentTarget.value;
+              if (!shellMode() && text() === "" && value.startsWith("!") && canShell()) {
+                event.currentTarget.value = value.slice(1);
+                enterShell();
+              }
+              setText(event.currentTarget.value);
+              setPicked(0);
+              setDismissed(false);
+              setRecalled(null);
+              grow();
+            }}
+            onKeyDown={(event) => {
+              const plain = !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing;
+              if (plain && event.key === "!" && !shellMode() && event.currentTarget.value === "" && canShell()) {
                 event.preventDefault();
-                setDismissed(true);
+                enterShell();
                 return;
               }
-              if (event.key === "Tab") {
-                event.preventDefault();
-                const chosen = offered[picked()] ?? offered[0];
-                setText(`/${chosen.name}${chosen.takesText ? " " : ""}`);
+              if (shellMode()) {
+                if (plain && event.key === "Backspace" && event.currentTarget.value === "") {
+                  event.preventDefault();
+                  setShellMode(false);
+                  setRecalled(null);
+                  return;
+                }
+                if (plain && (event.key === "ArrowUp" || event.key === "ArrowDown") && recall(event.key === "ArrowUp" ? -1 : 1)) {
+                  event.preventDefault();
+                  return;
+                }
+                if (event.key === "Escape" && event.currentTarget.value === "") {
+                  event.preventDefault();
+                  setShellMode(false);
+                  return;
+                }
+                if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+                  event.preventDefault();
+                  void runShell();
+                }
                 return;
               }
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void runCommand(offered[picked()] ?? offered[0]);
-                return;
+              const offered = commands();
+              if (offered.length > 0 && !event.isComposing) {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setPicked((index) => (index + (event.key === "ArrowDown" ? 1 : offered.length - 1)) % offered.length);
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setDismissed(true);
+                  return;
+                }
+                if (event.key === "Tab") {
+                  event.preventDefault();
+                  const chosen = offered[picked()] ?? offered[0];
+                  setText(`/${chosen.name}${chosen.takesText ? " " : ""}`);
+                  return;
+                }
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void runCommand(offered[picked()] ?? offered[0]);
+                  return;
+                }
               }
-            }
-            if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-              event.preventDefault();
-              void send().then(grow);
-            }
-          }}
-        />
+              if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+                event.preventDefault();
+                void send().then(grow);
+              }
+            }}
+          />
+        </div>
         <div class="flex items-center justify-end gap-1.5 px-2 pb-2">
-          <Show when={props.running && !props.disabled}>
+          <Show when={shellMode()}>
+            <span class="mr-auto select-none truncate pl-2 text-xs text-muted">
+              <span class="font-medium text-amber-700 dark:text-amber-400">Shell command</span> · Enter runs it · Backspace on an empty line
+              returns to the prompt
+            </span>
+          </Show>
+          <Show when={!shellMode() && runningCommands() > 0}>
+            <span class="mr-auto flex select-none items-center gap-1.5 pl-2 text-xs text-muted">
+              <span class="size-1.5 animate-pulse rounded-full bg-amber-500" />
+              {runningCommands() === 1 ? "A command runs" : `${runningCommands()} commands run`}
+            </span>
+          </Show>
+          <Show when={props.running && !props.disabled && !shellMode()}>
             <button
               type="button"
               class="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted hover:bg-hover hover:text-ink"
@@ -685,15 +914,30 @@ function Composer(props: { sessionId: number; disabled: boolean; stopped: boolea
               Steer
             </button>
           </Show>
-          <button
-            type="button"
-            class="flex size-8 items-center justify-center rounded-full bg-accent text-white shadow-sm transition-opacity disabled:opacity-30"
-            title={props.running ? "Queue: send after the running turn ends" : "Send (↵)"}
-            disabled={props.disabled || text().trim() === "" || attachments.uploading()}
-            onClick={() => send("Queue")}
+          <Show
+            when={shellMode()}
+            fallback={
+              <button
+                type="button"
+                class="flex size-8 items-center justify-center rounded-full bg-accent text-white shadow-sm transition-opacity disabled:opacity-30"
+                title={props.running ? "Queue: send after the running turn ends" : "Send (↵)"}
+                disabled={props.disabled || props.stopped || text().trim() === "" || attachments.uploading()}
+                onClick={() => send("Queue")}
+              >
+                <ArrowUpIcon class="size-4" />
+              </button>
+            }
           >
-            <ArrowUpIcon class="size-4" />
-          </button>
+            <button
+              type="button"
+              class="flex h-8 items-center gap-1.5 rounded-full bg-amber-500 px-3 text-sm font-medium text-white shadow-sm transition-opacity disabled:opacity-30"
+              title="Run the command (↵)"
+              disabled={text().trim() === ""}
+              onClick={() => void runShell()}
+            >
+              Run
+            </button>
+          </Show>
         </div>
       </div>
       <Show when={error()}>{(message) => <p class="mt-1 text-sm text-red-600">{message()}</p>}</Show>
@@ -740,10 +984,21 @@ function SessionView(props: { id: number }) {
     draftOf: (seq) => live.drafts.find((draft) => draft.ref === `tool-${seq}`),
     waitingFor: (item) => live.requests.some((request) => request.toolUseId === item.toolUseId),
     running,
+    shell: {
+      sessionId,
+      machineId: () => Number(live.session?.machineId ?? 0),
+      canControl: () => live.session?.canControl ?? false,
+      draftOf: (seq) => live.drafts.find((draft) => draft.ref === shellRef(seq)),
+      commandOf: (outputSeq) => shellData(live.items.find((item) => Number(item.seq) === outputSeq))?.command,
+      run: (command) => runShellCommand(sessionId, command),
+    },
   };
-  // A tool's output shows in its card; anything else streaming goes at the end.
+  // A tool's or a command's output shows in its card; anything else streaming goes at the end.
   const loneDrafts = createMemo(() =>
-    live.drafts.filter((draft) => !(isToolOutput(draft) && live.items.some((item) => draft.ref === `tool-${item.seq}`))),
+    live.drafts.filter(
+      (draft) =>
+        !(isToolOutput(draft) && live.items.some((item) => draft.ref === `tool-${item.seq}`)) && !isShellDraft(draft.ref),
+    ),
   );
 
   let end: HTMLDivElement | undefined;
@@ -818,10 +1073,11 @@ function SessionView(props: { id: number }) {
       </div>
       <Composer
         sessionId={sessionId}
-        disabled={!(live.session?.canControl ?? false) || live.session?.status === "Stopped"}
+        disabled={!(live.session?.canControl ?? false)}
         stopped={live.session?.status === "Stopped"}
         running={running()}
         session={live.session}
+        items={live.items}
       />
     </div>
   );

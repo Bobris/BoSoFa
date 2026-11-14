@@ -48,7 +48,15 @@ public enum SessionItemKind
     SideQuestion,
 
     /// <summary>The answer to a <see cref="SideQuestion"/>, whose sequence number is its <c>Ref</c>.</summary>
-    SideAnswer
+    SideAnswer,
+
+    /// <summary>A command the person ran in the session's folder (<c>!</c> in the prompt); <c>Text</c> is the command. Its output streams
+    /// under <see cref="ShellCommands.RefOf"/> its seq, the <c>Ref</c> of its <see cref="ShellOutput"/>.</summary>
+    ShellCommand,
+
+    /// <summary>How a <see cref="ShellCommand"/> ended: <c>Text</c> is its output, <c>Data</c> a <see cref="ShellOutputData"/>, and
+    /// <c>Ref</c> <see cref="ShellCommands.RefOf"/> the command's seq. It joins the conversation only with a message that names it.</summary>
+    ShellOutput
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<RuntimeRequestStatus>))]
@@ -153,7 +161,8 @@ public enum DispatchMode
 /// <summary>A question on the side (/btw): the harness answers it from the conversation so far without adding either to it.</summary>
 public sealed record SideQuestionRequest(string Text);
 
-public sealed record SendMessageRequest(string Text, DispatchMode? Mode = null, string[]? Images = null);
+/// <param name="ShellOutputs">The seqs of <see cref="SessionItemKind.ShellOutput"/> items that go with this message, before its text.</param>
+public sealed record SendMessageRequest(string Text, DispatchMode? Mode = null, string[]? Images = null, long[]? ShellOutputs = null);
 
 /// <summary>An image of a prompt, in the blob store. The server read <c>MediaType</c> from the content.</summary>
 public sealed record PromptImage(string Sha256, string MediaType, long Size);

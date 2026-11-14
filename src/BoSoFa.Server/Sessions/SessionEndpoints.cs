@@ -45,6 +45,8 @@ public static class SessionEndpoints
         api.MapPost("/sessions/{id}/compact", CompactAsync);
         api.MapPost("/sessions/{id}/clear", ClearAsync);
         api.MapPost("/sessions/{id}/side-questions", AskSideQuestionAsync);
+        api.MapPost("/sessions/{id}/shell-commands", RunShellCommandAsync);
+        api.MapPost("/sessions/{id}/shell-commands/{seq}/stop", StopShellCommandAsync);
         api.MapPost("/sessions/{id}/stop", StopAsync);
         api.MapPost("/sessions/{id}/requests/{requestId}/answer", AnswerAsync);
         api.Map(LiveSocket.Path["/api/v1".Length..], LiveAsync);
@@ -199,9 +201,19 @@ public static class SessionEndpoints
         return await RunAsync(node, http, new SessionMessageSent
         {
             SessionId = id, UserId = http.User.UserId() ?? 0, Text = request.Text, Mode = request.Mode ?? DispatchMode.Queue,
-            ImagesJson = imagesJson
+            ImagesJson = imagesJson, ShellOutputSeqs = request.ShellOutputs?.ToList() ?? []
         });
     }
+
+    /// <summary>Runs a command in the session's folder on its machine (<c>!</c> in the prompt, docs/shell-commands.md), beside any turn.</summary>
+    static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> RunShellCommandAsync(ulong id,
+        RunShellCommandRequest request, BtdbNode node, HttpContext http) =>
+        RunAsync(node, http, new SessionShellCommandRun { SessionId = id, UserId = http.User.UserId() ?? 0, Command = request.Command });
+
+    /// <summary>Stops a command run with <c>!</c>; <c>seq</c> is its item. Nothing happens to one that ended.</summary>
+    static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> StopShellCommandAsync(ulong id, long seq,
+        BtdbNode node, HttpContext http) =>
+        RunAsync(node, http, new SessionShellCommandStopRequested { SessionId = id, UserId = http.User.UserId() ?? 0, Seq = seq });
 
     static Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> InterruptAsync(ulong id,
         BtdbNode node, HttpContext http) =>

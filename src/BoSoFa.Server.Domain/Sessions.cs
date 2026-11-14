@@ -88,6 +88,7 @@ public class SessionItem
 public interface ISessionItemTable : IRelation<SessionItem>
 {
     void Insert(SessionItem item);
+    SessionItem? FindByIdOrDefault(ulong sessionId, long seq);
     IEnumerable<SessionItem> ListById(ulong sessionId, AdvancedEnumeratorParam<long> param);
 }
 
@@ -216,6 +217,9 @@ public class SessionMessageSent : EventWithResult<SessionCommandResult>
 
     /// <summary>The message's images as JSON (<see cref="PromptImage"/>[]); empty without any.</summary>
     public string ImagesJson { get; set; } = "";
+
+    /// <summary>The <see cref="SessionItemKind.ShellOutput"/> items whose outputs go with the message, before its text.</summary>
+    public List<long> ShellOutputSeqs { get; set; } = [];
 
     /// <summary>No longer used: a backend action runs an agent session wherever the leader starts it. Kept for stored events.</summary>
     public string RunnerNodeId { get; set; } = "";
@@ -363,6 +367,10 @@ static class Sessions
         return MachineAccess.CanControl(userId, machine) ? (session, machine, CommandOutcome.Ok) : (null, null, CommandOutcome.Forbidden);
     }
 
+    /// <summary>The <c>Ref</c> of a <see cref="SessionItemKind.User"/> item that carried shell outputs: <c>shell:</c> and their seqs.</summary>
+    public static string CarriedRef(IEnumerable<long> outputSeqs) =>
+        "shell:" + string.Join(',', outputSeqs.Order().Select(seq => seq.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+
     public static string TitleOf(string prompt)
     {
         var line = prompt.Trim().Split('\n', 2)[0].Trim();
@@ -487,16 +495,20 @@ public sealed class SessionMessageSentHandler(IDomainSignals signals, BTDB.Backe
         var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId);
         if (session == null) return new() { Outcome = outcome };
         if (session.Status is SessionStatus.Stopped) return new() { Outcome = CommandOutcome.Invalid };
+        // The outputs of the person's shell commands go first, in what the harness gets; the transcript keeps their own words.
+        if (ShellCommands.OutputsOf(session, ev.ShellOutputSeqs) is not { } outputs) return new() { Outcome = CommandOutcome.Invalid };
+        var text = BoSoFa.Protocol.ShellCommands.Prepend(ev.Text, outputs, Sessions.MaximumPromptLength);
+        var carried = outputs.Count == 0 ? null : Sessions.CarriedRef(ev.ShellOutputSeqs);
         if (session.Harness == Harnesses.Agent)
         {
-            Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text, data: Sessions.ImagesData(ev.ImagesJson),
-                replay: AgentRunners.UserReplay(ev.Text, ev.Mode == DispatchMode.Queue));
+            Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text, data: Sessions.ImagesData(ev.ImagesJson), itemRef: carried,
+                replay: AgentRunners.UserReplay(text, ev.Mode == DispatchMode.Queue, ev.Text));
             AgentRunners.Claim(signals, actions, session, ev.When);
             Sessions.Changed(signals, session, ev.When);
             return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
         }
-        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text, data: Sessions.ImagesData(ev.ImagesJson));
-        Sessions.IssueCommand(signals, machine!.Id, new SendMessageCommand(session.Id, ev.Text, ev.Mode, Sessions.Images(ev.ImagesJson)), ev.When);
+        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Text, data: Sessions.ImagesData(ev.ImagesJson), itemRef: carried);
+        Sessions.IssueCommand(signals, machine!.Id, new SendMessageCommand(session.Id, text, ev.Mode, Sessions.Images(ev.ImagesJson)), ev.When);
         Sessions.Changed(signals, session, ev.When);
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }
@@ -607,6 +619,7 @@ public sealed class SessionStopRequestedHandler(IDomainSignals signals, BTDB.Bac
     {
         var (session, machine, outcome) = Sessions.Controlled(ev.SessionId, ev.UserId, evenWaiting: true);
         if (session == null) return new() { Outcome = outcome };
+        ShellCommands.StopAll(actions, session);
         if (session.Harness == Harnesses.Agent || SecretEnvironments.Withdraw(session)) // a session that waited never reached its machine
         {
             AgentRunners.Release(signals, actions, session);

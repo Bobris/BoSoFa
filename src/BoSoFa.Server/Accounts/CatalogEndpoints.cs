@@ -186,8 +186,12 @@ public static partial class CatalogEndpoints
             servers.Add(new(server.Name, server.Transport, server.Command is { } command ? resolver.Resolve(command) : null,
                 Strings(server.Args).Select(argument => resolver.Resolve(argument)).ToArray(), server.Url is { } url ? resolver.Resolve(url) : null, values));
         }
-        return (servers.ToArray(), resolver.Resolve(Values(profile.Environment), shell: true));
+        return (servers.ToArray(), EnvironmentOf(profile, resolver));
     }
+
+    /// <summary>The profile's variables for a shell, with references resolved; a host-only secret is refused.</summary>
+    internal static Dictionary<string, string> EnvironmentOf(Profile profile, SecretResolver resolver) =>
+        resolver.Resolve(Values(profile.Environment), shell: true);
 
     /// <summary>
     /// The profile of a session on this machine, resolved for the session's creator; never stored or logged on the way. A

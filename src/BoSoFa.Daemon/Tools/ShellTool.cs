@@ -76,12 +76,13 @@ sealed class ShellTool(Action<string> stream)
             await flushing.CancelAsync();
             await flusher;
             Flush();
-            cancellation.ThrowIfCancellationRequested();
-            if (timedOut) return new(Output() + $"[Stopped after {timeoutSeconds} seconds.]", true);
+            // Stopped on request: what it printed so far is kept, for whoever stopped it to read.
+            if (cancellation.IsCancellationRequested) return new(Output() + "[Stopped.]", true, Stopped: true);
+            if (timedOut) return new(Output() + $"[Stopped after {timeoutSeconds} seconds.]", true, TimedOut: true);
             var exit = process.ExitCode;
             var output = Output();
-            if (exit != 0) return new(output + $"[Exit code {exit}]", true);
-            return new(output.Length == 0 ? "The command printed nothing." : output, false);
+            if (exit != 0) return new(output + $"[Exit code {exit}]", true, ExitCode: exit);
+            return new(output.Length == 0 ? "The command printed nothing." : output, false, ExitCode: 0);
         }
     }
 

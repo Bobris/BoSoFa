@@ -35,6 +35,13 @@ export const slashCommands: SlashCommand[] = [
     },
   },
   {
+    name: "shell",
+    description: "Run a command in the session's folder on its machine (or type ! first); its output goes with your next message",
+    // The composer switches to shell mode itself; nothing runs from here.
+    available: (session) => Number(session.machineId) !== 0 && session.status !== "Failed",
+    run: () => Promise.resolve(undefined),
+  },
+  {
     name: "btw",
     description: "Ask a side question; neither it nor the answer joins the conversation",
     takesText: true,
