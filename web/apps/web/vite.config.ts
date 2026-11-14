@@ -11,8 +11,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // /signin-oidc: the OIDC provider posts the sign-in back to the host the person started from, which is this one.
     proxy: Object.fromEntries(
-      ["/api", "/auth", "/openapi", "/health", "/install/"].map((path) => [path, { target: server, ws: path === "/api" }]),
+      ["/api", "/auth", "/signin-oidc", "/openapi", "/health", "/install/"].map((path) => [path, { target: server, ws: path === "/api" }]),
     ),
   },
   build: { target: "es2022" },
