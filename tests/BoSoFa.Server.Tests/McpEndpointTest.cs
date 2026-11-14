@@ -63,7 +63,7 @@ public class McpEndpointTest
             client.DefaultRequestHeaders.Authorization = AuthenticationHeaderValue.Parse(server.Secrets["Authorization"]);
             Assert.Equal("2025-11-25", (await Call(client, server.Url!, "initialize", "{\"protocolVersion\":\"2025-11-25\"}")).GetProperty("protocolVersion").GetString());
             Assert.Equal(HttpStatusCode.Accepted, (await client.PostAsync(server.Url, new StringContent("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"))).StatusCode);
-            Assert.Equal(3, (await Call(client, server.Url!, "tools/list")).GetProperty("tools").GetArrayLength());
+            Assert.Equal(4, (await Call(client, server.Url!, "tools/list")).GetProperty("tools").GetArrayLength());
 
             await Call(client, server.Url!, "tools/call", "{\"name\":\"" + McpEndpoint.NotifyTool + "\",\"arguments\":{\"message\":\"half way\"}}");
             Assert.Contains(sink.Reports, report => report is ItemReport { Kind: SessionItemKind.Notice, Text: "half way" });

@@ -1,7 +1,7 @@
 # Secrets and variables
 
 Status: all six steps of §8 are done (the store, the masker, references and resolution, masking, host-only secrets, and
-machine limits, rotation reminders and environments, §10). Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
+machine limits, rotation reminders and environments, §10), and agents can list names (§4.3). Modeled on CodeAlta's secrets (`doc/fleet/secrets.md` there), without its end-to-end sealing: values
 live on the server, protected by .NET Data Protection, as harness accounts already are (plan §5.4.1). No external secret
 store (Key Vault secrets, Vault, 1Password) is supported.
 
@@ -113,8 +113,16 @@ Done. At save time (`CatalogEndpoints`):
 
 ### 4.3 What agents see
 
-- Names only: a `bosofa_secrets_list` tool on the session's MCP endpoint lists names, kinds and host-only flags, so an
-  agent can write `${secret:NAME}` into a profile or ask the person to set one. Nothing reads or sets a value.
+Done. Names only: so an agent can write `${secret:NAME}` into a profile or ask the person to set one. Nothing reads or sets a value.
+
+- Daemon harnesses get `bosofa_list_secrets` on the session's MCP endpoint (`McpEndpoint.SecretsTool`, pre-approved for
+  Claude Code), the server agent `list_secrets` (`AgentToolbox.SecretsTool`, in every permission mode, needing nobody).
+- Both answer what `SecretResolver.Names` finds for the session's creator on its machine, as a reference would resolve: each
+  name once, with the scope that wins (the profile's environment if it is admitted, then the person's, then the shared one),
+  its kind and whether it is for MCP servers only. A value for other machines is left out, and so are other people's.
+- The daemon asks `GET /api/daemon/v1/sessions/{id}/secrets` at each call, so a value set meanwhile is listed; the server
+  answers only the session's machine, and not for a stopped session. The server agent reads it at each call too.
+- Listing is not audited: it names no value and sends none anywhere.
 
 ## 5. Masking
 
@@ -255,6 +263,9 @@ in the UI until machines have a sandbox.
    waits with nothing sent to its machine, only a reviewer other than its creator sees and answers it, approval starts it
    and its values win, rejection fails it, a stop withdraws it, its machines are enforced at start and resolution, and an
    environment a profile names cannot be deleted.
+7. **Names for agents** (done, §4.3): `bosofa_list_secrets` and the server agent's `list_secrets`. `SecretNamesTest`: the
+   names a session's creator can refer to on its machine (their own limited to another machine gives way to the shared one,
+   an environment's comes first, other people's are left out), refused to another machine, and never a value in the answer.
 
 ## 9. Limits
 

@@ -76,6 +76,33 @@ public sealed class SecretResolver(ulong personId, IDataProtectionProvider prote
         return value;
     }
 
+    /// <summary>
+    /// The names a reference would resolve to, never their values (docs/secrets.md §4.3): for each name the value that wins, if it
+    /// is for the session's machine. Must run inside a query scope.
+    /// </summary>
+    public SessionSecretName[] Names()
+    {
+        var table = Ambient.Relation<ISecretTable>();
+        var names = new SortedDictionary<string, SessionSecretName>(StringComparer.Ordinal);
+        foreach (var owner in Owners())
+        foreach (var entry in table.ListById(owner))
+        {
+            if (names.ContainsKey(entry.Name) || !BoSoFa.Server.Domain.Secrets.AllowedOn(entry.Machines, machineId)) continue;
+            var scope = owner == 0 ? SecretScope.Shared : owner == environment?.Id ? SecretScope.Environment : SecretScope.Personal;
+            names[entry.Name] = new(entry.Name, entry.Kind, scope, entry.HostOnly);
+        }
+        return [.. names.Values];
+    }
+
+    /// <summary>The names a session's creator can refer to on its machine, with its profile's environment if it is admitted.
+    /// Must run inside a query scope.</summary>
+    public static SessionSecretName[] NamesFor(Session session, IDataProtectionProvider protection)
+    {
+        var profile = session.ProfileName == null ? null : Ambient.Relation<IProfileTable>().FindByIdOrDefault(session.ProfileName);
+        var environment = profile != null ? SecretEnvironments.Admit(session, profile).Environment : null;
+        return new SecretResolver(session.CreatedById, protection, session.MachineId, environment).Names();
+    }
+
     /// <summary>Values that are secrets though no reference gave them (those an older MCP definition keeps in itself).</summary>
     public void Remember(IEnumerable<string> secrets) => _secrets.UnionWith(secrets);
 

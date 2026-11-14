@@ -33,23 +33,28 @@ public sealed class McpEndpoint : IAsyncDisposable
     public const string ServerName = Brand.Id;
 
     /// <summary>Harmless tools that need no approval of their own; <c>bosofa_upload_file</c> shares a file, so it asks.</summary>
-    public const string NotifyTool = Brand.Id + "_notify_user", AskTool = Brand.Id + "_ask_user", UploadTool = Brand.Id + "_upload_file";
-    public static readonly string[] PreApprovedClaudeTools = [$"mcp__{ServerName}__{NotifyTool}", $"mcp__{ServerName}__{AskTool}"];
+    public const string NotifyTool = Brand.Id + "_notify_user", AskTool = Brand.Id + "_ask_user", UploadTool = Brand.Id + "_upload_file",
+        SecretsTool = Brand.Id + "_list_secrets";
+    public static readonly string[] PreApprovedClaudeTools =
+        [$"mcp__{ServerName}__{NotifyTool}", $"mcp__{ServerName}__{AskTool}", $"mcp__{ServerName}__{SecretsTool}"];
 
     readonly HttpListener _listener = new();
     readonly Func<ulong, SessionState?> _sessions;
     readonly ISessionSink _sink;
     readonly IBlobUploader? _uploader;
+    readonly IProfileSource? _secretNames;
     readonly ConcurrentDictionary<ulong, string> _tokens = new();
     readonly ConcurrentDictionary<string, (ulong SessionId, TaskCompletionSource<(bool Allow, string? Message)> Answer)> _questions = new();
     readonly Task _serving;
     readonly McpGateway _gateway = new();
 
-    public McpEndpoint(Func<ulong, SessionState?> sessions, ISessionSink sink, IBlobUploader? uploader)
+    /// <param name="secretNames">Where the names of a session's secrets and variables come from; null: the tool says so.</param>
+    public McpEndpoint(Func<ulong, SessionState?> sessions, ISessionSink sink, IBlobUploader? uploader, IProfileSource? secretNames = null)
     {
         _sessions = sessions;
         _sink = sink;
         _uploader = uploader;
+        _secretNames = secretNames;
         // localhost prefixes need no URL reservation on Windows.
         using (var probe = new TcpListener(IPAddress.Loopback, 0))
         {
@@ -184,7 +189,8 @@ public sealed class McpEndpoint : IAsyncDisposable
                     ["tools"] = new JsonArray(
                         Tool(NotifyTool, "Show a short note to the people following this session, without waiting for them.", "message", "The note."),
                         Tool(AskTool, "Ask the people following this session a yes-or-no question and wait for the answer.", "question", "The question."),
-                        Tool(UploadTool, "Upload a file from the session's working directory so people can download it.", "path", "The file's path."))
+                        Tool(UploadTool, "Upload a file from the session's working directory so people can download it.", "path", "The file's path."),
+                        Tool(SecretsTool, SecretNames.ToolDescription))
                 };
             case "tools/call":
                 var arguments = ClaudeJson.Obj(parameters, "arguments") ?? default;
@@ -193,6 +199,13 @@ public sealed class McpEndpoint : IAsyncDisposable
                 return null;
         }
     }
+
+    static JsonObject Tool(string name, string description) => new()
+    {
+        ["name"] = name,
+        ["description"] = description,
+        ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }
+    };
 
     static JsonObject Tool(string name, string description, string argument, string argumentDescription) => new()
     {
@@ -230,8 +243,20 @@ public sealed class McpEndpoint : IAsyncDisposable
                                   (string.IsNullOrWhiteSpace(comment) ? "" : " They added: " + comment));
             case UploadTool when ClaudeJson.Str(arguments, "path") is { Length: > 0 } path:
                 return await UploadAsync(sessionId, path);
+            case SecretsTool:
+                return await ListSecretsAsync(sessionId);
             default:
                 return ToolResult($"Unknown tool or missing argument: {tool}.", isError: true);
+        }
+    }
+
+    async Task<JsonNode> ListSecretsAsync(ulong sessionId)
+    {
+        if (_secretNames == null) return ToolResult("Listing secrets is not available.", isError: true);
+        try { return ToolResult(SecretNames.Describe(await _secretNames.ListSecretNamesAsync(sessionId, CancellationToken.None))); }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException)
+        {
+            return ToolResult("The secrets could not be listed: " + exception.Message, isError: true);
         }
     }
 

@@ -89,7 +89,7 @@ public sealed class SessionHost : ISessionSink, IAsyncDisposable
         Mcp = new McpEndpoint(id =>
         {
             lock (_sessions) return _sessions.GetValueOrDefault(id)?.State;
-        }, this, options.Uploader);
+        }, this, options.Uploader, options.Profiles);
         Files = new MachineFiles(FileRoots, options.Uploader, options.Profiles);
         Tools = new AgentToolHost(this, uploader: options.Uploader, masker: Masker);
         _configuredRoots = options.Roots ?? [];

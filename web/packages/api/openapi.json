@@ -260,6 +260,46 @@
         }
       }
     },
+    "/api/daemon/v1/sessions/{id}/secrets": {
+      "get": {
+        "tags": [
+          "SecretEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionSecretName"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/v1/live/ticket": {
       "post": {
         "tags": [
@@ -6753,6 +6793,29 @@
           }
         }
       },
+      "SessionSecretName": {
+        "required": [
+          "name",
+          "kind",
+          "scope"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SecretKind"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SecretScope"
+          },
+          "hostOnly": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
       "SessionStatus": {
         "enum": [
           "Starting",
@@ -7066,6 +7129,9 @@
       "name": "AccountEndpoints"
     },
     {
+      "name": "SecretEndpoints"
+    },
+    {
       "name": "AuditEndpoints"
     },
     {
@@ -7082,9 +7148,6 @@
     },
     {
       "name": "ApiTokens"
-    },
-    {
-      "name": "SecretEndpoints"
     },
     {
       "name": "EnvironmentEndpoints"

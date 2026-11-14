@@ -79,6 +79,15 @@ public sealed class ServerClient(Uri server, HttpMessageHandler? handler = null)
         return (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.SessionProfileResponse, cancellation))!;
     }
 
+    public async Task<SessionSecretName[]> GetSessionSecretNamesAsync(string accessToken, ulong sessionId, CancellationToken cancellation)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/daemon/v1/sessions/{sessionId}/secrets");
+        request.Headers.Authorization = new("Bearer", accessToken);
+        using var response = await _http.SendAsync(request, cancellation);
+        await EnsureSuccessAsync(response, cancellation);
+        return (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.SessionSecretNameArray, cancellation))!;
+    }
+
     /// <summary>Uploads a file under its hash; the server verifies it.</summary>
     public async Task<BlobRef> UploadBlobAsync(string accessToken, string file, CancellationToken cancellation)
     {

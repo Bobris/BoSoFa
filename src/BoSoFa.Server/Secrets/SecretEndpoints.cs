@@ -2,6 +2,7 @@ using System.Globalization;
 using BoSoFa.Protocol;
 using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
+using BoSoFa.Server.Machines;
 using BTDB.Replication.EventSourcing;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -27,6 +28,18 @@ public static class SecretEndpoints
             ChangeSettingsAsync(Owner.Of(scope, http), name, request, node, http));
         api.MapDelete("/{scope}/{name}", (SecretScope scope, string name, BtdbNode node, HttpContext http) =>
             DeleteAsync(Owner.Of(scope, http), name, node, http));
+        app.MapGet("/api/daemon/v1/sessions/{id}/secrets", ListForSessionAsync).RequireAuthorization(DaemonTokens.Scheme);
+    }
+
+    /// <summary>The names a session on this machine can refer to, for its agent's tool (docs/secrets.md §4.3); never a value.</summary>
+    static async Task<Results<Ok<SessionSecretName[]>, NotFound, ForbidHttpResult>> ListForSessionAsync(ulong id, BtdbNode node,
+        IDataProtectionProvider protection, HttpContext http)
+    {
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        using var query = publisher.StartQuery();
+        if (Ambient.Relation<ISessionTable>().FindByIdOrDefault(id) is not { } session) return TypedResults.NotFound();
+        if (session.MachineId != http.User.MachineId() || session.Status == SessionStatus.Stopped) return TypedResults.Forbid();
+        return TypedResults.Ok(SecretResolver.NamesFor(session, protection));
     }
 
     static IDataProtector Protector(IDataProtectionProvider protection, string secretId, int version) =>

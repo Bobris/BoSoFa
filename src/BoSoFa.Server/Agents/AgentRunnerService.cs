@@ -147,6 +147,13 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
     AgentMachine? MachineOf(Session session) =>
         session.MachineId == 0 ? null : new AgentMachine(rpc, session.MachineId, session.WorkingDirectory, session.Id, time);
 
+    async Task<SessionSecretName[]?> ListSecretNamesAsync(ulong sessionId, CancellationToken cancellation)
+    {
+        var publisher = await node.Ready.WaitAsync(cancellation);
+        using var query = publisher.StartQuery();
+        return Ambient.Relation<ISessionTable>().FindByIdOrDefault(sessionId) is { } session ? SecretResolver.NamesFor(session, protection) : null;
+    }
+
     async Task<(AgentEnvironment, List<string>)> OpenEnvironmentAsync(Session session, CancellationToken cancellation)
     {
         var publisher = await node.Ready.WaitAsync(cancellation);
@@ -194,7 +201,13 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
                 var result = await _webFetcher.FetchAsync(url, offset, stop);
                 await AuditEndpoints.RecordAsync(publisher, session.CreatedById, "web.fetched", WebFetcher.ForAudit(url), result.IsError ? "failed" : $"session {session.Id}", logger);
                 return result;
-            }, cancellation);
+            }, cancellation,
+            async stop =>
+            {
+                // Read again at each call: the person may have set one since the run began.
+                var names = await ListSecretNamesAsync(session.Id, stop);
+                return new McpToolResult(names == null ? "This session does not exist any more." : SecretNames.Describe(names), names == null);
+            });
         var model = ModelCatalog.Find(kind, session.Model!);
         // The Messages API needs a limit, and an older model's is lower than the usual one; the Responses API has no need of one.
         var speaksMessages = kind == AccountKind.AnthropicApiKey || (kind == AccountKind.OpenCodeGoApiKey && OpenCodeGo.UsesMessages(session.Model!));

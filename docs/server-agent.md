@@ -377,7 +377,8 @@ Every session, with a machine or without, gets both (decided 2026-11-09):
 
 ### 6.4 BoSoFa tools
 
-`ask_user` (yes or no, shown as an approval), `notify_user` and `upload_file` (machine sessions only). These are the
+`ask_user` (yes or no, shown as an approval), `notify_user`, `list_secrets` (the names of the secrets and variables the
+session can refer to, never a value: [secrets.md](secrets.md) §4.3) and `upload_file` (machine sessions only). These are the
 same tools the daemon's MCP endpoint gives daemon harnesses, implemented in the server.
 
 ### 6.5 Approvals

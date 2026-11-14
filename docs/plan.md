@@ -317,7 +317,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
 
 - **The BoSoFa MCP endpoint:**
   - One per session at `http://127.0.0.1:<port>/mcp/<session>` (Streamable HTTP, per-session bearer), using the official `ModelContextProtocol` C# SDK, AOT-checked.
-  - Tools: `bosofa_notify_user`, `bosofa_ask_user`, `bosofa_upload_file`, `bosofa_session_*` (start or ask another session; later: on another machine).
+  - Tools: `bosofa_notify_user`, `bosofa_ask_user`, `bosofa_upload_file`, `bosofa_list_secrets` (names only, [secrets.md](secrets.md) §4.3), `bosofa_session_*` (start or ask another session; later: on another machine).
   - Every harness gets it injected automatically.
 - **Managed MCP servers:**
   - A server catalog holds definitions (stdio command + args + env secret references, or a remote URL + auth).
@@ -440,7 +440,7 @@ A **harness account** is one sign-in to a provider (a Claude subscription, a Cha
   - `Machine` (owner, kind, os/arch, labels, daemonVersion, publicKey, grants), `Enrollment`, `MachinePresence`
   - `Project`, `Workspace(machine, path, project)`
   - `HarnessDefinition`, `HarnessRelease`, `MachineHarness`
-  - `McpServerDefinition`, `SkillBundle(version, hash)`, `Profile`, `Secret(per machine ciphertext)`
+  - `McpServerDefinition`, `SkillBundle(version, hash)`, `Profile`, `SecretEntry(owner, name, kind, Data Protection ciphertext or a variable's value)` ([secrets.md](secrets.md) §2)
   - `Session(project, workspace, machine, harness, profile, creator, status, branch, parent, title, usage)`, `Run(session, ordinal, status, checkpointBefore/After)`, `SessionItem(session, seq, kind, payload|blobHash)`, `RuntimeRequest(run, kind, payload, status, answeredBy)`
   - `MachineInbox(machine, cmdId, kind, payload, status)`, `StreamCursor(machine, stream, lastSeq)`
   - `FileTransfer`, `AuditEntry`
@@ -613,7 +613,7 @@ Done when: a profile pushes a new skill and an MCP server to a machine and a ses
    - MCP server definitions, skill bundles (a zip in the blob store) and profiles.
    - A session picks a profile. The daemon fetches the resolved profile just in time, so secrets of MCP servers never enter the event log.
    - The daemon writes each harness's native config: `--mcp-config` and a per-session plugin folder for Claude Code, `config` and `$CODEX_HOME/skills` for Codex, `session/new.mcpServers` for ACP.
-3. **BoSoFa MCP endpoint.** *Done, run on real Claude Code:* one loopback HTTP listener in the daemon, a path and a bearer per session, added to every harness's MCP config: `bosofa_notify_user`, `bosofa_ask_user` (shown as an approval; the answer goes back to the model), `bosofa_upload_file` (working directory only, asks for approval, the session shows a download link).
+3. **BoSoFa MCP endpoint.** *Done, run on real Claude Code:* one loopback HTTP listener in the daemon, a path and a bearer per session, added to every harness's MCP config: `bosofa_notify_user`, `bosofa_ask_user` (shown as an approval; the answer goes back to the model), `bosofa_upload_file` (working directory only, asks for approval, the session shows a download link), and later `bosofa_list_secrets` (the names of a session's secrets and variables, [secrets.md](secrets.md) §4.3).
 4. **Files.** *Done, in the browser too:* list, text preview, download and upload under the allowed roots (`bosofad run --roots` plus the sessions' working directories). These are calls answered at once through the node holding the daemon, not durable commands: an offline machine fails the call instead of writing a file hours later. Glob uploads and a registered workspace list wait for projects.
 5. **Terminals.** *Done, tried in the browser on the published daemon (macOS; Windows ConPTY is covered by the CI test):* the shell lives on the machine with 256 KB of history. xterm.js attaches, several people can watch, and a byte offset on the output shows every byte once across reconnects. Output always streams to the server, even with nobody watching.
 

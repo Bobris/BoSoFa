@@ -526,7 +526,7 @@ sealed class AgentLoop(AgentLoopContext context, ulong sessionId)
             }
         }
         // A previous loop may have started this call: running it again could repeat its effect. Reading has none.
-        if (call.Id == suspectCall && kind is not (AgentToolKind.MachineRead or AgentToolKind.Web))
+        if (call.Id == suspectCall && kind is not (AgentToolKind.MachineRead or AgentToolKind.Web or AgentToolKind.Secrets))
         {
             await RecordAsync(view, [Result(call, UnknownOutcome, true)], null, stopping);
             return;

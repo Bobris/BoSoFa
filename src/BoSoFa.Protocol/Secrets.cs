@@ -71,6 +71,11 @@ public sealed record EnvironmentApprovalDto(ulong SessionId, string Environment,
 
 public sealed record AnswerEnvironmentApprovalRequest(bool Approve);
 
+/// <summary>A value a session may refer to, by name: never its value (docs/secrets.md §4.3). It is the one a reference resolves to
+/// for the session's creator on its machine, so a name the environment, the person and the team all set is listed once, with the
+/// scope that wins.</summary>
+public sealed record SessionSecretName(string Name, SecretKind Kind, SecretScope Scope, bool HostOnly = false);
+
 public static partial class SecretNames
 {
     /// <summary>The longest value, enough for a PEM key or a small JSON credential.</summary>
@@ -81,6 +86,26 @@ public static partial class SecretNames
 
     /// <summary>The reference to write in a configuration.</summary>
     public static string Reference(SecretKind kind, string name) => kind == SecretKind.Secret ? $"${{secret:{name}}}" : $"${{var:{name}}}";
+
+    /// <summary>The description of the agents' tool that lists names, the daemon's and the server agent's alike.</summary>
+    public const string ToolDescription =
+        "List the names of the secrets and variables this session can refer to, as ${secret:NAME} or ${var:NAME}. Values are never shown.";
+
+    /// <summary>What an agent's tool answers: each name with the reference to write, or how to get one when there are none.</summary>
+    public static string Describe(IReadOnlyCollection<SessionSecretName> names)
+    {
+        if (names.Count == 0)
+            return "No secrets or variables are set for this session. Ask the person to set one under Secrets and variables; then refer to it as ${secret:NAME} or ${var:NAME}.";
+        var text = new System.Text.StringBuilder("Refer to these in a profile or an MCP server's configuration; their values are never shown.\n");
+        foreach (var name in names)
+        {
+            text.Append(Reference(name.Kind, name.Name)).Append(" (").Append(name.Kind == SecretKind.Secret ? "secret" : "variable").Append(", ")
+                .Append(name.Scope switch { SecretScope.Personal => "personal", SecretScope.Shared => "shared", _ => "environment" });
+            if (name.HostOnly) text.Append(", for MCP servers only: never in a session's environment");
+            text.Append(")\n");
+        }
+        return text.ToString().TrimEnd();
+    }
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,63}$")]
     private static partial Regex Simple();

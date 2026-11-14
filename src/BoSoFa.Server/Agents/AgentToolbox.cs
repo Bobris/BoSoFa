@@ -22,6 +22,9 @@ public enum AgentToolKind
     /// <summary>The server fetches a public page; needs nobody.</summary>
     Web,
 
+    /// <summary>Names the secrets and variables the session can refer to, never a value; needs nobody.</summary>
+    Secrets,
+
     /// <summary>Reads the machine; needs nobody.</summary>
     MachineRead,
 
@@ -38,7 +41,7 @@ public enum AgentToolKind
 /// <summary>The tools of one session's loop: BoSoFa's own, those of its machine, and those of its MCP servers, as <c>mcp__server__tool</c>.</summary>
 public sealed partial class AgentToolbox
 {
-    public const string NotifyTool = "notify_user", AskTool = "ask_user", WebFetchTool = "web_fetch";
+    public const string NotifyTool = "notify_user", AskTool = "ask_user", WebFetchTool = "web_fetch", SecretsTool = "list_secrets";
     const int LongestToolName = 64; // what the model APIs accept
     static readonly TimeSpan HttpToolTimeout = TimeSpan.FromMinutes(10);
 
@@ -48,7 +51,8 @@ public sealed partial class AgentToolbox
             ("url", "string", "The address, with http or https.", true),
             ("offset", "integer", "Where to go on from, as this tool said.", false))),
         new(NotifyTool, "Tell the person following this session something, without waiting for an answer.", Schema(("message", "string", "What to say.", true))),
-        new(AskTool, "Ask the person following this session a yes-or-no question and wait for the answer.", Schema(("question", "string", "The question.", true)))
+        new(AskTool, "Ask the person following this session a yes-or-no question and wait for the answer.", Schema(("question", "string", "The question.", true))),
+        new(SecretsTool, SecretNames.ToolDescription, Schema())
     ];
 
     static readonly ToolSpec[] MachineRead =
@@ -107,6 +111,7 @@ public sealed partial class AgentToolbox
     bool _offersPatch;
     string _toolGroup = AgentToolGroups.Full;
     Func<string, int, CancellationToken, Task<McpToolResult>> _webFetch = (_, _, _) => Task.FromResult(new McpToolResult("Fetching is not available.", true));
+    Func<CancellationToken, Task<McpToolResult>> _listSecrets = _ => Task.FromResult(new McpToolResult("Listing secrets is not available.", true));
 
     static JsonObject Schema(params (string Name, string Type, string Description, bool Required)[] properties)
     {
@@ -125,10 +130,13 @@ public sealed partial class AgentToolbox
     /// <param name="offersPatch">The model was trained on <c>apply_patch</c>.</param>
     /// <param name="toolGroup">Which of the machine's tools the session has.</param>
     /// <param name="webFetch">Fetches a page for the model.</param>
+    /// <param name="listSecrets">Names the secrets and variables the session can refer to; null: not available.</param>
     public static async Task<(AgentToolbox Toolbox, List<string> Problems)> LoadAsync(HttpClient http, IEnumerable<ResolvedMcpServer> servers, AgentMachine? machine,
-        bool offersPatch, string toolGroup, Func<string, int, CancellationToken, Task<McpToolResult>> webFetch, CancellationToken cancellation)
+        bool offersPatch, string toolGroup, Func<string, int, CancellationToken, Task<McpToolResult>> webFetch, CancellationToken cancellation,
+        Func<CancellationToken, Task<McpToolResult>>? listSecrets = null)
     {
         var toolbox = new AgentToolbox { _machine = machine, _offersPatch = offersPatch, _toolGroup = toolGroup, _webFetch = webFetch };
+        if (listSecrets != null) toolbox._listSecrets = listSecrets;
         var problems = new List<string>();
         foreach (var server in servers)
         {
@@ -180,6 +188,7 @@ public sealed partial class AgentToolbox
         if (name == NotifyTool) return AgentToolKind.Notify;
         if (name == AskTool) return AgentToolKind.Ask;
         if (name == WebFetchTool) return AgentToolKind.Web;
+        if (name == SecretsTool) return AgentToolKind.Secrets;
         if (ReadingTools().Any(spec => spec.Name == name)) return AgentToolKind.MachineRead;
         if (permissionMode == "plan") return AgentToolKind.Unknown;
         if (_mcp.ContainsKey(name)) return AgentToolKind.Mcp;
@@ -198,6 +207,7 @@ public sealed partial class AgentToolbox
 
     public async Task<McpToolResult> CallAsync(string name, JsonObject arguments, AgentToolCall call, CancellationToken cancellation)
     {
+        if (name == SecretsTool) return await _listSecrets(cancellation);
         if (name == WebFetchTool)
         {
             var url = arguments["url"] is JsonValue address && address.TryGetValue<string>(out var text) ? text : null;

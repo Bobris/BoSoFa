@@ -10,6 +10,9 @@ namespace BoSoFa.Daemon.Sessions;
 public interface IProfileSource : IBlobDownloader
 {
     Task<SessionProfileResponse> GetProfileAsync(ulong sessionId, CancellationToken cancellation);
+
+    /// <summary>The names of the secrets and variables the session's creator can refer to, never their values.</summary>
+    Task<SessionSecretName[]> ListSecretNamesAsync(ulong sessionId, CancellationToken cancellation);
 }
 
 /// <summary>A profile made ready for a harness: its MCP servers, and a folder holding <c>skills/&lt;name&gt;/</c>.</summary>

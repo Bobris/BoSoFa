@@ -82,6 +82,7 @@ public static class ProtocolVersion
 [JsonSerializable(typeof(ProfileDto))]
 [JsonSerializable(typeof(ProfileDto[]))]
 [JsonSerializable(typeof(SessionProfileResponse))]
+[JsonSerializable(typeof(SessionSecretName[]))]
 [JsonSerializable(typeof(HarnessArtifact[]))]
 [JsonSerializable(typeof(HarnessReleaseDto[]))]
 [JsonSerializable(typeof(HarnessReleaseDto))]
