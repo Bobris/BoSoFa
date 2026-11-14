@@ -7,6 +7,8 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
     <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+    <!-- Development only: dotnet user-secrets keeps a local sign-in provider's secret out of the repository. -->
+    <UserSecretsId>bosofa-server</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="BTDB.Replication.Http" />

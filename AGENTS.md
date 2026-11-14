@@ -18,6 +18,9 @@ architecture and milestones are in [docs/plan.md](docs/plan.md); experiment note
 
 - `dotnet build BoSoFa.slnx` / `dotnet test BoSoFa.slnx`
 - Server for development: `dotnet run --project src/BoSoFa.Server` (http://localhost:5080, dev login on, data in `data/server`).
+- Sign in through SkillShare locally ([docs/skillshare.md](docs/skillshare.md)): a SkillShare admin registers a connected app with
+  redirect URI `http://localhost:5080/signin-oidc`, then `dotnet user-secrets set BoSoFa:Oidc:<Authority|ClientId|ClientSecret|DisplayName>
+  <value> --project src/BoSoFa.Server` (add `MigrateFromIssuer` `dev` to keep dev-login users). Never put the secret in a file of the repository.
 - SPA with hot reload: `pnpm --dir web dev` (http://localhost:5173, proxies the server). `pnpm --dir web build` writes
   `web/apps/web/dist`, which the development server also serves directly.
 - Daemon: `dotnet publish src/BoSoFa.Daemon -r osx-arm64 -c Release -o artifacts/daemon/osx-arm64`, then

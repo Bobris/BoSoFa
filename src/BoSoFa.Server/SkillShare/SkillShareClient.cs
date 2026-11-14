@@ -218,7 +218,7 @@ public sealed class SkillShareClient(ServerOptions options, BtdbNode node, IData
         var (token, _) = await UserTokenAsync(userId, null, false, cancellation);
         using var response = await SendAsync(HttpMethod.Get, new Uri(info.ConnectApi, "me/mcps"), token, cancellation);
         var root = JsonNode.Parse(await response.Content.ReadAsStringAsync(cancellation));
-        var list = root as JsonArray ?? root?["mcps"] as JsonArray ?? root?["providers"] as JsonArray ?? [];
+        var list = root as JsonArray ?? root?["servers"] as JsonArray ?? root?["mcps"] as JsonArray ?? root?["providers"] as JsonArray ?? [];
         var servers = list.OfType<JsonObject>()
             .Select(server => (Id: Text(server["id"]), Url: Text(server["url"]), Server: server))
             .Where(entry => entry.Id is { Length: > 0 } && entry.Url is { Length: > 0 } && CatalogNames.IsValid(entry.Id!))
@@ -262,10 +262,13 @@ public sealed class SkillShareClient(ServerOptions options, BtdbNode node, IData
             if (Text(skill["id"]) is not { Length: > 0 } id) continue;
             var name = Text(skill["name"]) ?? id;
             var versions = (skill["versions"] as JsonArray ?? []).OfType<JsonObject>()
-                .Select(version => (Version: Text(version["version"]), Sha256: Text(version["contentSha256"])?.ToLowerInvariant(), Node: version))
-                .Where(version => version.Version is { Length: > 0 } && version.Sha256 is { } sha && BlobHash.IsValid(sha))
+                .Select(version => (Version: Text(version["version"]), Sha256: Text(version["contentSha256"])?.ToLowerInvariant() ?? "", Node: version))
+                // SkillShare hashes a version's archive the first time someone asks for it, so a hash may be missing yet; a version
+                // it knows has no SKILL.md is left out.
+                .Where(version => version.Version is { Length: > 0 } && (version.Sha256.Length == 0 || BlobHash.IsValid(version.Sha256)) &&
+                    Bool(version.Node["usable"]) != false)
                 .Select(version => new SkillShareSkillVersionDto(version.Version!, Time(version.Node["publishedAt"]) ?? DateTime.UnixEpoch,
-                    Bool(version.Node["latest"]) ?? false, version.Sha256!))
+                    Bool(version.Node["latest"]) ?? false, version.Sha256))
                 .ToArray();
             var tags = (skill["tags"] as JsonArray ?? []).Select(tag => Text(tag) ?? Text(tag?["slug"]) ?? Text(tag?["name"])).OfType<string>().ToArray();
             skills.Add(new()
@@ -278,22 +281,24 @@ public sealed class SkillShareClient(ServerOptions options, BtdbNode node, IData
             });
         }
         // SkillShare's own clock when it says it; else this one's, a little early, so nothing published meanwhile is missed.
-        var now = Text(root?["now"]) ?? Text(root?["serverTime"]) ?? asked.AddMinutes(-2).UtcDateTime.ToString("O");
+        var now = Text(root?["serverTime"]) ?? Text(root?["now"]) ?? asked.AddMinutes(-2).UtcDateTime.ToString("O");
         return new(skills, now);
     }
 
     /// <summary>
-    /// Makes sure the blob store holds a SkillShare version's archive, fetching it once per version: the archive's SHA-256 is the
-    /// catalog's, so it is its blob's name too. A version with no <c>SKILL.md</c> at its root is refused.
+    /// Makes sure the blob store holds a SkillShare version's archive, fetching it once per version, and returns its SHA-256: the
+    /// catalog's, so it is its blob's name too. A version the catalog has no hash for yet is fetched, and its hash is whatever the
+    /// archive's is. A version with no <c>SKILL.md</c> at its root is refused.
     /// </summary>
-    public async Task EnsureArchiveAsync(string skillId, SkillShareSkillVersionDto version, CancellationToken cancellation)
+    public async Task<string> EnsureArchiveAsync(string skillId, SkillShareSkillVersionDto version, CancellationToken cancellation)
     {
-        if (await blobs.ExistsAsync(version.Sha256, cancellation)) return;
-        var gate = _imports.GetOrAdd(version.Sha256, _ => new SemaphoreSlim(1, 1));
+        var known = version.Sha256.Length > 0;
+        if (known && await blobs.ExistsAsync(version.Sha256, cancellation)) return version.Sha256;
+        var gate = _imports.GetOrAdd(known ? version.Sha256 : $"{skillId}@{version.Version}", _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellation);
         try
         {
-            if (await blobs.ExistsAsync(version.Sha256, cancellation)) return;
+            if (known && await blobs.ExistsAsync(version.Sha256, cancellation)) return version.Sha256;
             var info = await RequireAsync(cancellation);
             var token = await AppTokenAsync(cancellation);
             var url = new Uri(info.ConnectApi, $"skills/{Uri.EscapeDataString(skillId)}/versions/{Uri.EscapeDataString(version.Version)}/archive");
@@ -302,12 +307,13 @@ public sealed class SkillShareClient(ServerOptions options, BtdbNode node, IData
             var (file, sha256, _) = await BlobHash.SpoolAsync(content, MaximumArchiveBytes, cancellation);
             try
             {
-                if (sha256 != version.Sha256)
+                if (known && sha256 != version.Sha256)
                     throw new SkillShareException(SkillShareProblem.Unavailable, $"SkillShare's archive of {skillId} {version.Version} is not the one its catalog names.");
                 using (var zip = System.IO.Compression.ZipFile.OpenRead(file))
                     if (zip.GetEntry("SKILL.md") == null)
                         throw new SkillShareException(SkillShareProblem.NotFound, $"{skillId} {version.Version} has no SKILL.md at its root.");
                 await blobs.PutAsync(sha256, file, cancellation);
+                return sha256;
             }
             finally { File.Delete(file); }
         }

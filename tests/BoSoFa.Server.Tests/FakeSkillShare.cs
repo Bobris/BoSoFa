@@ -44,6 +44,9 @@ sealed partial class FakeSkillShare : IAsyncDisposable
     readonly ConcurrentDictionary<string, Grant> _grants = new();
     readonly ConcurrentDictionary<string, AccessToken> _tokens = new();
 
+    /// <summary>Versions whose archive was asked for: as SkillShare does, a version's hash is known only from then on.</summary>
+    readonly ConcurrentDictionary<string, bool> _archived = new();
+
     public Person NextPerson { get; set; } = new("sub-boris", "boris@example.com", "Boris", Admin: true, Oid: "oid-boris");
     public List<Skill> Skills { get; } = [];
 
@@ -247,19 +250,19 @@ sealed partial class FakeSkillShare : IAsyncDisposable
                 ["versions"] = new JsonArray(skill.Select(version => (JsonNode)new JsonObject
                 {
                     ["version"] = version.Version, ["publishedAt"] = version.ChangedAt.ToString("O"), ["latest"] = version == latest,
-                    ["contentSha256"] = Convert.ToHexStringLower(SHA256.HashData(Zip(version.Text)))
+                    ["contentSha256"] = _archived.ContainsKey($"{version.Id}@{version.Version}") ? Convert.ToHexStringLower(SHA256.HashData(Zip(version.Text))) : null
                 }).ToArray())
             });
         }
-        return Results.Json(new JsonObject { ["skills"] = skills, ["now"] = DateTime.UtcNow.ToString("O") });
+        return Results.Json(new JsonObject { ["serverTime"] = DateTimeOffset.UtcNow.ToString("O"), ["skills"] = skills });
     }
 
     IResult Archive(HttpRequest request, string id, string version)
     {
         if (Bearer(request, "skillshare-connect") is null) return Results.Unauthorized();
-        return Skills.FirstOrDefault(skill => skill.Id == id && skill.Version == version) is { } found
-            ? Results.Bytes(Zip(found.Text), "application/zip")
-            : Results.NotFound();
+        if (Skills.FirstOrDefault(skill => skill.Id == id && skill.Version == version) is not { } found) return Results.NotFound();
+        _archived[$"{id}@{version}"] = true;
+        return Results.Bytes(Zip(found.Text), "application/zip");
     }
 
     IResult Download(HttpRequest request, string id, string version)
@@ -275,7 +278,7 @@ sealed partial class FakeSkillShare : IAsyncDisposable
         var servers = Mcps.GetValueOrDefault(person.Sub) ?? [];
         return Results.Json(new JsonObject
         {
-            ["mcps"] = new JsonArray(servers.Select(server => (JsonNode)new JsonObject
+            ["servers"] = new JsonArray(servers.Select(server => (JsonNode)new JsonObject
             {
                 ["id"] = server.Key, ["title"] = server.Key, ["url"] = McpUrl(server.Key), ["connected"] = server.Value, ["accessMode"] = "readOnly",
                 ["setupUrl"] = Origin + "/mcps"

@@ -134,6 +134,9 @@ public class SkillShareTest
             Assert.Contains("Fetch it better.", await File.ReadAllTextAsync(skillFile));
             await Eventually(() => Task.FromResult(skillShare.Downloads.Count), count => count > 0);
             Assert.Contains("boris@example.com 42 2.0", skillShare.Downloads);
+            // SkillShare had not hashed 2.0 before; the mirror learned the hash from the archive.
+            Assert.Contains((await boris.GetFromJsonAsync<SkillShareSkillDto[]>("/api/v1/skillshare/skills"))![0].Versions,
+                version => version.Version == "2.0" && version.Sha256.Length == 64);
 
             // The harness knows only the daemon's gateway; the daemon asks the server for the person's token.
             var mcpConfig = Path.Combine(directory, "mcp", $"{session.Id}.json");

@@ -371,7 +371,8 @@ Taken 2026-11-14:
 
 ## 11. Wire contract
 
-What BoSoFa sends and reads, so that SkillShare's side can be built to it. `FakeSkillShare` plays exactly this. BoSoFa reads
+What BoSoFa sends and reads; SkillShare's connected apps (deployed to preprod 2026-11-14) answer it, as checked against its code.
+`FakeSkillShare` plays exactly this. BoSoFa reads
 JSON tolerantly: unknown fields are ignored, and the alternatives named below are accepted too.
 
 **Discovery**, `GET <authority>/.well-known/openid-configuration` (OIDC Discovery), plus:
@@ -405,15 +406,17 @@ request only.
 
 **Connect API**, bearer tokens as above:
 
-- `GET skills` and `GET skills?changedSince=<ISO 8601>` (app token) → `{ "skills": [ … ], "now": "<ISO 8601>" }`; a bare array
-  is accepted too. Each skill: `id` (string or number), `name`, `description`, `tags` (strings, or objects with `slug` or
+- `GET skills` and `GET skills?changedSince=<ISO 8601>` (app token) → `{ "serverTime": "<ISO 8601>", "skills": [ … ] }` (`now`
+  for `serverTime`, or a bare array, are accepted too). Each skill: `id` (string or number), `name`, `description`, `tags` (strings, or objects with `slug` or
   `name`), `owner` (a string, or an object with `name`; `ownerName` also works), `deprecated`, `deleted`, and `versions`:
-  `[{ "version", "publishedAt", "latest", "contentSha256" }]` with every version of a skill that changed, not only the new
-  one. `now` is SkillShare's clock, the next `changedSince`; without it BoSoFa uses its own minus two minutes.
+  `[{ "version", "publishedAt", "latest", "contentSha256", "usable" }]` with every version of a skill that changed, not only
+  the new one. `contentSha256` is null until SkillShare first built that version's archive; BoSoFa then takes the hash from the
+  archive it fetches. A version with `usable: false` (no `SKILL.md`) is left out. `serverTime` is SkillShare's clock, the next
+  `changedSince`; without it BoSoFa uses its own minus two minutes.
 - `GET skills/{id}/versions/{version}/archive` (app token) → the zip whose SHA-256 (lowercase hex) is `contentSha256`, with
   `SKILL.md` at its root; at most 64 MiB.
 - `POST skills/{id}/versions/{version}/downloads` (a person's token, body `{}`) → any 2xx; counts a use for that person.
-- `GET me/mcps` (a person's token) → `{ "mcps": [ … ] }` (a bare array, or `providers`, are accepted too). Each server: `id`
+- `GET me/mcps` (a person's token) → `{ "servers": [ … ] }` (`mcps`, `providers` or a bare array are accepted too). Each server: `id`
   (BoSoFa takes only lowercase letters, digits, `-` and `_`), `title`, `url` (the exact resource for its tokens),
   `connected`, `accessMode`, `setupUrl`.
 

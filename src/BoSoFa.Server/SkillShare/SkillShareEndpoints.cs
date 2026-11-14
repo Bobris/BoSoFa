@@ -203,8 +203,13 @@ public static class SkillShareEndpoints
         using (var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellation))
         {
             limit.CancelAfter(ImportLimit);
-            foreach (var (_, skillId, version) in resolved.Where(entry => entry.Version != null).DistinctBy(entry => entry.Version!.Sha256))
-                try { await skillShare.EnsureArchiveAsync(skillId, version!, limit.Token); }
+            foreach (var (_, skillId, version) in resolved.Where(entry => entry.Version != null).DistinctBy(entry => (entry.SkillId, entry.Version!.Version)))
+                try
+                {
+                    var sha256 = await skillShare.EnsureArchiveAsync(skillId, version!, limit.Token);
+                    // SkillShare had not hashed it yet: the mirror learns the hash now, so the launch finds the blob.
+                    if (version!.Sha256.Length == 0) await RecordHashAsync(publisher, skillId, version.Version, sha256, limit.Token);
+                }
                 catch (SkillShareException problem) { return ("", "", problem.Message); }
                 catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
                 {
@@ -247,6 +252,24 @@ public static class SkillShareEndpoints
         return (skillsJson, mcpJson, null);
     }
 
+    static async Task RecordHashAsync(EventPublisher publisher, string skillId, string version, string sha256, CancellationToken cancellation)
+    {
+        SyncedSkill updated;
+        using (publisher.StartQuery())
+        {
+            if (Ambient.Relation<ISkillShareSkillTable>().FindByIdOrDefault(skillId) is not { } skill) return;
+            var versions = SkillShareCatalog.Versions(skill.Versions)
+                .Select(known => known.Version == version && known.Sha256.Length == 0 ? known with { Sha256 = sha256 } : known).ToArray();
+            updated = new()
+            {
+                Id = skill.Id, Name = skill.Name, BundleName = skill.BundleName, Description = skill.Description, Tags = skill.Tags, Owner = skill.Owner,
+                Deprecated = skill.Deprecated, Deleted = skill.Deleted,
+                Versions = JsonSerializer.Serialize(versions, ProtocolJsonContext.Default.SkillShareSkillVersionDtoArray)
+            };
+        }
+        await publisher.PublishAndWaitAsync(new SkillShareCatalogSynced { Skills = [updated] }, cancellation);
+    }
+
     /// <summary>The skills a launch gets: the profile's own bundles, then the session's (SkillShare's among them), one per folder name.
     /// Must run inside a query scope.</summary>
     public static ResolvedSkill[] SkillsOf(Session session, Profile? profile)
@@ -261,7 +284,7 @@ public static class SkillShareEndpoints
             ResolvedSkill? resolved = skill.Source switch
             {
                 null => bundles.FindByIdOrDefault(skill.Name, skill.Version) is { } bundle ? new(bundle.Name, bundle.Version, bundle.Sha256) : null,
-                SkillSources.SkillShare => mirrored.FindByIdOrDefault(skill.Name) is { } found && SkillShareCatalog.VersionOf(found, skill.Version) is { } version
+                SkillSources.SkillShare => mirrored.FindByIdOrDefault(skill.Name) is { } found && SkillShareCatalog.VersionOf(found, skill.Version) is { Sha256.Length: > 0 } version
                     ? new(found.BundleName, version.Version, version.Sha256)
                     : null,
                 _ => null
