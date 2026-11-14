@@ -182,7 +182,7 @@ public static class SessionEndpoints
             PermissionMode = permissionMode ?? "default", Model = model, AccountId = request.AccountId ?? 0,
             UseWorktree = request.UseWorktree, ProfileName = request.ProfileName, ImagesJson = imagesJson,
             SystemPrompt = request.SystemPrompt, ReasoningEffort = request.ReasoningEffort, ToolGroup = request.ToolGroup,
-            DraftId = request.DraftId ?? 0
+            DraftId = request.DraftId ?? 0, ShellOutputSeqs = request.ShellOutputs?.ToList() ?? []
         });
     }
 
@@ -287,6 +287,7 @@ public static class SessionEndpoints
         // Deltas of a session reach this node only while it follows the session's machine (LiveRelay).
         var relays = new Dictionary<ulong, IDisposable>();
         var terminalRelays = new Dictionary<string, IDisposable>();
+        var draftRelays = new Dictionary<ulong, IDisposable>();
         try
         {
             while (await ReceiveAsync(socket, stop.Token) is { } message)
@@ -312,6 +313,20 @@ public static class SessionEndpoints
                     case LiveUnsubscribe unsubscribe:
                         subscriber.Unsubscribe(unsubscribe.SessionId);
                         if (relays.Remove(unsubscribe.SessionId, out var lease)) lease.Dispose();
+                        break;
+                    case LiveDraftSubscribe draft:
+                        bool controls;
+                        using (publisher.StartQuery())
+                            controls = draft.MachineId != 0 && Ambient.Relation<IMachineTable>().FindByIdOrDefault(draft.MachineId) is { } draftMachine &&
+                                       MachineAccess.CanControl(subscriber.UserId, draftMachine);
+                        // Its commands' output comes from the daemon of the machine the draft chose, which may be connected to another node.
+                        if (draftRelays.Remove(draft.DraftId, out var oldDraftLease)) oldDraftLease.Dispose();
+                        if (controls) draftRelays[draft.DraftId] = relay.Follow(draft.MachineId);
+                        subscriber.SubscribeDraft(draft.DraftId);
+                        break;
+                    case LiveDraftUnsubscribe draft:
+                        subscriber.UnsubscribeDraft(draft.DraftId);
+                        if (draftRelays.Remove(draft.DraftId, out var draftLease)) draftLease.Dispose();
                         break;
                     case LiveTerminalSubscribe watch:
                         bool allowed;
@@ -351,7 +366,7 @@ public static class SessionEndpoints
         catch (Exception exception) when (exception is WebSocketException or OperationCanceledException or JsonException) { }
         finally
         {
-            foreach (var lease in relays.Values.Concat(terminalRelays.Values)) lease.Dispose();
+            foreach (var lease in relays.Values.Concat(terminalRelays.Values).Concat(draftRelays.Values)) lease.Dispose();
             hub.Leave(subscriber);
             await stop.CancelAsync();
             try { await sending; }
@@ -393,6 +408,18 @@ public static class SessionEndpoints
                 }
                 await SendAsync(socket, update, cancellation);
                 subscriber.Advance(sessionId, lastSeq, more);
+            }
+            foreach (var draftId in subscriber.TakeDirtyDrafts().ToList())
+            {
+                SessionItemDto[]? items;
+                using (publisher.StartQuery())
+                    items = DraftEndpoints.ShellItemsOf(draftId, subscriber.UserId);
+                if (items == null)
+                {
+                    subscriber.UnsubscribeDraft(draftId);
+                    continue; // started, discarded, or not theirs
+                }
+                await SendAsync(socket, new LiveDraftUpdate(draftId, items), cancellation);
             }
             while (subscriber.TryTakeDelta(out var delta)) await SendAsync(socket, delta, cancellation);
             while (subscriber.TryTakeTerminalMessage(out var terminal)) await SendAsync(socket, terminal, cancellation);

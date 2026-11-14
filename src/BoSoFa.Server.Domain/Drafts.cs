@@ -54,7 +54,7 @@ public static class Drafts
     public static string TitleOf(SessionDraft draft) => draft.Prompt.Trim().Length == 0 ? "" : Sessions.TitleOf(draft.Prompt);
 }
 
-public sealed class SessionDraftSavedHandler : IEventHandler<SessionDraftSaved, SessionCommandResult>
+public sealed class SessionDraftSavedHandler(BTDB.BackendActions.BackendActions actions) : IEventHandler<SessionDraftSaved, SessionCommandResult>
 {
     public SessionCommandResult? Validate(SessionDraftSaved ev) =>
         ev.UserId == 0 || ev.Prompt.Length > Sessions.MaximumPromptLength || ev.Settings.Length > Drafts.MaximumSettingsLength
@@ -72,18 +72,24 @@ public sealed class SessionDraftSavedHandler : IEventHandler<SessionDraftSaved, 
             return new() { Outcome = CommandOutcome.Ok, SessionId = draft.Id };
         }
         foreach (var old in drafts.ListById(ev.UserId).OrderByDescending(draft => draft.UpdatedAt).Skip(Drafts.MaximumPerPerson - 1).ToList())
+        {
             drafts.RemoveById(old.OwnerId, old.Id);
+            DraftShellCommands.RemoveAll(actions, old.Id);
+        }
         var id = Ambient.AllocateId();
         drafts.Insert(new() { OwnerId = ev.UserId, Id = id, Prompt = ev.Prompt, Settings = ev.Settings, CreatedAt = ev.When, UpdatedAt = ev.When });
         return new() { Outcome = CommandOutcome.Ok, SessionId = id };
     }
 }
 
-public sealed class SessionDraftDiscardedHandler : IEventHandler<SessionDraftDiscarded, SessionCommandResult>
+public sealed class SessionDraftDiscardedHandler(BTDB.BackendActions.BackendActions actions) : IEventHandler<SessionDraftDiscarded, SessionCommandResult>
 {
     public SessionCommandResult? Validate(SessionDraftDiscarded ev) => null;
 
-    public SessionCommandResult Consume(SessionDraftDiscarded ev) => Ambient.Relation<ISessionDraftTable>().RemoveById(ev.UserId, ev.DraftId)
-        ? new() { Outcome = CommandOutcome.Ok }
-        : new() { Outcome = CommandOutcome.NotFound };
+    public SessionCommandResult Consume(SessionDraftDiscarded ev)
+    {
+        if (!Ambient.Relation<ISessionDraftTable>().RemoveById(ev.UserId, ev.DraftId)) return new() { Outcome = CommandOutcome.NotFound };
+        DraftShellCommands.RemoveAll(actions, ev.DraftId);
+        return new() { Outcome = CommandOutcome.Ok };
+    }
 }

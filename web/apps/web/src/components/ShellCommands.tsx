@@ -1,5 +1,6 @@
 import { api, type SessionItem } from "@bosofa/api";
 import { useNavigate } from "@solidjs/router";
+import type { JSX } from "@solidjs/web";
 import { createMemo, createSignal, For, onSettled, Show } from "solid-js";
 import { CloseIcon, StopIcon, TerminalIcon } from "./icons";
 
@@ -113,10 +114,12 @@ export function ShellCommandCard(props: {
   item: SessionItem;
   output?: SessionItem;
   draft?: string;
-  sessionId: number;
   machineId: number;
   canControl: boolean;
+  onStop: () => Promise<unknown>;
   onRunAgain: (command: string) => void;
+  /** Says what happens to the output, under the command. */
+  footnote?: string;
 }) {
   const navigate = useNavigate();
   const data = createMemo(() => shellData(props.output));
@@ -133,12 +136,6 @@ export function ShellCommandCard(props: {
   // A long output is folded once it ended; one that runs shows its end as it comes.
   const unfolded = () => open() ?? (!props.output || lines() <= 12);
   const ok = () => data()?.state === "done" && data()?.exitCode === 0;
-
-  async function stop() {
-    await api.POST("/api/v1/sessions/{id}/shell-commands/{seq}/stop", {
-      params: { path: { id: props.sessionId, seq: Number(props.item.seq) } },
-    });
-  }
 
   async function copy() {
     try {
@@ -181,10 +178,12 @@ export function ShellCommandCard(props: {
         </Show>
       </Show>
       <div class="flex flex-wrap items-center gap-1 border-t border-amber-500/20 px-2 py-1">
-        <span class="select-none px-1 text-xs text-muted">Your command · not part of the conversation unless your next message takes it</span>
+        <span class="select-none px-1 text-xs text-muted">
+          {props.footnote ?? "Your command · not part of the conversation unless your next message takes it"}
+        </span>
         <span class="flex-1" />
         <Show when={!props.output && props.canControl}>
-          <button class={button} onClick={() => void stop()} title="Stop the command and what it started">
+          <button class={button} onClick={() => void props.onStop()} title="Stop the command and what it started">
             <StopIcon class="size-3.5" /> Stop
           </button>
         </Show>
@@ -246,6 +245,12 @@ export function ShellOutputChips(props: { outputs: readonly SessionItem[]; exclu
   );
 }
 
+/** The running commands among the items: those without an output yet. */
+export function runningCount(items: readonly SessionItem[]): number {
+  const ended = new Set(items.filter((item) => item.kind === "ShellOutput").map((item) => item.ref));
+  return items.filter((item) => item.kind === "ShellCommand" && !ended.has(shellRef(item.seq))).length;
+}
+
 /** What a sent message carried: the commands whose outputs went with it. */
 export function CarriedOutputs(props: { commands: readonly string[] }) {
   return (
@@ -254,5 +259,158 @@ export function CarriedOutputs(props: { commands: readonly string[] }) {
         {(command) => <span class="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-xs">$ {command}</span>}
       </For>
     </div>
+  );
+}
+
+/**
+ * Shell mode of a prompt: a `!` typed, pasted or put in by an input method at the start of an empty prompt is not written, and the prompt
+ * takes a command instead. Backspace or Escape on an empty line leaves it, ↑ and ↓ recall the commands run before, and Enter runs it.
+ * The prompt keeps its own text; it calls these from its handlers.
+ */
+export function createShellPrompt(options: {
+  canShell: () => boolean;
+  history: () => string[];
+  text: () => string;
+  /** Sets the prompt's text and its textarea's value. */
+  setText: (value: string) => void;
+  /** Runs the command; what went wrong, if anything. */
+  run: (command: string) => Promise<string | undefined>;
+  setError: (message: string | undefined) => void;
+  focus: () => void;
+}) {
+  const [active, setActive] = createSignal(false);
+  // Where ↑ and ↓ are in the commands run before; null while not recalling.
+  const [recalled, setRecalled] = createSignal<number | null>(null);
+
+  function enter() {
+    setActive(true);
+    setRecalled(null);
+    options.setError(undefined);
+    options.focus();
+  }
+
+  function exit() {
+    setActive(false);
+    setRecalled(null);
+  }
+
+  async function run() {
+    const command = options.text().trim();
+    if (!command) return;
+    if (command.length > SHELL_COMMAND_MAX_LENGTH) return options.setError(`A command can have at most ${SHELL_COMMAND_MAX_LENGTH} characters.`);
+    const problem = await options.run(command);
+    if (problem) return options.setError(problem);
+    options.setError(undefined);
+    exit();
+    options.setText("");
+  }
+
+  /** ↑ and ↓: the commands run before, the latest first. */
+  function recall(direction: -1 | 1): boolean {
+    const history = options.history();
+    const current = recalled();
+    if (history.length === 0 || (current === null && (options.text() !== "" || direction === 1))) return false;
+    const next = current === null ? history.length - 1 : current + direction;
+    if (next < 0) return true;
+    if (next >= history.length) {
+      setRecalled(null);
+      options.setText("");
+    } else {
+      setRecalled(next);
+      options.setText(history[next]);
+    }
+    return true;
+  }
+
+  return {
+    active,
+    enter,
+    exit,
+    run,
+    /** From onPaste: true when it took the pasted text as a command. */
+    paste(event: ClipboardEvent): boolean {
+      const pasted = event.clipboardData?.getData("text/plain") ?? "";
+      if (!pasted.startsWith("!") || active() || options.text() !== "" || !options.canShell()) return false;
+      event.preventDefault();
+      enter();
+      options.setText(pasted.slice(1));
+      return true;
+    },
+    /** From onInput, before the prompt reads the textarea's value: a `!` that reached an empty prompt another way than its key. */
+    input(element: HTMLTextAreaElement) {
+      const value = element.value;
+      if (!active() && options.text() === "" && value.startsWith("!") && options.canShell()) {
+        element.value = value.slice(1);
+        enter();
+      }
+      setRecalled(null);
+    },
+    /** From onKeyDown: true when shell mode handled the key, and the prompt must not. */
+    keyDown(event: KeyboardEvent & { currentTarget: HTMLTextAreaElement }): boolean {
+      const plain = !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing;
+      if (!active()) {
+        if (plain && event.key === "!" && event.currentTarget.value === "" && options.canShell()) {
+          event.preventDefault();
+          enter();
+          return true;
+        }
+        return false;
+      }
+      if (plain && event.key === "Backspace" && event.currentTarget.value === "") {
+        event.preventDefault();
+        exit();
+      } else if (plain && (event.key === "ArrowUp" || event.key === "ArrowDown") && recall(event.key === "ArrowUp" ? -1 : 1)) {
+        event.preventDefault();
+      } else if (event.key === "Escape" && event.currentTarget.value === "") {
+        event.preventDefault();
+        exit();
+      } else if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        void run();
+      }
+      return true;
+    },
+  };
+}
+
+/** The frame of a prompt in shell mode. */
+export const shellFrame = (active: boolean) =>
+  active ? "border-amber-500/70 focus-within:border-amber-500" : "border-line focus-within:border-accent/40";
+
+/** The `!` before a command being written. */
+export function ShellSigil() {
+  return <span class="select-none pl-4 pt-3 font-mono text-[15px] font-semibold leading-relaxed text-amber-600 dark:text-amber-400">!</span>;
+}
+
+/** What shell mode does, under the prompt. */
+export function ShellStatus(props: { children?: JSX.Element }) {
+  return (
+    <span class="mr-auto select-none truncate pl-2 text-xs text-muted">
+      <span class="font-medium text-amber-700 dark:text-amber-400">Shell command</span> · Enter runs it · Backspace on an empty line returns to
+      the prompt{props.children}
+    </span>
+  );
+}
+
+export function ShellRunButton(props: { disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      class="flex h-8 items-center gap-1.5 rounded-full bg-amber-500 px-3 text-sm font-medium text-white shadow-sm transition-opacity disabled:opacity-30"
+      title="Run the command (↵)"
+      disabled={props.disabled}
+      onClick={() => props.onClick()}
+    >
+      Run
+    </button>
+  );
+}
+
+export function RunningCommands(props: { count: number }) {
+  return (
+    <span class="mr-auto flex select-none items-center gap-1.5 pl-2 text-xs text-muted">
+      <span class="size-1.5 animate-pulse rounded-full bg-amber-500" />
+      {props.count === 1 ? "A command runs" : `${props.count} commands run`}
+    </span>
   );
 }

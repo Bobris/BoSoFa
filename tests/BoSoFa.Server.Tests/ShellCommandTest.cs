@@ -164,6 +164,132 @@ public class ShellCommandTest
         Assert.Contains(new DirectoryInfo(m.Work).Name, output.Text);
     }
 
+    static async Task<ulong> DraftAsync(Machine m, HttpClient? client = null)
+    {
+        var response = await (client ?? m.H.Boris).PostAsJsonAsync("/api/v1/drafts", new SaveSessionDraftRequest("", "{}"));
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<SessionDraftDto>())!.Id;
+    }
+
+    static Task<HttpResponseMessage> RunInDraftAsync(Machine m, ulong draft, string command, string? profile = null, HttpClient? client = null, string? folder = null) =>
+        (client ?? m.H.Boris).PostAsJsonAsync($"/api/v1/drafts/{draft}/shell-commands", new RunDraftShellCommandRequest(command, m.Id, folder ?? m.Work, profile));
+
+    /// <summary>The draft's items once <paramref name="outputs"/> of its commands have ended.</summary>
+    static Task<SessionItemDto[]> DraftItemsAsync(Machine m, ulong draft, int outputs) =>
+        AgentSessionTest.Eventually(() => m.H.Boris.GetFromJsonAsync<SessionItemDto[]>($"/api/v1/drafts/{draft}/shell-commands")!,
+            items => items!.Count(item => item.Kind == SessionItemKind.ShellOutput) >= outputs)!;
+
+    static async Task<SessionDto> StartFromDraftAsync(Machine m, ulong draft, string prompt, long[] outputs)
+    {
+        var response = await m.H.Boris.PostAsJsonAsync("/api/v1/sessions", new CreateSessionRequest(m.Id, Harnesses.Agent, m.Work, prompt, "bypassPermissions",
+            "test-model", m.H.AccountId, DraftId: draft, ShellOutputs: outputs));
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        return (await response.Content.ReadFromJsonAsync<SessionDto>())!;
+    }
+
+    [Fact]
+    public async Task ACommandOfADraftGoesWithThePromptThatStartsTheSession()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        await using var m = await Machine.StartAsync();
+        (await m.H.Boris.PutAsJsonAsync("/api/v1/secrets/Personal/DEPLOY", new SetSecretRequest(SecretKind.Secret, "deploy-token-73"))).EnsureSuccessStatusCode();
+        (await m.H.Boris.PostAsJsonAsync("/api/v1/profiles", new ProfileDto("draftenv", null, null, [], [],
+            Environment: new() { ["DEPLOY_TOKEN"] = "${secret:DEPLOY}" }))).EnsureSuccessStatusCode();
+        var draft = await DraftAsync(m);
+
+        (await RunInDraftAsync(m, draft, "pwd; echo \"token $DEPLOY_TOKEN\"; echo lavender", "draftenv")).EnsureSuccessStatusCode();
+        (await RunInDraftAsync(m, draft, "echo left-out")).EnsureSuccessStatusCode();
+        var items = await DraftItemsAsync(m, draft, 2);
+        var outputs = items.Where(item => item.Kind == SessionItemKind.ShellOutput).ToArray();
+        var first = outputs.Single(item => item.Text.Contains("lavender"));
+        Assert.Contains(new DirectoryInfo(m.Work).Name, first.Text);
+        Assert.Contains("token ***", first.Text);
+        var data = JsonSerializer.Deserialize(first.Data!, ProtocolJsonContext.Default.ShellOutputData)!;
+        Assert.Equal((Shell.Done, 0, m.Work), (data.State, data.ExitCode, data.Folder));
+        var audit = await m.H.Boris.GetStringAsync("/api/v1/audit");
+        Assert.Contains("draft.shell_command", audit);
+        Assert.Contains("secret.used", audit);
+        Assert.DoesNotContain("deploy-token-73", audit);
+
+        // An output of another draft, or a command's own item, cannot go with the prompt.
+        var commandSeq = items.First(item => item.Kind == SessionItemKind.ShellCommand).Seq;
+        Assert.Equal(HttpStatusCode.BadRequest, (await m.H.Boris.PostAsJsonAsync("/api/v1/sessions", new CreateSessionRequest(m.Id, Harnesses.Agent, m.Work,
+            "Go.", null, "test-model", m.H.AccountId, DraftId: draft, ShellOutputs: [commandSeq]))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await m.H.Boris.PostAsJsonAsync("/api/v1/sessions", new CreateSessionRequest(m.Id, Harnesses.Agent, m.Work,
+            "Go.", null, "test-model", m.H.AccountId, ShellOutputs: [first.Seq]))).StatusCode);
+
+        m.H.Backend.Answer("It printed lavender.");
+        var session = await StartFromDraftAsync(m, draft, "What did it print?", [first.Seq]);
+        var transcript = await m.H.RunEndedAsync(session.Id);
+        // Both commands are in the transcript, before the prompt, with the session's own seqs.
+        var commands = transcript.Where(item => item.Kind == SessionItemKind.ShellCommand).ToArray();
+        var moved = transcript.Where(item => item.Kind == SessionItemKind.ShellOutput).ToArray();
+        Assert.Equal(2, commands.Length);
+        Assert.Equal(2, moved.Length);
+        Assert.All(moved, output => Assert.Contains(commands, command => output.Ref == Shell.RefOf(command.Seq)));
+        var carried = moved.Single(item => item.Text.Contains("lavender"));
+        var prompt = transcript.Single(item => item.Kind == SessionItemKind.User);
+        Assert.Equal(("What did it print?", $"shell:{carried.Seq}"), (prompt.Text, prompt.Ref));
+        Assert.True(prompt.Seq > moved.Max(item => item.Seq));
+        var request = m.H.Backend.ModelRequests.Last().ToJsonString();
+        Assert.Contains("The user ran this command in a shell", request);
+        Assert.Contains("lavender", request);
+        Assert.DoesNotContain("left-out", request);
+        // The draft became the session, and its commands with it.
+        Assert.Equal(HttpStatusCode.NotFound, (await m.H.Boris.GetAsync($"/api/v1/drafts/{draft}/shell-commands")).StatusCode);
+    }
+
+    [Fact]
+    public async Task OnlyTheDraftsOwnerRunsOneOnAMachineTheyControl()
+    {
+        await using var m = await Machine.StartAsync();
+        var draft = await DraftAsync(m);
+        using var alice = m.H.Server.Client();
+        (await alice.PostAsJsonAsync("/auth/dev-login", new DevLoginRequest("alice@example.com", "Alice"))).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.NotFound, (await RunInDraftAsync(m, draft, "echo hi", client: alice)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await alice.GetAsync($"/api/v1/drafts/{draft}/shell-commands")).StatusCode);
+        var hers = await DraftAsync(m, alice);
+        Assert.Equal(HttpStatusCode.Forbidden, (await RunInDraftAsync(m, hers, "echo hi", client: alice)).StatusCode); // Boris's machine
+        Assert.Equal(HttpStatusCode.BadRequest, (await RunInDraftAsync(m, draft, "   ")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await RunInDraftAsync(m, draft, "echo hi", folder: " ")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await RunInDraftAsync(m, draft, "echo hi", "no-such-profile")).StatusCode);
+    }
+
+    [Fact]
+    public async Task ACommandThatStillRunsGoesOnInTheSessionAndADiscardedDraftStopsItsOwn()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        await using var m = await Machine.StartAsync();
+        var draft = await DraftAsync(m);
+        (await RunInDraftAsync(m, draft, $"echo early; {Sleep(60)}")).EnsureSuccessStatusCode();
+        m.H.Backend.Answer("Waiting.");
+        var session = await StartFromDraftAsync(m, draft, "Wait for it.", []);
+        await m.H.RunEndedAsync(session.Id);
+        var command = (await m.H.AllItemsAsync(session.Id)).Single(item => item.Kind == SessionItemKind.ShellCommand);
+        (await m.H.Boris.PostAsync($"/api/v1/sessions/{session.Id}/shell-commands/{command.Seq}/stop", null)).EnsureSuccessStatusCode();
+        var (_, output, data) = await OutputAsync(m, session.Id);
+        Assert.Equal((Shell.Stopped, m.Work), (data.State, data.Folder));
+        Assert.Equal("early", output.Text.Trim());
+
+        var other = await DraftAsync(m);
+        (await RunInDraftAsync(m, other, $"{Sleep(3)}; echo late > discarded.txt")).EnsureSuccessStatusCode();
+        await Task.Delay(500);
+        (await m.H.Boris.DeleteAsync($"/api/v1/drafts/{other}")).EnsureSuccessStatusCode();
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        Assert.False(File.Exists(m.PathOf("discarded.txt")));
+    }
+
+    [Fact]
+    public void AnOlderDaemonsAnswerSaysHowTheCommandEnded()
+    {
+        static ToolRunResult Of(ToolRunResult result) => BoSoFa.Server.Sessions.ShellCommandHandler.FromOlderDaemon(result);
+        Assert.Equal(0, Of(new("a\n", false)).ExitCode);
+        Assert.Equal(3, Of(new("a\n[Exit code 3]", true)).ExitCode);
+        Assert.True(Of(new("a\n[Stopped after 600 seconds.]", true)).TimedOut);
+        Assert.Null(Of(new("The machine is offline. The tool did not run.", true)).ExitCode);
+        Assert.Equal(7, Of(new("x", true, ExitCode: 7)).ExitCode);
+    }
+
     [Fact]
     public void TheModelReadsWhereEachCommandRanAndHowItEnded()
     {

@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using BoSoFa.Protocol;
 using BoSoFa.Server.Accounts;
 using BoSoFa.Server.Agents;
@@ -23,8 +25,7 @@ public sealed class ShellCommandHandler(BtdbNode node, MachineRpcClient rpc, IDa
 {
     public async Task<ActionResult<SessionShellCommandResult>> ExecuteAsync(SessionShellCommand input, IActionContext context)
     {
-        var cancellation = context.Cancellation;
-        var publisher = await node.Ready.WaitAsync(cancellation);
+        var publisher = await node.Ready.WaitAsync(context.Cancellation);
         Session session;
         string command;
         Dictionary<string, string> environment = [];
@@ -47,8 +48,14 @@ public sealed class ShellCommandHandler(BtdbNode node, MachineRpcClient rpc, IDa
         }
         if (resolver != null) await resolver.RecordAsync(publisher, session, logger);
         var machine = new AgentMachine(rpc, session.MachineId, session.WorkingDirectory, session.Id, time, environment, resolver?.Secrets);
-        // The key is the same for every attempt of the action, so one that follows a lost node joins the command instead of running it again.
-        var key = $"shell-{session.Id}-{input.Seq}";
+        return await RunAsync(machine, $"shell-{session.Id}-{input.Seq}", ProtocolShell.RefOf(input.Seq), command, context, masker);
+    }
+
+    /// <param name="key">The same for every attempt of the action, so one that follows a lost node joins the command instead of running it again.</param>
+    internal static async Task<ActionResult<SessionShellCommandResult>> RunAsync(AgentMachine machine, string key, string liveRef, string command,
+        IActionContext context, ServerSecretMasker masker)
+    {
+        var cancellation = context.Cancellation;
         // Stop (the person, or the session stopping) ends the command on the machine, whose answer then has what it printed; an
         // interruption (this node going away) leaves it running for the next attempt.
         using var abandon = new CancellationTokenSource();
@@ -58,8 +65,9 @@ public sealed class ShellCommandHandler(BtdbNode node, MachineRpcClient rpc, IDa
             else _ = machine.StopAsync(key);
         });
         ToolRunResult result;
-        try { result = await machine.RunCommandAsync(new(key, ProtocolShell.RefOf(input.Seq), 0), command, abandon.Token); }
+        try { result = await machine.RunCommandAsync(new(key, liveRef, 0), command, abandon.Token); }
         catch (OperationCanceledException) when (abandon.IsCancellationRequested) { return ActionResult.Interrupted; }
+        result = FromOlderDaemon(result);
         var stopped = result.Stopped || (cancellation.IsCancellationRequested && result.ExitCode == null && !result.TimedOut);
         return new SessionShellCommandResult
         {
@@ -67,6 +75,18 @@ public sealed class ShellCommandHandler(BtdbNode node, MachineRpcClient rpc, IDa
             ExitCode = result.ExitCode,
             State = stopped ? ProtocolShell.Stopped : result.TimedOut ? ProtocolShell.TimedOut : result.ExitCode != null ? ProtocolShell.Done : ProtocolShell.Failed
         };
+    }
+
+    /// <summary>A daemon from before <see cref="ToolRunResult.ExitCode"/> says how the command ended only in its text, for the model.</summary>
+    internal static ToolRunResult FromOlderDaemon(ToolRunResult result)
+    {
+        if (result.ExitCode != null || result.TimedOut || result.Stopped) return result;
+        if (Regex.IsMatch(result.Text, @"\[Stopped after \d+ seconds\.\]$")) return result with { TimedOut = true };
+        if (Regex.Match(result.Text, @"\[Exit code (-?\d+)\]$") is { Success: true } exit &&
+            int.TryParse(exit.Groups[1].ValueSpan, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var code))
+            return result with { ExitCode = code };
+        // Without an error it ended by itself with 0; with one and neither of those, the server says why it did not run.
+        return result.IsError ? result : result with { ExitCode = 0 };
     }
 
     /// <summary>What the command printed: the shell tool adds for the model how it ended, which the item says on its own.</summary>
@@ -82,8 +102,48 @@ public sealed class ShellCommandHandler(BtdbNode node, MachineRpcClient rpc, IDa
         return ending < 0 ? text : text[..ending];
     }
 
-    static SessionShellCommandResult Failed(string why) => new() { Text = why, State = ProtocolShell.Failed };
+    internal static SessionShellCommandResult Failed(string why) => new() { Text = why, State = ProtocolShell.Failed };
 
     public void OnFinished(SessionShellCommand input, ActionOutcome<SessionShellCommandResult> outcome) =>
         DomainShell.Finished(signals, input, outcome.Kind, outcome.Result, Ambient.CurrentEvent!.When);
+}
+
+/// <summary>
+/// Runs a command typed after <c>!</c> in the prompt of a draft, a session not started yet: on the machine and in the folder the draft chose, with
+/// the variables of its profile resolved for its owner. Its output streams under the draft's id. A command that still runs when the draft
+/// becomes a session goes on there.
+/// </summary>
+public sealed class DraftShellCommandHandler(BtdbNode node, MachineRpcClient rpc, IDataProtectionProvider protection, ServerSecretMasker masker,
+    IDomainSignals signals, TimeProvider time, ILogger<DraftShellCommandHandler> logger) : IActionHandler<DraftShellCommand, SessionShellCommandResult>
+{
+    public async Task<ActionResult<SessionShellCommandResult>> ExecuteAsync(DraftShellCommand input, IActionContext context)
+    {
+        var publisher = await node.Ready.WaitAsync(context.Cancellation);
+        DraftItem command;
+        Dictionary<string, string> environment = [];
+        SecretResolver? resolver = null;
+        using (publisher.StartQuery())
+        {
+            if (Ambient.Relation<IDraftItemTable>().FindByIdOrDefault(input.DraftId, input.Seq) is not { Kind: SessionItemKind.ShellCommand } found)
+                return ShellCommandHandler.Failed("The draft is gone.");
+            command = found;
+            if (command.ProfileName != null)
+            {
+                if (Ambient.Relation<IProfileTable>().FindByIdOrDefault(command.ProfileName) is not { } profile)
+                    return ShellCommandHandler.Failed($"The profile {command.ProfileName} does not exist any more.");
+                if (DraftShellCommands.Refusal(profile, command.MachineId) is { } refusal) return ShellCommandHandler.Failed(refusal);
+                resolver = new SecretResolver(command.OwnerId, protection, command.MachineId, SecretEnvironments.Find(profile.EnvironmentName));
+                environment = CatalogEndpoints.EnvironmentOf(profile, resolver);
+                try { resolver.ThrowIfMissing(); }
+                catch (MissingSecretsException missing) { return ShellCommandHandler.Failed(missing.Message); }
+            }
+        }
+        if (resolver != null) await resolver.RecordForDraftAsync(publisher, command.DraftId, command.MachineId, command.OwnerId, logger);
+        var machine = new AgentMachine(rpc, command.MachineId, command.Folder, command.DraftId, time, environment, resolver?.Secrets);
+        return await ShellCommandHandler.RunAsync(machine, $"shell-draft-{command.DraftId}-{command.Seq}", ProtocolShell.RefOf(command.Seq), command.Text,
+            context, masker);
+    }
+
+    public void OnFinished(DraftShellCommand input, ActionOutcome<SessionShellCommandResult> outcome) =>
+        DraftShellCommands.Finished(signals, input, outcome.Kind, outcome.Result, Ambient.CurrentEvent!.When);
 }

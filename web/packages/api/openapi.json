@@ -2366,6 +2366,147 @@
         }
       }
     },
+    "/api/v1/drafts/{id}/shell-commands": {
+      "get": {
+        "tags": [
+          "DraftEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionItemDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "DraftEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunDraftShellCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionItemDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/drafts/{id}/shell-commands/{seq}/stop": {
+      "post": {
+        "tags": [
+          "DraftEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          },
+          {
+            "name": "seq",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/v1/accounts": {
       "get": {
         "tags": [
@@ -4041,6 +4182,20 @@
               "string"
             ],
             "format": "uint64"
+          },
+          "shellOutputs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
           }
         }
       },
@@ -4921,6 +5076,12 @@
           },
           {
             "$ref": "#/components/schemas/LiveClientMessageLiveTerminalResize"
+          },
+          {
+            "$ref": "#/components/schemas/LiveClientMessageLiveDraftSubscribe"
+          },
+          {
+            "$ref": "#/components/schemas/LiveClientMessageLiveDraftUnsubscribe"
           }
         ],
         "discriminator": {
@@ -4931,7 +5092,60 @@
             "terminalSubscribe": "#/components/schemas/LiveClientMessageLiveTerminalSubscribe",
             "terminalUnsubscribe": "#/components/schemas/LiveClientMessageLiveTerminalUnsubscribe",
             "terminalInput": "#/components/schemas/LiveClientMessageLiveTerminalInput",
-            "terminalResize": "#/components/schemas/LiveClientMessageLiveTerminalResize"
+            "terminalResize": "#/components/schemas/LiveClientMessageLiveTerminalResize",
+            "draftSubscribe": "#/components/schemas/LiveClientMessageLiveDraftSubscribe",
+            "draftUnsubscribe": "#/components/schemas/LiveClientMessageLiveDraftUnsubscribe"
+          }
+        }
+      },
+      "LiveClientMessageLiveDraftSubscribe": {
+        "required": [
+          "draftId",
+          "machineId"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "draftSubscribe"
+            ],
+            "type": "string"
+          },
+          "draftId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "machineId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          }
+        }
+      },
+      "LiveClientMessageLiveDraftUnsubscribe": {
+        "required": [
+          "draftId"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "draftUnsubscribe"
+            ],
+            "type": "string"
+          },
+          "draftId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
           }
         }
       },
@@ -5104,6 +5318,9 @@
           },
           {
             "$ref": "#/components/schemas/LiveServerMessageLiveTerminalExited"
+          },
+          {
+            "$ref": "#/components/schemas/LiveServerMessageLiveDraftUpdate"
           }
         ],
         "discriminator": {
@@ -5114,7 +5331,8 @@
             "error": "#/components/schemas/LiveServerMessageLiveError",
             "terminalSnapshot": "#/components/schemas/LiveServerMessageLiveTerminalSnapshot",
             "terminalOutput": "#/components/schemas/LiveServerMessageLiveTerminalOutput",
-            "terminalExited": "#/components/schemas/LiveServerMessageLiveTerminalExited"
+            "terminalExited": "#/components/schemas/LiveServerMessageLiveTerminalExited",
+            "draft": "#/components/schemas/LiveServerMessageLiveDraftUpdate"
           }
         }
       },
@@ -5148,6 +5366,32 @@
           "reset": {
             "type": "boolean",
             "default": false
+          }
+        }
+      },
+      "LiveServerMessageLiveDraftUpdate": {
+        "required": [
+          "draftId",
+          "items"
+        ],
+        "properties": {
+          "t": {
+            "enum": [
+              "draft"
+            ],
+            "type": "string"
+          },
+          "draftId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "items": {
+            "type": "array",
+            "items": {}
           }
         }
       },
@@ -6234,6 +6478,36 @@
       },
       "RpcDone": {
         "type": "object"
+      },
+      "RunDraftShellCommandRequest": {
+        "required": [
+          "command",
+          "machineId",
+          "workingDirectory"
+        ],
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "machineId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "uint64"
+          },
+          "workingDirectory": {
+            "type": "string"
+          },
+          "profileName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
       },
       "RunShellCommandRequest": {
         "required": [

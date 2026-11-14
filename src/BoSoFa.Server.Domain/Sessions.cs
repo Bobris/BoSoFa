@@ -161,6 +161,9 @@ public interface IDomainSignals
 
     /// <summary>A secret, a harness account or the values of an MCP definition changed: what the server masks is read again.</summary>
     void SecretsChanged();
+
+    /// <summary>The shell commands of a draft changed.</summary>
+    void DraftChanged(ulong draftId);
 }
 
 public enum CommandOutcome
@@ -199,8 +202,12 @@ public class SessionCreated : EventWithResult<SessionCommandResult>
     public string? ReasoningEffort { get; set; }
     public string? ToolGroup { get; set; }
 
-    /// <summary>The creator's draft this session was written in, removed once it starts; zero without one.</summary>
+    /// <summary>The creator's draft this session was written in, removed once it starts; zero without one. Its shell commands move into
+    /// the session's transcript.</summary>
     public ulong DraftId { get; set; }
+
+    /// <summary>The draft's <see cref="SessionItemKind.ShellOutput"/> items (its seqs) that go with the prompt, before its text.</summary>
+    public List<long> ShellOutputSeqs { get; set; } = [];
 
     /// <summary>No longer used: a backend action runs an agent session wherever the leader starts it. Kept for stored events.</summary>
     public string RunnerNodeId { get; set; } = "";
@@ -368,6 +375,8 @@ static class Sessions
     }
 
     /// <summary>The <c>Ref</c> of a <see cref="SessionItemKind.User"/> item that carried shell outputs: <c>shell:</c> and their seqs.</summary>
+    public static string? CarriedRefOrNull(IReadOnlyCollection<long> outputSeqs) => outputSeqs.Count == 0 ? null : CarriedRef(outputSeqs);
+
     public static string CarriedRef(IEnumerable<long> outputSeqs) =>
         "shell:" + string.Join(',', outputSeqs.Order().Select(seq => seq.ToString(System.Globalization.CultureInfo.InvariantCulture)));
 
@@ -425,7 +434,10 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
             ReasoningEffort = ev.ReasoningEffort, ToolGroup = AgentToolGroups.Narrower(ev.ToolGroup, profile?.MaxToolGroup)
         };
         Ambient.Relation<ISessionTable>().Insert(session);
-        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, data: Sessions.ImagesData(ev.ImagesJson), replay: AgentRunners.UserReplay(ev.Prompt, false));
+        var (outputs, carried) = DraftShellCommands.MoveTo(session, ev.DraftId, ev.ShellOutputSeqs);
+        var prompt = BoSoFa.Protocol.ShellCommands.Prepend(ev.Prompt, outputs, Sessions.MaximumPromptLength);
+        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, data: Sessions.ImagesData(ev.ImagesJson), itemRef: Sessions.CarriedRefOrNull(carried),
+            replay: AgentRunners.UserReplay(prompt, false, ev.Prompt));
         if (!SecretEnvironments.Hold(session, profile, "", ev.When)) AgentRunners.Claim(signals, actions, session, ev.When);
         Sessions.Changed(signals, session, ev.When);
         Audit.Record(ev.When, ev.UserId, "session.created", $"session {session.Id}", $"{ev.Harness} with {session.Model}");
@@ -434,9 +446,14 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
 
     public SessionCommandResult Consume(SessionCreated ev)
     {
+        if (!DraftShellCommands.CanMove(ev.UserId, ev.DraftId, ev.ShellOutputSeqs)) return new() { Outcome = CommandOutcome.Invalid };
         var result = ev.Harness == Harnesses.Agent ? ConsumeAgent(ev) : ConsumeOnMachine(ev);
-        // The draft it was written in has become this session.
-        if (result.Outcome == CommandOutcome.Ok && ev.DraftId != 0) Ambient.Relation<ISessionDraftTable>().RemoveById(ev.UserId, ev.DraftId);
+        // The draft it was written in has become this session, which took its shell commands.
+        if (result.Outcome == CommandOutcome.Ok && ev.DraftId != 0)
+        {
+            Ambient.Relation<ISessionDraftTable>().RemoveById(ev.UserId, ev.DraftId);
+            DraftShellCommands.RemoveAll(actions, ev.DraftId);
+        }
         return result;
     }
 
@@ -470,9 +487,10 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
             ProfileName = ev.ProfileName, ReasoningEffort = ev.ReasoningEffort
         };
         Ambient.Relation<ISessionTable>().Insert(session);
-        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, data: Sessions.ImagesData(ev.ImagesJson));
+        var (outputs, carried) = DraftShellCommands.MoveTo(session, ev.DraftId, ev.ShellOutputSeqs);
+        Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, data: Sessions.ImagesData(ev.ImagesJson), itemRef: Sessions.CarriedRefOrNull(carried));
         var start = JsonSerializer.Serialize<MachineCommand>(new StartSessionCommand(session.Id, session.Harness,
-            session.WorkingDirectory, ev.Prompt, session.PermissionMode, session.Model,
+            session.WorkingDirectory, BoSoFa.Protocol.ShellCommands.Prepend(ev.Prompt, outputs, Sessions.MaximumPromptLength), session.PermissionMode, session.Model,
             session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree, ev.ProfileName != null, Sessions.Images(ev.ImagesJson),
             session.ReasoningEffort), ProtocolJsonContext.Default.MachineCommand);
         if (!SecretEnvironments.Hold(session, profile, start, ev.When)) Sessions.IssueCommand(signals, machine.Id, start, ev.When);

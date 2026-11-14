@@ -1,5 +1,5 @@
 import { liveSocketUrl, type LiveClientMessage, type LiveServerMessage, type RuntimeRequest, type Session, type SessionItem } from "@bosofa/api";
-import { createStore, onSettled, reconcile } from "solid-js";
+import { createEffect, createStore, onSettled, reconcile, untrack } from "solid-js";
 
 export type Draft = { ref: string; text: string };
 
@@ -108,6 +108,106 @@ export function createLiveSession(sessionId: number) {
           });
           break;
       }
+    };
+
+    void connect();
+    return () => {
+      closed = true;
+      clearTimeout(retry);
+      socket?.close();
+    };
+  });
+
+  return state;
+}
+
+export type LiveDraftState = {
+  /** The draft's shell commands and their outputs, with the draft's own seqs. */
+  items: SessionItem[];
+  /** The output of commands that run, one entry per ref. */
+  drafts: Draft[];
+};
+
+/**
+ * Follows the shell commands of one's own draft over `/api/v1/live` (docs/shell-commands.md): the complete list whenever it changes, and
+ * the output of those that run on the chosen machine. Follows nothing while there is no draft yet. Call from a component body.
+ */
+export function createLiveDraft(draftId: () => number | undefined, machineId: () => number) {
+  const [state, setState] = createStore<LiveDraftState>({ items: [], drafts: [] });
+  let socket: WebSocket | undefined;
+  let followed: { draftId: number; machineId: number } | undefined;
+
+  const follow = () => {
+    const id = untrack(draftId);
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (followed && followed.draftId !== id) {
+      const unsubscribe: LiveClientMessage = { t: "draftUnsubscribe", draftId: followed.draftId };
+      socket.send(JSON.stringify(unsubscribe));
+      followed = undefined;
+    }
+    if (id === undefined) return;
+    const machine = untrack(machineId);
+    if (followed?.machineId === machine) return;
+    followed = { draftId: id, machineId: machine };
+    const subscribe: LiveClientMessage = { t: "draftSubscribe", draftId: id, machineId: machine };
+    socket.send(JSON.stringify(subscribe));
+  };
+
+  createEffect(
+    () => [draftId(), machineId()] as const,
+    () => follow(),
+  );
+
+  onSettled(() => {
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let closed = false;
+    let backoff = 500;
+
+    const connect = async () => {
+      let url: string;
+      try {
+        url = await liveSocketUrl();
+      } catch {
+        if (!closed) retry = setTimeout(() => void connect(), 2000);
+        return;
+      }
+      if (closed) return;
+      const ws = new WebSocket(url);
+      socket = ws;
+      ws.onopen = () => {
+        backoff = 500;
+        followed = undefined;
+        follow();
+      };
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data as string) as LiveServerMessage;
+        if (message.t === "draft" && Number(message.draftId) === untrack(draftId)) {
+          // The schema repeats SessionItemDto only once among the live messages, and leaves this one untyped.
+          const items = message.items as SessionItem[];
+          const refs = new Set(items.map((item) => item.ref).filter((ref) => ref != null));
+          setState((s) => {
+            reconcile(items, "seq")(s.items);
+            s.drafts = s.drafts.filter((draft) => !refs.has(draft.ref));
+          });
+        } else if (message.t === "delta" && Number(message.sessionId) === untrack(draftId)) {
+          if (state.items.some((item) => item.ref === message.ref)) return; // arrived after its output
+          setState((s) => {
+            const draft = s.drafts.find((d) => d.ref === message.ref);
+            if (draft) draft.text = (draft.text + message.text).slice(-MAX_DRAFT_LENGTH);
+            else s.drafts.push({ ref: message.ref, text: message.text });
+          });
+        }
+      };
+      ws.onclose = () => {
+        socket = undefined;
+        followed = undefined;
+        setState((s) => {
+          s.drafts = [];
+        });
+        if (closed) return;
+        retry = setTimeout(() => void connect(), backoff);
+        backoff = Math.min(backoff * 2, 10_000);
+      };
     };
 
     void connect();

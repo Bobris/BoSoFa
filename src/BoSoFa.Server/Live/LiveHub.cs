@@ -32,6 +32,11 @@ public sealed class LiveHub
         foreach (var subscriber in _subscribers.Keys) subscriber.Delta(delta);
     }
 
+    public void DraftChanged(ulong draftId)
+    {
+        foreach (var subscriber in _subscribers.Keys) subscriber.MarkDraftDirty(draftId);
+    }
+
     public void Terminal(ulong machineId, string terminalId, LiveServerMessage message)
     {
         foreach (var subscriber in _subscribers.Keys) subscriber.Terminal(machineId, terminalId, message);
@@ -44,6 +49,9 @@ public sealed class LiveHub
             new BoundedChannelOptions(2000) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
         readonly ConcurrentDictionary<ulong, long> _cursors = new();
         readonly ConcurrentDictionary<ulong, byte> _dirty = new();
+
+        // Drafts whose shell commands this connection follows, and those that changed since they were last sent.
+        readonly ConcurrentDictionary<ulong, byte> _drafts = new(), _dirtyDrafts = new();
         readonly Channel<LiveDelta> _deltas = Channel.CreateBounded<LiveDelta>(
             new BoundedChannelOptions(1000) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
         readonly SemaphoreSlim _wake = new(0);
@@ -65,9 +73,33 @@ public sealed class LiveHub
             Wake();
         }
 
+        public void SubscribeDraft(ulong draftId)
+        {
+            _drafts[draftId] = 0;
+            MarkDraftDirty(draftId);
+        }
+
+        public void UnsubscribeDraft(ulong draftId) => _drafts.TryRemove(draftId, out _);
+
+        public void MarkDraftDirty(ulong draftId)
+        {
+            if (!_drafts.ContainsKey(draftId)) return;
+            _dirtyDrafts[draftId] = 0;
+            Wake();
+        }
+
+        public IEnumerable<ulong> TakeDirtyDrafts()
+        {
+            foreach (var draftId in _dirtyDrafts.Keys)
+                if (_dirtyDrafts.TryRemove(draftId, out _) && _drafts.ContainsKey(draftId))
+                    yield return draftId;
+        }
+
+        bool Follows(ulong id) => _cursors.ContainsKey(id) || _drafts.ContainsKey(id);
+
         public void Delta(LiveDelta delta)
         {
-            if (!_cursors.ContainsKey(delta.SessionId)) return;
+            if (!Follows(delta.SessionId)) return;
             _deltas.Writer.TryWrite(delta);
             Wake();
         }
@@ -120,7 +152,7 @@ public sealed class LiveHub
         public bool TryTakeDelta(out LiveDelta delta)
         {
             while (_deltas.Reader.TryRead(out delta!))
-                if (_cursors.ContainsKey(delta.SessionId)) return true;
+                if (Follows(delta.SessionId)) return true;
             return false;
         }
     }
@@ -145,4 +177,6 @@ public sealed class DomainSignals(DaemonConnections connections, LiveHub hub, Li
     public void AgentRunnerChanged(ulong sessionId) => relay.SessionRunnerChanged(sessionId);
 
     public void SecretsChanged() => masker.Invalidate();
+
+    public void DraftChanged(ulong draftId) => hub.DraftChanged(draftId);
 }

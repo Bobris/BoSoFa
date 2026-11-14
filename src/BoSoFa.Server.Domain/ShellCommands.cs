@@ -69,7 +69,9 @@ public static class ShellCommands
 
     /// <summary>Records how a command ended and lets go of its row. Runs once per final outcome; the action reports a command that
     /// could not run as an outcome of its own, so a failure here was unexpected.</summary>
-    public static void Finished(IDomainSignals signals, SessionShellCommand input, ActionOutcomeKind kind, SessionShellCommandResult? result, DateTime when)
+    /// <param name="folder">Where it ran, when not the session's folder: a command that moved in from the session's draft.</param>
+    public static void Finished(IDomainSignals signals, SessionShellCommand input, ActionOutcomeKind kind, SessionShellCommandResult? result, DateTime when,
+        string? folder = null)
     {
         if (kind == ActionOutcomeKind.Progress) return;
         var runs = Ambient.Relation<IShellCommandRunTable>();
@@ -77,17 +79,26 @@ public static class ShellCommands
         if (Ambient.Relation<ISessionTable>().FindByIdOrDefault(input.SessionId) is not { } session ||
             Ambient.Relation<ISessionItemTable>().FindByIdOrDefault(session.Id, input.Seq) is not { Kind: SessionItemKind.ShellCommand } command)
             return;
+        var (text, data) = OutputOf(command.Text, folder ?? session.WorkingDirectory, command.At, kind, result, when);
+        Sessions.AppendItem(session, SessionItemKind.ShellOutput, when, text, data: JsonSerializer.Serialize(data, ProtocolJsonContext.Default.ShellOutputData),
+            isError: IsError(data), itemRef: ProtocolShell.RefOf(command.Seq));
+        Sessions.Changed(signals, session, when);
+    }
+
+    /// <summary>What a command's action ended with, as its output item tells it.</summary>
+    internal static (string Text, ShellOutputData Data) OutputOf(string command, string folder, DateTime started, ActionOutcomeKind kind,
+        SessionShellCommandResult? result, DateTime when)
+    {
         var (text, state, exitCode) = kind switch
         {
             ActionOutcomeKind.Completed when result != null => (result.Text, result.State, result.ExitCode),
             ActionOutcomeKind.Cancelled => ("", ProtocolShell.Stopped, (int?)null),
             _ => ("The command could not be run.", ProtocolShell.Failed, null)
         };
-        var data = new ShellOutputData(command.Text, session.WorkingDirectory, state, exitCode, (long)(when - command.At).TotalMilliseconds);
-        Sessions.AppendItem(session, SessionItemKind.ShellOutput, when, text, data: JsonSerializer.Serialize(data, ProtocolJsonContext.Default.ShellOutputData),
-            isError: state != ProtocolShell.Done || exitCode != 0, itemRef: ProtocolShell.RefOf(command.Seq));
-        Sessions.Changed(signals, session, when);
+        return (text, new ShellOutputData(command, folder, state, exitCode, (long)(when - started).TotalMilliseconds));
     }
+
+    internal static bool IsError(ShellOutputData data) => data.State != ProtocolShell.Done || data.ExitCode != 0;
 
     /// <summary>Stops every command of the session that runs; each still records how it ended.</summary>
     public static void StopAll(BackendActions actions, Session session)
@@ -97,6 +108,8 @@ public static class ShellCommands
     }
 
     internal static void Stop(BackendActions actions, Session session, ShellCommandRun run) => actions.Cancel(ActionOf(session, run));
+
+    internal static string Audited(string command) => command.Length <= 200 ? command : command[..199] + "…";
 
     /// <summary>The outputs a message carries, each a <see cref="SessionItemKind.ShellOutput"/> of the session; null when one is not.</summary>
     internal static List<(ShellOutputData Data, string Output)>? OutputsOf(Session session, IReadOnlyCollection<long> seqs)
@@ -130,7 +143,7 @@ public sealed class SessionShellCommandRunHandler(IDomainSignals signals, Backen
         var action = actions.Enqueue(new SessionShellCommand { TenantId = session.CreatedById, SessionId = session.Id, Seq = seq });
         runs.Insert(new() { SessionId = session.Id, Seq = seq, ActionId = action.ActionId });
         Sessions.Changed(signals, session, ev.When);
-        Audit.Record(ev.When, ev.UserId, "session.shell_command", $"session {session.Id}", command.Length <= 200 ? command : command[..199] + "…");
+        Audit.Record(ev.When, ev.UserId, "session.shell_command", $"session {session.Id}", ShellCommands.Audited(command));
         return new() { Outcome = CommandOutcome.Ok, SessionId = session.Id };
     }
 }

@@ -10,6 +10,8 @@ namespace BoSoFa.Protocol;
 [JsonDerivedType(typeof(LiveTerminalUnsubscribe), "terminalUnsubscribe")]
 [JsonDerivedType(typeof(LiveTerminalInput), "terminalInput")]
 [JsonDerivedType(typeof(LiveTerminalResize), "terminalResize")]
+[JsonDerivedType(typeof(LiveDraftSubscribe), "draftSubscribe")]
+[JsonDerivedType(typeof(LiveDraftUnsubscribe), "draftUnsubscribe")]
 public abstract record LiveClientMessage;
 
 /// <summary>Follow a session from the item after <c>AfterSeq</c>; a reconnecting client passes its last seq.</summary>
@@ -27,6 +29,13 @@ public sealed record LiveTerminalInput(string TerminalId, string Data) : LiveCli
 
 public sealed record LiveTerminalResize(string TerminalId, int Cols, int Rows) : LiveClientMessage;
 
+/// <summary>Follow the shell commands of one's own draft (docs/shell-commands.md): a <see cref="LiveDraftUpdate"/> comes now and whenever they
+/// change, and the output of those that run on <c>MachineId</c> streams as <see cref="LiveDelta"/> under the draft's id. Subscribing again
+/// with another machine follows that one.</summary>
+public sealed record LiveDraftSubscribe(ulong DraftId, ulong MachineId) : LiveClientMessage;
+
+public sealed record LiveDraftUnsubscribe(ulong DraftId) : LiveClientMessage;
+
 /// <summary>Server → UI client on <c>/api/v1/live</c>, type in <c>t</c>.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "t")]
 [JsonDerivedType(typeof(LiveSessionUpdate), "session")]
@@ -35,6 +44,7 @@ public sealed record LiveTerminalResize(string TerminalId, int Cols, int Rows) :
 [JsonDerivedType(typeof(LiveTerminalSnapshot), "terminalSnapshot")]
 [JsonDerivedType(typeof(LiveTerminalOutput), "terminalOutput")]
 [JsonDerivedType(typeof(LiveTerminalExited), "terminalExited")]
+[JsonDerivedType(typeof(LiveDraftUpdate), "draft")]
 public abstract record LiveServerMessage;
 
 /// <summary>The session summary, the items after the client's cursor, and every pending runtime request (a complete
@@ -47,6 +57,9 @@ public sealed record LiveSessionUpdate(SessionDto Session, SessionItemDto[] Item
 public sealed record LiveDelta(ulong SessionId, string Ref, string Text, bool Reset = false) : LiveServerMessage;
 
 public sealed record LiveError(ulong SessionId, string Message) : LiveServerMessage;
+
+/// <summary>Every item of a draft's shell commands, a complete list that replaces the previous one. Their seqs and refs are the draft's own.</summary>
+public sealed record LiveDraftUpdate(ulong DraftId, SessionItemDto[] Items) : LiveServerMessage;
 
 /// <summary>The retained output (base64), ending at byte <c>EndOffset</c>. Output may arrive before it: apply what lies
 /// beyond <c>EndOffset</c>, and ask for a new snapshot when a later chunk leaves a gap.</summary>

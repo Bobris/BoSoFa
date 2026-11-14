@@ -1,6 +1,6 @@
 # Shell commands in the prompt (`!`)
 
-Status: built (2026-11-14), decisions in §6. Not in it yet: the prompt of a new session (§5, later). Modeled on CodeAlta 4.4's shell commands (`b7e0f9ee9` "Add shell commands to
+Status: built (2026-11-14), decisions in §6, including the prompt of a new session (§4.6). Modeled on CodeAlta 4.4's shell commands (`b7e0f9ee9` "Add shell commands to
 the prompt with !", #435, and `e7fb1d857` for the prompt of a new session; user guide `site/docs/workspace/prompt.md`
 § Shell commands there).
 
@@ -121,6 +121,7 @@ Almost everything needed already exists:
     returns a result whatever the reason it was cancelled, so the result is kept.
   - On an interruption (its node going away) it leaves the command running for the next attempt.
   - It strips the shell tool's own `[Exit code N]` and `[Stopped…]` lines and masks the output again.
+  - A daemon from before `ExitCode` says how the command ended only in its text; `FromOlderDaemon` reads it from there.
 
 ### 4.4 Daemon
 
@@ -143,6 +144,31 @@ Almost everything needed already exists:
     carries those that are left (`shellOutputs`).
   - The footer counts running commands. That count is here rather than in `SessionBar`.
   - In a stopped session the prompt takes only commands.
+
+### 4.6 The prompt of a new session
+
+As in CodeAlta's `e7fb1d857`, `!` in the prompt of a session not started yet runs a command, and its output goes with the prompt that
+starts the session. BoSoFa keeps it with the **draft** (`SessionDraft`), which already holds what is being written:
+
+- `POST /api/v1/drafts/{id}/shell-commands` (`RunDraftShellCommandRequest { Command, MachineId, WorkingDirectory, ProfileName }`) runs it
+  on the machine, in the folder and with the profile the draft chose; `GET` lists them and `…/{seq}/stop` stops one. The page saves the
+  draft first when it has none yet, and keeps a draft that has commands even with an empty prompt.
+- Domain (`DraftShellCommands.cs`): relation `DraftItem (DraftId, Seq)` holds `ShellCommand` and `ShellOutput` items as a transcript
+  would, with the draft's own seqs and refs, plus the command's machine, folder, profile and running action. Events
+  `DraftShellCommandRun` and `DraftShellCommandStopRequested`, and the backend action `draft-shell-command`, which shares
+  `ShellCommandHandler.RunAsync` with a session's. The same limits apply, and a draft keeps 50 commands, the oldest ended ones going
+  first. Audited as `draft.shell_command`; `SecretsUsed.DraftId` records its values. `ApplicationGeneration` is 20.
+- **Who and what:** the draft's owner, on a machine they control. A profile whose environment has reviewers is refused: only a session
+  asks them, so a draft would get values nobody approved.
+- **Starting the session** (`CreateSessionRequest.ShellOutputs`, the draft's seqs) moves every command and output of the draft into the
+  session's transcript before its first `User` item, which carries `shell:<seqs>`; the harness gets the chosen outputs before the prompt,
+  as for a later message. A command that still runs goes on as the session's (a `ShellCommandRun` row with the same action), and its
+  output is recorded there, under the draft's folder. Its live output does not follow it: the page shows it running until it ends.
+  Discarding the draft, or dropping it as one of the oldest, stops its commands.
+- **Live:** `LiveDraftSubscribe { DraftId, MachineId }` gives `LiveDraftUpdate` (the complete list) whenever the commands change, and the
+  deltas the daemon streams under the draft's id; the node follows the chosen machine (`LiveRelay`).
+- **SPA:** `createShellPrompt` (`ShellCommands.tsx`) is the shell mode both prompts share. The new-session page shows the cards above
+  its prompt (`createLiveDraft` in `live.ts`) and the chips in it. A command typed there is not saved as the draft's prompt.
 
 ## 5. Steps
 
@@ -168,12 +194,14 @@ All done (2026-11-14).
    command ran while a turn waited for an approval. Live output, Stop, chips, recall, Backspace, a message carrying two
    of three outputs, and Open in a terminal all worked, in light and dark, with no `[CODE]` diagnostics.
 5. **Docs**: this file and plan.md.
+6. **The prompt of a new session** (§4.6): `ShellCommandTest`. A draft's command gets its profile's variables masked, and the chosen
+   output goes with the first prompt while both commands move into the transcript. Another person's draft gives 404, and a machine
+   they do not control 403. A command that still runs goes on in the session and Stop there keeps its output, and discarding a
+   draft stops its commands.
 
 Later, not in the first version:
 
-- **The prompt of a new session** (CodeAlta `e7fb1d857`). It would run on the draft's chosen machine and folder through a
-  machine RPC with no session, keep the output in the draft, and let it go with the first prompt. It needs resolution
-  without a session (the draft's profile and its creator) and its own audit.
+- `/shell` and the command list in the prompt of a new session, which has no slash commands; removing a command from a draft.
 - Commands longer than 10 minutes (a user limit apart from the model's).
 - A wider output for the model, as CodeAlta's 30 K: `ShellOutput` would then keep the whole text in a blob.
 

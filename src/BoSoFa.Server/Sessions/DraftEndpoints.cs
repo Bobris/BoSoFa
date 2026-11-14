@@ -18,6 +18,63 @@ public static class DraftEndpoints
         drafts.MapGet("/{id}", GetDraftAsync);
         drafts.MapPut("/{id}", SaveDraftAsync);
         drafts.MapDelete("/{id}", DiscardDraftAsync);
+        drafts.MapGet("/{id}/shell-commands", ListShellCommandsAsync);
+        drafts.MapPost("/{id}/shell-commands", RunShellCommandAsync);
+        drafts.MapPost("/{id}/shell-commands/{seq}/stop", StopShellCommandAsync);
+    }
+
+    /// <summary>The items of the draft's shell commands (docs/shell-commands.md), with the draft's own seqs.</summary>
+    static async Task<Results<Ok<SessionItemDto[]>, NotFound>> ListShellCommandsAsync(ulong id, BtdbNode node, HttpContext http)
+    {
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        using var query = publisher.StartQuery();
+        return ShellItemsOf(id, http.User.UserId() ?? 0) is { } items ? TypedResults.Ok(items) : TypedResults.NotFound();
+    }
+
+    /// <summary>What the person sees of the draft's commands; null when it is not their draft.</summary>
+    internal static SessionItemDto[]? ShellItemsOf(ulong draftId, ulong userId) =>
+        Ambient.Relation<ISessionDraftTable>().FindByIdOrDefault(userId, draftId) is null
+            ? null
+            : DraftShellCommands.ItemsOf(draftId).Where(item => item.MovedToSessionId == 0).Select(item => item.ToDto()).ToArray();
+
+    /// <summary>Runs a command from the prompt of the draft, in the folder of the machine it chose, with its profile's variables.</summary>
+    static async Task<Results<Ok<SessionItemDto[]>, NotFound, ForbidHttpResult, BadRequest<string>>> RunShellCommandAsync(ulong id,
+        RunDraftShellCommandRequest request, BtdbNode node, HttpContext http)
+    {
+        if (http.User.IsReadOnly()) return TypedResults.Forbid();
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        if (string.IsNullOrWhiteSpace(request.WorkingDirectory)) return TypedResults.BadRequest("Choose the folder to run the command in.");
+        if (request.ProfileName != null)
+            using (publisher.StartQuery())
+                if (Ambient.Relation<IProfileTable>().FindByIdOrDefault(request.ProfileName) is { } profile &&
+                    DraftShellCommands.Refusal(profile, request.MachineId) is { } refusal)
+                    return TypedResults.BadRequest(refusal);
+        var userId = http.User.UserId() ?? 0;
+        var result = await publisher.PublishAndWaitAsync(new DraftShellCommandRun
+        {
+            UserId = userId, DraftId = id, MachineId = request.MachineId, WorkingDirectory = request.WorkingDirectory, ProfileName = request.ProfileName,
+            Command = request.Command
+        }, http.RequestAborted);
+        switch (result.Outcome)
+        {
+            case CommandOutcome.NotFound: return TypedResults.NotFound();
+            case CommandOutcome.Forbidden: return TypedResults.Forbid();
+            case CommandOutcome.Invalid:
+                return TypedResults.BadRequest(string.IsNullOrWhiteSpace(request.Command) || request.Command.Trim().Length > BoSoFa.Protocol.ShellCommands.MaximumCommandLength
+                    ? "The command is empty or too long."
+                    : $"At most {BoSoFa.Protocol.ShellCommands.MaximumRunning} commands run at once.");
+        }
+        using var query = publisher.StartQuery();
+        return TypedResults.Ok(ShellItemsOf(id, userId) ?? []);
+    }
+
+    static async Task<Results<NoContent, NotFound, ForbidHttpResult>> StopShellCommandAsync(ulong id, long seq, BtdbNode node, HttpContext http)
+    {
+        if (http.User.IsReadOnly()) return TypedResults.Forbid();
+        var publisher = await node.Ready.WaitAsync(http.RequestAborted);
+        var result = await publisher.PublishAndWaitAsync(new DraftShellCommandStopRequested { UserId = http.User.UserId() ?? 0, DraftId = id, Seq = seq },
+            http.RequestAborted);
+        return result.Outcome == CommandOutcome.Ok ? TypedResults.NoContent() : TypedResults.NotFound();
     }
 
     static SessionDraftDto ToDto(SessionDraft draft) =>

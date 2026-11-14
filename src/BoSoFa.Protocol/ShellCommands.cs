@@ -6,6 +6,10 @@ namespace BoSoFa.Protocol;
 /// <summary>A command the person runs in a session's folder on its machine, typed after <c>!</c> in the prompt (docs/shell-commands.md).</summary>
 public sealed record RunShellCommandRequest(string Command);
 
+/// <summary>A command run from the prompt of a session not started yet: in the folder of the machine the draft chose, with the variables of
+/// its profile. Its output can go with the prompt that starts the session (<see cref="CreateSessionRequest.ShellOutputs"/>).</summary>
+public sealed record RunDraftShellCommandRequest(string Command, ulong MachineId, string WorkingDirectory, string? ProfileName = null);
+
 /// <summary>The <c>Data</c> of a <see cref="SessionItemKind.ShellOutput"/> item, whose <c>Text</c> is the output.</summary>
 /// <param name="State">One of <see cref="ShellCommands.Done"/>, <see cref="ShellCommands.Stopped"/>, <see cref="ShellCommands.TimedOut"/> and
 /// <see cref="ShellCommands.Failed"/>.</param>
@@ -21,6 +25,9 @@ public static class ShellCommands
 
     /// <summary>Outputs one message may carry.</summary>
     public const int MaximumPerMessage = 8;
+
+    /// <summary>Commands a draft keeps; the oldest that ended go first.</summary>
+    public const int MaximumPerDraft = 50;
 
     public const string Done = "done", Stopped = "stopped", TimedOut = "timedOut", Failed = "failed";
 

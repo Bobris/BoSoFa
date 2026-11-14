@@ -12,15 +12,21 @@ import {
   carriedOutputs,
   commandHistory,
   commandSeqOf,
+  createShellPrompt,
   isShellDraft,
   pendingOutputs,
-  SHELL_COMMAND_MAX_LENGTH,
+  RunningCommands,
+  runningCount,
   SHELL_COMMANDS_RUNNING,
   SHELL_OUTPUTS_PER_MESSAGE,
   shellData,
   ShellCommandCard,
+  shellFrame,
   ShellOutputChips,
   shellRef,
+  ShellRunButton,
+  ShellSigil,
+  ShellStatus,
 } from "../components/ShellCommands";
 import { paths } from "../router";
 import { fetchMe } from "../session";
@@ -318,7 +324,11 @@ function Item(props: { item: SessionItem; tools?: ToolView }) {
             item={props.item}
             output={tools().results.get(Number(props.item.seq))}
             draft={tools().shell.draftOf(Number(props.item.seq))?.text}
-            sessionId={tools().shell.sessionId}
+            onStop={() =>
+              api.POST("/api/v1/sessions/{id}/shell-commands/{seq}/stop", {
+                params: { path: { id: tools().shell.sessionId, seq: Number(props.item.seq) } },
+              })
+            }
             machineId={tools().shell.machineId()}
             canControl={tools().shell.canControl()}
             onRunAgain={(command) => void tools().shell.run(command)}
@@ -623,30 +633,35 @@ function Composer(props: {
   const [text, setText] = createSignal("");
   const [error, setError] = createSignal<string>();
   const attachments = createAttachments();
-  // A `!` that starts an empty prompt is not written: the prompt takes a shell command instead.
-  const [shellMode, setShellMode] = createSignal(false);
   // Outputs the person took out of the next message, by item seq.
   const [excluded, setExcluded] = createSignal<ReadonlySet<string>>(new Set());
-  // Where ↑ and ↓ are in the commands run before, in shell mode; null while not recalling.
-  const [recalled, setRecalled] = createSignal<number | null>(null);
   // A slash at the start offers the commands; Escape puts the menu away until the text changes.
   const [picked, setPicked] = createSignal(0);
   const [dismissed, setDismissed] = createSignal(false);
-  const commands = createMemo(() => (dismissed() || shellMode() ? [] : matchingCommands(text(), props.session)));
   const canShell = () =>
     !props.disabled && !!props.session && Number(props.session.machineId) !== 0 && props.session.status !== "Failed";
+  const shell = createShellPrompt({
+    canShell,
+    history: () => commandHistory(props.items),
+    text: () => textarea?.value ?? text(),
+    setText: (value) => {
+      setText(value);
+      if (textarea) textarea.value = value;
+      grow();
+    },
+    run: (command) => runShellCommand(props.sessionId, command),
+    setError,
+    focus: () => textarea?.focus(),
+  });
+  const shellMode = shell.active;
+  const commands = createMemo(() => (dismissed() || shellMode() ? [] : matchingCommands(text(), props.session)));
   const pending = createMemo(() => pendingOutputs(props.items));
   const carried = createMemo(() =>
     pending()
       .filter((output) => !excluded().has(String(output.seq)))
       .slice(-SHELL_OUTPUTS_PER_MESSAGE),
   );
-  const runningCommands = createMemo(
-    () =>
-      props.items.filter(
-        (item) => item.kind === "ShellCommand" && !props.items.some((other) => other.kind === "ShellOutput" && other.ref === shellRef(item.seq)),
-      ).length,
-  );
+  const runningCommands = createMemo(() => runningCount(props.items));
 
   function clear() {
     setText("");
@@ -654,19 +669,12 @@ function Composer(props: {
     grow();
   }
 
-  function enterShell() {
-    setShellMode(true);
-    setRecalled(null);
-    setError(undefined);
-    textarea?.focus();
-  }
-
   /** A command that takes text is first written out, then runs with what follows its name. */
   async function runCommand(command: SlashCommand, argument?: string) {
     if (!props.session) return;
     if (command.name === "shell") {
       clear();
-      return enterShell();
+      return shell.enter();
     }
     if (command.takesText && argument === undefined) {
       setText(`/${command.name} `);
@@ -679,21 +687,9 @@ function Composer(props: {
     clear();
   }
 
-  async function runShell() {
-    const command = (textarea?.value ?? text()).trim();
-    if (!command) return;
-    if (command.length > SHELL_COMMAND_MAX_LENGTH) return setError(`A command can have at most ${SHELL_COMMAND_MAX_LENGTH} characters.`);
-    const problem = await runShellCommand(props.sessionId, command);
-    if (problem) return setError(problem);
-    setError(undefined);
-    setShellMode(false);
-    setRecalled(null);
-    clear();
-  }
-
   /** Queue waits for the running turn; Steer redirects it now. */
   async function send(mode: "Queue" | "Steer" = "Queue") {
-    if (shellMode()) return runShell();
+    if (shellMode()) return shell.run();
     const invoked = invokedCommand(text(), props.session);
     if (invoked) return runCommand(invoked.command, invoked.argument);
     const value = text().trim();
@@ -709,25 +705,6 @@ function Composer(props: {
       setExcluded(new Set<string>());
       attachments.clear();
     } else setError(typeof problem === "string" ? problem : `Sending failed (${response.status}).`);
-  }
-
-  /** ↑ and ↓ in shell mode: the commands run before, the latest first. */
-  function recall(direction: -1 | 1): boolean {
-    const history = commandHistory(props.items);
-    const current = recalled();
-    if (history.length === 0 || (current === null && (text() !== "" || direction === 1))) return false;
-    const next = current === null ? history.length - 1 : current + direction;
-    if (next < 0) return true;
-    if (next >= history.length) {
-      setRecalled(null);
-      setText("");
-    } else {
-      setRecalled(next);
-      setText(history[next]);
-    }
-    if (textarea) textarea.value = text();
-    grow();
-    return true;
   }
 
   async function interrupt() {
@@ -762,7 +739,7 @@ function Composer(props: {
       <div
         class={[
           "relative rounded-2xl border bg-panel shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.05)] transition-shadow",
-          shellMode() ? "border-amber-500/70 focus-within:border-amber-500" : "border-line focus-within:border-accent/40",
+          shellFrame(shellMode()),
         ]}
         data-shell={shellMode() || undefined}
       >
@@ -781,7 +758,7 @@ function Composer(props: {
         </div>
         <div class="flex items-start">
           <Show when={shellMode()}>
-            <span class="select-none pl-4 pt-3 font-mono text-[15px] font-semibold leading-relaxed text-amber-600 dark:text-amber-400">!</span>
+            <ShellSigil />
           </Show>
           <textarea
             ref={(element) => (textarea = element)}
@@ -791,16 +768,7 @@ function Composer(props: {
             ]}
             onPaste={(event) => {
               // A pasted text that starts with `!` into an empty prompt is a command.
-              const pasted = event.clipboardData?.getData("text/plain") ?? "";
-              if (pasted.startsWith("!") && !shellMode() && text() === "" && canShell()) {
-                event.preventDefault();
-                enterShell();
-                setText(pasted.slice(1));
-                if (textarea) textarea.value = pasted.slice(1);
-                grow();
-                return;
-              }
-              attachments.onPaste(event);
+              if (!shell.paste(event)) attachments.onPaste(event);
             }}
             onDragOver={attachments.onDragOver}
             onDrop={attachments.onDrop}
@@ -809,47 +777,14 @@ function Composer(props: {
             disabled={props.disabled}
             value={text()}
             onInput={(event) => {
-              // A `!` that reached an empty prompt another way than its key (an input method, a tool that types).
-              const value = event.currentTarget.value;
-              if (!shellMode() && text() === "" && value.startsWith("!") && canShell()) {
-                event.currentTarget.value = value.slice(1);
-                enterShell();
-              }
+              shell.input(event.currentTarget);
               setText(event.currentTarget.value);
               setPicked(0);
               setDismissed(false);
-              setRecalled(null);
               grow();
             }}
             onKeyDown={(event) => {
-              const plain = !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing;
-              if (plain && event.key === "!" && !shellMode() && event.currentTarget.value === "" && canShell()) {
-                event.preventDefault();
-                enterShell();
-                return;
-              }
-              if (shellMode()) {
-                if (plain && event.key === "Backspace" && event.currentTarget.value === "") {
-                  event.preventDefault();
-                  setShellMode(false);
-                  setRecalled(null);
-                  return;
-                }
-                if (plain && (event.key === "ArrowUp" || event.key === "ArrowDown") && recall(event.key === "ArrowUp" ? -1 : 1)) {
-                  event.preventDefault();
-                  return;
-                }
-                if (event.key === "Escape" && event.currentTarget.value === "") {
-                  event.preventDefault();
-                  setShellMode(false);
-                  return;
-                }
-                if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-                  event.preventDefault();
-                  void runShell();
-                }
-                return;
-              }
+              if (shell.keyDown(event)) return;
               const offered = commands();
               if (offered.length > 0 && !event.isComposing) {
                 if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -883,16 +818,10 @@ function Composer(props: {
         </div>
         <div class="flex items-center justify-end gap-1.5 px-2 pb-2">
           <Show when={shellMode()}>
-            <span class="mr-auto select-none truncate pl-2 text-xs text-muted">
-              <span class="font-medium text-amber-700 dark:text-amber-400">Shell command</span> · Enter runs it · Backspace on an empty line
-              returns to the prompt
-            </span>
+            <ShellStatus />
           </Show>
           <Show when={!shellMode() && runningCommands() > 0}>
-            <span class="mr-auto flex select-none items-center gap-1.5 pl-2 text-xs text-muted">
-              <span class="size-1.5 animate-pulse rounded-full bg-amber-500" />
-              {runningCommands() === 1 ? "A command runs" : `${runningCommands()} commands run`}
-            </span>
+            <RunningCommands count={runningCommands()} />
           </Show>
           <Show when={props.running && !props.disabled && !shellMode()}>
             <button
@@ -928,15 +857,7 @@ function Composer(props: {
               </button>
             }
           >
-            <button
-              type="button"
-              class="flex h-8 items-center gap-1.5 rounded-full bg-amber-500 px-3 text-sm font-medium text-white shadow-sm transition-opacity disabled:opacity-30"
-              title="Run the command (↵)"
-              disabled={text().trim() === ""}
-              onClick={() => void runShell()}
-            >
-              Run
-            </button>
+            <ShellRunButton disabled={text().trim() === ""} onClick={() => void shell.run()} />
           </Show>
         </div>
       </div>

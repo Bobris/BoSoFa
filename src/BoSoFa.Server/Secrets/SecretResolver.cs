@@ -129,13 +129,22 @@ public sealed class SecretResolver(ulong personId, IDataProtectionProvider prote
         : new() { SessionId = session.Id, MachineId = session.MachineId, PersonId = session.CreatedById, Uses = [.. _used.Values.Select(used => used.Use)], Detail = Used! };
 
     /// <summary>Records where the values went and audits it; a failure to is logged, never stops the session.</summary>
-    public async Task RecordAsync(EventPublisher publisher, Session session, ILogger logger)
+    public Task RecordAsync(EventPublisher publisher, Session session, ILogger logger) => PublishUsesAsync(publisher, UsesOf(session), logger);
+
+    /// <summary>For a shell command of a draft, which has no session yet.</summary>
+    public Task RecordForDraftAsync(EventPublisher publisher, ulong draftId, ulong machineId, ulong personId, ILogger logger) =>
+        PublishUsesAsync(publisher, _used.Count == 0
+            ? null
+            : new() { DraftId = draftId, MachineId = machineId, PersonId = personId, Uses = [.. _used.Values.Select(used => used.Use)], Detail = Used! }, logger);
+
+    static async Task PublishUsesAsync(EventPublisher publisher, SecretsUsed? uses, ILogger logger)
     {
-        if (UsesOf(session) is not { } uses) return;
+        if (uses == null) return;
         try { await publisher.PublishAsync(uses); }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or OperationCanceledException)
         {
-            logger.LogWarning("Could not record the secrets session {Session} used: {Error}", session.Id, exception.Message);
+            logger.LogWarning("Could not record the secrets of {Target} used: {Error}", uses.DraftId != 0 ? $"draft {uses.DraftId}" : $"session {uses.SessionId}",
+                exception.Message);
         }
     }
 }

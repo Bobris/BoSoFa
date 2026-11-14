@@ -352,6 +352,8 @@ public static class MachineEndpoints
     internal static bool SessionBelongsTo(EventPublisher publisher, ulong sessionId, ulong machineId)
     {
         using var query = publisher.StartQuery();
-        return Ambient.Relation<ISessionTable>().FindByIdOrDefault(sessionId)?.MachineId == machineId;
+        // Or a draft's, whose shell commands stream under its id.
+        return Ambient.Relation<ISessionTable>().FindByIdOrDefault(sessionId)?.MachineId == machineId ||
+               DraftShellCommands.ItemsOf(sessionId).Any(item => item is { ActionId: not 0 } && item.MachineId == machineId);
     }
 }

@@ -2738,6 +2738,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drafts/{id}/shell-commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionItemDto"][];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RunDraftShellCommandRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionItemDto"][];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drafts/{id}/shell-commands/{seq}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | string;
+                    seq: number | string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounts": {
         parameters: {
             query?: never;
@@ -4223,6 +4351,7 @@ export interface components {
             toolGroup?: null | string;
             /** Format: uint64 */
             draftId?: null | number | string;
+            shellOutputs?: null | (number | string)[];
         };
         DaemonTokenRequest: {
             /** Format: uint64 */
@@ -4437,7 +4566,21 @@ export interface components {
             harness: string;
             version: string;
         };
-        LiveClientMessage: components["schemas"]["LiveClientMessageLiveSubscribe"] | components["schemas"]["LiveClientMessageLiveUnsubscribe"] | components["schemas"]["LiveClientMessageLiveTerminalSubscribe"] | components["schemas"]["LiveClientMessageLiveTerminalUnsubscribe"] | components["schemas"]["LiveClientMessageLiveTerminalInput"] | components["schemas"]["LiveClientMessageLiveTerminalResize"];
+        LiveClientMessage: components["schemas"]["LiveClientMessageLiveSubscribe"] | components["schemas"]["LiveClientMessageLiveUnsubscribe"] | components["schemas"]["LiveClientMessageLiveTerminalSubscribe"] | components["schemas"]["LiveClientMessageLiveTerminalUnsubscribe"] | components["schemas"]["LiveClientMessageLiveTerminalInput"] | components["schemas"]["LiveClientMessageLiveTerminalResize"] | components["schemas"]["LiveClientMessageLiveDraftSubscribe"] | components["schemas"]["LiveClientMessageLiveDraftUnsubscribe"];
+        LiveClientMessageLiveDraftSubscribe: {
+            /** @enum {string} */
+            t?: "draftSubscribe";
+            /** Format: uint64 */
+            draftId: number | string;
+            /** Format: uint64 */
+            machineId: number | string;
+        };
+        LiveClientMessageLiveDraftUnsubscribe: {
+            /** @enum {string} */
+            t?: "draftUnsubscribe";
+            /** Format: uint64 */
+            draftId: number | string;
+        };
         LiveClientMessageLiveSubscribe: {
             /** @enum {string} */
             t?: "subscribe";
@@ -4479,7 +4622,7 @@ export interface components {
             /** Format: uint64 */
             sessionId: number | string;
         };
-        LiveServerMessage: components["schemas"]["LiveServerMessageLiveSessionUpdate"] | components["schemas"]["LiveServerMessageLiveDelta"] | components["schemas"]["LiveServerMessageLiveError"] | components["schemas"]["LiveServerMessageLiveTerminalSnapshot"] | components["schemas"]["LiveServerMessageLiveTerminalOutput"] | components["schemas"]["LiveServerMessageLiveTerminalExited"];
+        LiveServerMessage: components["schemas"]["LiveServerMessageLiveSessionUpdate"] | components["schemas"]["LiveServerMessageLiveDelta"] | components["schemas"]["LiveServerMessageLiveError"] | components["schemas"]["LiveServerMessageLiveTerminalSnapshot"] | components["schemas"]["LiveServerMessageLiveTerminalOutput"] | components["schemas"]["LiveServerMessageLiveTerminalExited"] | components["schemas"]["LiveServerMessageLiveDraftUpdate"];
         LiveServerMessageLiveDelta: {
             /** @enum {string} */
             t?: "delta";
@@ -4489,6 +4632,13 @@ export interface components {
             text: string;
             /** @default false */
             reset: boolean;
+        };
+        LiveServerMessageLiveDraftUpdate: {
+            /** @enum {string} */
+            t?: "draft";
+            /** Format: uint64 */
+            draftId: number | string;
+            items: unknown[];
         };
         LiveServerMessageLiveError: {
             /** @enum {string} */
@@ -4738,6 +4888,13 @@ export interface components {
             sha256: string;
         };
         RpcDone: Record<string, never>;
+        RunDraftShellCommandRequest: {
+            command: string;
+            /** Format: uint64 */
+            machineId: number | string;
+            workingDirectory: string;
+            profileName?: null | string;
+        };
         RunShellCommandRequest: {
             command: string;
         };

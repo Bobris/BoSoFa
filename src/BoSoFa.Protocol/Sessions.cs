@@ -125,6 +125,8 @@ public sealed record RuntimeRequestDto(
     string? AnsweredByName,
     DateTime? AnsweredAt);
 
+/// <param name="DraftId">The draft it was written in, which it replaces: the draft's shell commands move into the session's transcript.</param>
+/// <param name="ShellOutputs">The seqs of the draft's <see cref="SessionItemKind.ShellOutput"/> items that go with the prompt, before its text.</param>
 public sealed record CreateSessionRequest(
     ulong MachineId,
     string Harness,
@@ -139,7 +141,8 @@ public sealed record CreateSessionRequest(
     string? SystemPrompt = null,
     string? ReasoningEffort = null,
     string? ToolGroup = null,
-    ulong? DraftId = null);
+    ulong? DraftId = null,
+    long[]? ShellOutputs = null);
 
 /// <summary>A session being written: its prompt and the client's own settings JSON for how to start it.</summary>
 public sealed record SessionDraftDto(ulong Id, string Title, string Prompt, string Settings, DateTime CreatedAt, DateTime UpdatedAt);

@@ -54,6 +54,7 @@ public static class ProtocolVersion
 [JsonSerializable(typeof(SendMessageRequest))]
 [JsonSerializable(typeof(SideQuestionRequest))]
 [JsonSerializable(typeof(RunShellCommandRequest))]
+[JsonSerializable(typeof(RunDraftShellCommandRequest))]
 [JsonSerializable(typeof(ShellOutputData))]
 [JsonSerializable(typeof(AnswerRuntimeRequest))]
 [JsonSerializable(typeof(HarnessAccountDto))]

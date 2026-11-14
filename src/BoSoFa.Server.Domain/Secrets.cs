@@ -131,7 +131,10 @@ public class SecretUseRecord
 /// <summary>A session's start, or a server agent's run, was given these values (docs/secrets.md §4.2); never their values.</summary>
 public class SecretsUsed : PureEvent
 {
+    /// <summary>Zero for a shell command of a draft (<see cref="DraftId"/>).</summary>
     public ulong SessionId { get; set; }
+
+    public ulong DraftId { get; set; }
     public ulong MachineId { get; set; }
     public ulong PersonId { get; set; }
     public List<SecretUseRecord> Uses { get; set; } = [];
@@ -293,6 +296,7 @@ public sealed class SecretsUsedHandler : IEventHandler<SecretsUsed>
         var uses = Ambient.Relation<ISecretUseTable>();
         foreach (var use in ev.Uses)
             uses.Upsert(new() { OwnerId = use.OwnerId, Name = use.Name, MachineId = ev.MachineId, Version = use.Version, SessionId = ev.SessionId, At = ev.When });
-        Audit.Record(ev.When, ev.PersonId, "secret.used", $"session {ev.SessionId}", $"on machine {ev.MachineId}: {ev.Detail}");
+        Audit.Record(ev.When, ev.PersonId, "secret.used", ev.DraftId != 0 ? $"draft {ev.DraftId}" : $"session {ev.SessionId}",
+            $"on machine {ev.MachineId}: {ev.Detail}");
     }
 }

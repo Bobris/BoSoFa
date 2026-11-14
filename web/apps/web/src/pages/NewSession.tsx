@@ -28,6 +28,23 @@ import {
 import { ModelPicker, type ModelOption } from "../components/ModelPicker";
 import { Picker, type Choice } from "../components/Popover";
 import { AttachmentStrip, createAttachments } from "../components/PromptImages";
+import {
+  commandHistory,
+  createShellPrompt,
+  pendingOutputs,
+  RunningCommands,
+  runningCount,
+  SHELL_COMMANDS_RUNNING,
+  SHELL_OUTPUTS_PER_MESSAGE,
+  ShellCommandCard,
+  shellFrame,
+  ShellOutputChips,
+  shellRef,
+  ShellRunButton,
+  ShellSigil,
+  ShellStatus,
+} from "../components/ShellCommands";
+import { createLiveDraft } from "../live";
 import { useWorkspace } from "../workspace";
 
 /** How a session starts: what a draft keeps besides its prompt, and what the next new session starts from. */
@@ -235,8 +252,14 @@ function Editor(props: {
   const initial = untrack(() => props.settings);
   const [settings, setSettings] = createSignal<Settings>(initial);
   const [prompt, setPrompt] = createSignal(untrack(() => props.prompt));
-  // A plain variable, not a signal: a start right after a save must see the id that save just got.
+  // A plain variable, not a signal: a start right after a save must see the id that save just got. The signal follows it, for what
+  // follows the draft live.
   let draftId = untrack(() => props.draftId);
+  const [draftKey, setDraftKey] = createSignal(draftId);
+  const adopt = (id: string | undefined) => {
+    draftId = id;
+    setDraftKey(id);
+  };
   const [saved, setSaved] = createSignal<"" | "saving" | "saved">(
     untrack(() => (props.draftId ? "saved" : "")),
   );
@@ -414,13 +437,13 @@ function Editor(props: {
     dirty = false;
     const text = latestPrompt;
     const id = draftId;
-    if (!text.trim()) {
-      // Nothing written is nothing to keep.
+    if (!text.trim() && shellItems.items.length === 0) {
+      // Nothing written, and no command run, is nothing to keep.
       if (id) {
         await api.DELETE("/api/v1/drafts/{id}", {
           params: { path: { id: Number(id) } },
         });
-        draftId = undefined;
+        adopt(undefined);
         setSaved("");
         workspace.refreshDrafts();
       }
@@ -435,14 +458,14 @@ function Editor(props: {
       });
       if (response.status === 404) {
         // Discarded elsewhere: keep what is written as a new one.
-        draftId = undefined;
+        adopt(undefined);
         dirty = true;
         return save();
       }
     } else {
       const { data } = await api.POST("/api/v1/drafts", { body });
       if (data) {
-        draftId = String(data.id);
+        adopt(String(data.id));
         props.onAdopt(String(data.id));
       }
     }
@@ -453,8 +476,105 @@ function Editor(props: {
     if (dirty && !started) void flushSave(); // leaving with changes not saved yet
   });
 
+  /** The draft, saved now if it was not yet: a command runs in one, even before anything is written. */
+  async function ensureDraft(): Promise<string | undefined> {
+    await flushSave();
+    if (draftId) return draftId;
+    queue = queue.then(async () => {
+      if (draftId) return;
+      const { data } = await api.POST("/api/v1/drafts", {
+        body: { prompt: latestPrompt, settings: JSON.stringify(latest) },
+      });
+      if (!data) return;
+      adopt(String(data.id));
+      props.onAdopt(String(data.id));
+      setSaved("saved");
+      workspace.refreshDrafts();
+    });
+    await queue;
+    return draftId;
+  }
+
+  // Shell commands (`!`): they run in the chosen folder of the chosen machine, and their outputs go with the prompt that starts the session.
+  const shellItems = createLiveDraft(
+    () => (draftKey() ? Number(draftKey()) : undefined),
+    () => Number(machine()?.id ?? 0),
+  );
+  const [excluded, setExcluded] = createSignal<ReadonlySet<string>>(new Set());
+  const pending = createMemo(() => pendingOutputs(shellItems.items));
+  const carried = createMemo(() =>
+    pending()
+      .filter((output) => !excluded().has(String(output.seq)))
+      .slice(-SHELL_OUTPUTS_PER_MESSAGE),
+  );
+  const shellCommands = createMemo(() =>
+    shellItems.items.filter((item) => item.kind === "ShellCommand"),
+  );
+  const outputOf = (seq: number | string) =>
+    shellItems.items.find(
+      (item) => item.kind === "ShellOutput" && item.ref === shellRef(seq),
+    );
+  const runningCommands = createMemo(() => runningCount(shellItems.items));
+  // A command just run shows at the end of the list, which scrolls to it.
+  let commandList: HTMLDivElement | undefined;
+  createEffect(
+    () => shellCommands().length,
+    (count, previous) => {
+      if (previous !== undefined && count > previous)
+        queueMicrotask(() =>
+          commandList?.scrollTo({ top: commandList.scrollHeight }),
+        );
+    },
+  );
+  const canShell = () =>
+    !!machine() && needsDirectory() && settings().directory.trim() !== "";
+
+  async function runShellCommand(command: string): Promise<string | undefined> {
+    const target = machine();
+    if (!target) return "Choose a machine to run the command on.";
+    const id = await ensureDraft();
+    if (!id) return "The draft could not be saved, so the command cannot run.";
+    const current = latest;
+    const { response, error: failure } = await api.POST(
+      "/api/v1/drafts/{id}/shell-commands",
+      {
+        params: { path: { id: Number(id) } },
+        body: {
+          command,
+          machineId: Number(target.id),
+          workingDirectory: current.directory.trim(),
+          profileName: current.profile || null,
+        },
+      },
+    );
+    if (response.ok) return undefined;
+    return typeof failure === "string"
+      ? failure
+      : response.status === 403
+        ? "You cannot run commands on this machine."
+        : `Running the command failed (${response.status}).`;
+  }
+
+  // The command being written: it is not the draft's prompt, so it is not saved.
+  const [command, setCommand] = createSignal("");
+  const shell = createShellPrompt({
+    canShell,
+    history: () => commandHistory(shellItems.items),
+    text: () => command(),
+    setText: (value) => {
+      setCommand(value);
+      if (textarea) textarea.value = value;
+      grow();
+    },
+    run: runShellCommand,
+    setError,
+    focus: () => textarea?.focus(),
+  });
+  const shellMode = shell.active;
+
   async function start(event?: Event) {
     event?.preventDefault();
+    if (shellMode()) return void shell.run();
     if (problem() || busy()) return;
     setBusy(true);
     setError(undefined);
@@ -495,6 +615,7 @@ function Editor(props: {
             : null,
         toolGroup: agent && machine() ? current.toolGroup : null,
         draftId: draftId ? Number(draftId) : null,
+        shellOutputs: carried().map((output) => Number(output.seq)),
       },
     });
     setBusy(false);
@@ -592,39 +713,109 @@ function Editor(props: {
           </div>
         }
       >
+        <Show when={shellCommands().length > 0}>
+          <div
+            ref={(element) => (commandList = element)}
+            class="mb-3 flex max-h-[45vh] flex-col gap-2 overflow-y-auto"
+          >
+            <For each={shellCommands()}>
+              {(item) => (
+                <ShellCommandCard
+                  item={item}
+                  output={outputOf(item.seq)}
+                  draft={
+                    shellItems.drafts.find(
+                      (draft) => draft.ref === shellRef(item.seq),
+                    )?.text
+                  }
+                  machineId={Number(machine()?.id ?? 0)}
+                  canControl
+                  footnote="Your command · its output goes with the prompt that starts the session, unless you remove it there"
+                  onStop={() =>
+                    api.POST("/api/v1/drafts/{id}/shell-commands/{seq}/stop", {
+                      params: {
+                        path: { id: Number(draftId), seq: Number(item.seq) },
+                      },
+                    })
+                  }
+                  onRunAgain={(again) =>
+                    void runShellCommand(again).then(setError)
+                  }
+                />
+              )}
+            </For>
+          </div>
+        </Show>
         <form
-          class="animate-rise rounded-2xl border border-line bg-panel shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.04)] transition-shadow focus-within:border-accent/40 focus-within:shadow-[0_2px_4px_rgb(0_0_0/0.05),0_8px_28px_rgb(0_0_0/0.07)]"
+          class={[
+            "animate-rise rounded-2xl border bg-panel shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.04)] transition-shadow focus-within:shadow-[0_2px_4px_rgb(0_0_0/0.05),0_8px_28px_rgb(0_0_0/0.07)]",
+            shellFrame(shellMode()),
+          ]}
+          data-shell={shellMode() || undefined}
           onSubmit={start}
         >
+          <Show when={!shellMode()}>
+            <ShellOutputChips
+              outputs={pending().slice(-SHELL_OUTPUTS_PER_MESSAGE)}
+              excluded={excluded()}
+              onToggle={(seq) =>
+                setExcluded((before) => new Set([...before, seq]))
+              }
+            />
+          </Show>
           <div class="px-4 pt-3">
             <AttachmentStrip attachments={attachments} />
           </div>
-          <textarea
-            ref={(element) => (textarea = element)}
-            class="block max-h-[45vh] min-h-24 w-full resize-none bg-transparent px-4 pb-2 text-[15px] leading-relaxed outline-none placeholder:text-muted"
-            rows={3}
-            placeholder="What should be done? Paste or drop images too."
-            value={prompt()}
-            onInput={(event) => {
-              latestPrompt = event.currentTarget.value;
-              setPrompt(latestPrompt);
-              grow();
-              changed();
-            }}
-            onKeyDown={(event) => {
-              if (
-                event.key === "Enter" &&
-                !event.shiftKey &&
-                !event.isComposing
-              ) {
-                event.preventDefault();
-                void start();
+          <div class="flex items-start">
+            <Show when={shellMode()}>
+              <ShellSigil />
+            </Show>
+            <textarea
+              ref={(element) => (textarea = element)}
+              class={[
+                "block max-h-[45vh] w-full resize-none bg-transparent pb-2 text-[15px] leading-relaxed outline-none placeholder:text-muted",
+                shellMode() ? "min-h-11 pl-2 pr-4 pt-3 font-mono" : "min-h-24 px-4",
+              ]}
+              rows={shellMode() ? 1 : 3}
+              placeholder={
+                shellMode()
+                  ? `Run a command on ${machine()?.name ?? "the machine"} in ${settings().directory.trim()}`
+                  : canShell()
+                    ? "What should be done? Paste or drop images too, or type ! for a shell command."
+                    : "What should be done? Paste or drop images too."
               }
-            }}
-            onPaste={attachments.onPaste}
-            onDragOver={attachments.onDragOver}
-            onDrop={attachments.onDrop}
-          />
+              value={shellMode() ? command() : prompt()}
+              onInput={(event) => {
+                shell.input(event.currentTarget);
+                const value = event.currentTarget.value;
+                if (shellMode()) {
+                  setCommand(value);
+                  grow();
+                  return;
+                }
+                latestPrompt = value;
+                setPrompt(latestPrompt);
+                grow();
+                changed();
+              }}
+              onKeyDown={(event) => {
+                if (shell.keyDown(event)) return;
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.isComposing
+                ) {
+                  event.preventDefault();
+                  void start();
+                }
+              }}
+              onPaste={(event) => {
+                if (!shell.paste(event)) attachments.onPaste(event);
+              }}
+              onDragOver={attachments.onDragOver}
+              onDrop={attachments.onDrop}
+            />
+          </div>
           <div class="flex flex-wrap items-center gap-0.5 px-2 pb-2">
             <Picker
               up={false}
@@ -715,14 +906,26 @@ function Editor(props: {
                   onEffort={(value) => set("effort", value)}
                 />
               </Show>
-              <button
-                type="submit"
-                class="ml-1 flex size-8 items-center justify-center rounded-full bg-accent text-white shadow-sm transition-opacity disabled:opacity-30"
-                disabled={problem() !== undefined || busy()}
-                title={problem() ?? "Start (↵)"}
+              <Show
+                when={shellMode()}
+                fallback={
+                  <button
+                    type="submit"
+                    class="ml-1 flex size-8 items-center justify-center rounded-full bg-accent text-white shadow-sm transition-opacity disabled:opacity-30"
+                    disabled={problem() !== undefined || busy()}
+                    title={problem() ?? "Start (↵)"}
+                  >
+                    <ArrowUpIcon class="size-4" />
+                  </button>
+                }
               >
-                <ArrowUpIcon class="size-4" />
-              </button>
+                <span class="ml-1">
+                  <ShellRunButton
+                    disabled={command().trim() === ""}
+                    onClick={() => void shell.run()}
+                  />
+                </span>
+              </Show>
             </div>
           </div>
         </form>
@@ -817,13 +1020,29 @@ function Editor(props: {
               System prompt
             </button>
           </Show>
-          <span class="ml-auto hidden px-2 text-xs text-muted sm:inline">
-            {saved() === "saving"
-              ? "Saving draft…"
-              : saved() === "saved"
-                ? "Draft saved"
-                : "↵ to start · ⇧↵ new line"}
-          </span>
+          <Show when={runningCommands() > 0 && !shellMode()}>
+            <span class="ml-auto">
+              <RunningCommands count={runningCommands()} />
+            </span>
+          </Show>
+          <Show
+            when={shellMode()}
+            fallback={
+              <span class="ml-auto hidden px-2 text-xs text-muted sm:inline">
+                {saved() === "saving"
+                  ? "Saving draft…"
+                  : saved() === "saved"
+                    ? "Draft saved"
+                    : "↵ to start · ⇧↵ new line"}
+              </span>
+            }
+          >
+            <span class="ml-auto hidden min-w-0 sm:flex">
+              <ShellStatus>
+                {` · at most ${SHELL_COMMANDS_RUNNING} at once`}
+              </ShellStatus>
+            </span>
+          </Show>
         </div>
 
         <Show when={isAgent() && showSystemPrompt()}>
