@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
+using BoSoFa.Server.SkillShare;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -54,15 +56,47 @@ public static class Auth
                 o.Scope.Add("profile");
                 o.SaveTokens = false;
                 o.MapInboundClaims = false;
+                // A provider on this computer (a test, or SkillShare in development) serves plain HTTP.
+                o.RequireHttpsMetadata = !Uri.TryCreate(oidc.Authority, UriKind.Absolute, out var authority) || !authority.IsLoopback;
+                o.Events.OnRedirectToIdentityProvider = async context =>
+                {
+                    // SkillShare grants this server a refresh token for the person's skills and MCP servers (docs/skillshare.md §2.4).
+                    var skillShare = context.HttpContext.RequestServices.GetRequiredService<SkillShareClient>();
+                    if (await skillShare.InfoAsync(context.HttpContext.RequestAborted) != null)
+                        context.ProtocolMessage.Scope = string.Join(' ', context.ProtocolMessage.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                            .Concat(SkillShareClient.Scopes).Distinct());
+                };
                 o.Events.OnTokenValidated = async context =>
                 {
                     var principal = context.Principal!;
-                    var subject = principal.FindFirstValue("sub") ?? throw new InvalidOperationException("No subject.");
-                    var issuer = principal.FindFirstValue("iss") ?? oidc.Authority;
-                    var email = principal.FindFirstValue("email") ?? "";
-                    var name = principal.FindFirstValue("name") ?? principal.FindFirstValue("preferred_username") ?? email;
-                    var node = context.HttpContext.RequestServices.GetRequiredService<BtdbNode>();
-                    context.Principal = await SignInAsync(node, issuer, subject, name, email, context.HttpContext.RequestAborted);
+                    var services = context.HttpContext.RequestServices;
+                    var skillShare = await services.GetRequiredService<SkillShareClient>().InfoAsync(context.HttpContext.RequestAborted);
+                    var signedIn = new UserSignedIn
+                    {
+                        Subject = principal.FindFirstValue("sub") ?? throw new InvalidOperationException("No subject."),
+                        Issuer = principal.FindFirstValue("iss") ?? oidc.Authority,
+                        Email = principal.FindFirstValue("email") ?? "",
+                        ObjectId = principal.FindFirstValue("oid") ?? "",
+                        TenantId = principal.FindFirstValue("tid") ?? "",
+                        MigrateFromIssuer = oidc.MigrateFromIssuer.Trim()
+                    };
+                    signedIn.Name = principal.FindFirstValue("name") ?? principal.FindFirstValue("preferred_username") ?? signedIn.Email;
+                    if (skillShare != null)
+                    {
+                        if (oidc.AdminFromSkillShare && principal.FindFirstValue("skillshare_admin") is { } admin)
+                            (signedIn.ProviderSaysRole, signedIn.ProviderSaysAdmin) = (true, string.Equals(admin, "true", StringComparison.OrdinalIgnoreCase));
+                        if (context.TokenEndpointResponse?.RefreshToken is { Length: > 0 } refreshToken)
+                        {
+                            signedIn.GrantId = Guid.NewGuid().ToString("N");
+                            signedIn.ProtectedGrant = services.GetRequiredService<IDataProtectionProvider>()
+                                .CreateProtector(SkillShareClient.GrantPurpose, signedIn.GrantId).Protect(refreshToken);
+                            signedIn.GrantScopes = context.TokenEndpointResponse.Scope ?? string.Join(' ', SkillShareClient.Scopes);
+                        }
+                    }
+                    var node = services.GetRequiredService<BtdbNode>();
+                    context.Principal = await SignInAsync(node, signedIn, context.HttpContext.RequestAborted);
+                    if (skillShare != null) await SkillShareEndpoints.SyncOnceAsync(node, services.GetRequiredService<BTDB.BackendActions.BackendActions>(),
+                        context.HttpContext.RequestAborted);
                 };
             });
         services.AddAuthorization(authorization => authorization.AddPolicy(Machines.DaemonTokens.Scheme, policy => policy
@@ -77,12 +111,14 @@ public static class Auth
     }
 
     /// <summary>Records the sign-in and returns the cookie principal for the BoSoFa user.</summary>
-    internal static async Task<ClaimsPrincipal> SignInAsync(BtdbNode node, string issuer, string subject, string name,
-        string email, CancellationToken cancellation)
+    internal static Task<ClaimsPrincipal> SignInAsync(BtdbNode node, string issuer, string subject, string name,
+        string email, CancellationToken cancellation) =>
+        SignInAsync(node, new UserSignedIn { Issuer = issuer, Subject = subject, Name = name, Email = email }, cancellation);
+
+    static async Task<ClaimsPrincipal> SignInAsync(BtdbNode node, UserSignedIn signedIn, CancellationToken cancellation)
     {
         var publisher = await node.Ready.WaitAsync(cancellation);
-        var result = await publisher.PublishAndWaitAsync(
-            new UserSignedIn { Issuer = issuer, Subject = subject, Name = name, Email = email }, cancellation);
+        var result = await publisher.PublishAndWaitAsync(signedIn, cancellation);
         var identity = new ClaimsIdentity([new Claim(UserIdClaim, result.UserId.ToString())],
             CookieAuthenticationDefaults.AuthenticationScheme, ClaimTypes.Name, ClaimTypes.Role);
         return new ClaimsPrincipal(identity);

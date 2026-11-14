@@ -4,6 +4,11 @@ import {
   type HarnessAccount,
   type Machine,
   type Profile,
+  type SkillBundle,
+  type SkillRef,
+  type SkillShareMcp,
+  type SkillShareSkill,
+  type SkillShareStatus,
 } from "@bosofa/api";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import {
@@ -26,7 +31,7 @@ import {
   SparkIcon,
 } from "../components/icons";
 import { ModelPicker, type ModelOption } from "../components/ModelPicker";
-import { Picker, type Choice } from "../components/Popover";
+import { MultiPicker, Picker, type Choice } from "../components/Popover";
 import { AttachmentStrip, createAttachments } from "../components/PromptImages";
 import {
   commandHistory,
@@ -60,6 +65,10 @@ type Settings = {
   effort: string;
   toolGroup: string;
   systemPrompt: string;
+  /** Skills besides the profile's: "skillshare:<id>" (its latest version) or "<name>@<version>" of this server's catalog. */
+  skills: string[];
+  /** The person's SkillShare MCP servers; null for those they have on by default. */
+  skillShareMcp: string[] | null;
 };
 
 const defaults: Settings = {
@@ -74,7 +83,20 @@ const defaults: Settings = {
   effort: "",
   toolGroup: "full",
   systemPrompt: "",
+  skills: [],
+  skillShareMcp: null,
 };
+
+const skillShareKey = "skillshare:";
+
+/** The skills of the settings as the API takes them. */
+function skillRefs(keys: string[]): SkillRef[] {
+  return keys.map((key) => {
+    if (key.startsWith(skillShareKey)) return { name: key.slice(skillShareKey.length), version: "latest", source: "skillshare" };
+    const at = key.lastIndexOf("@");
+    return { name: key.slice(0, at), version: key.slice(at + 1), source: null };
+  });
+}
 
 const settingsKey = "bosofa.newSession";
 
@@ -293,6 +315,32 @@ function Editor(props: {
   const profiles = createMemo(async (): Promise<Profile[]> =>
     workspace.me() ? ((await api.GET("/api/v1/profiles")).data ?? []) : [],
   );
+  const bundles = createMemo(async (): Promise<SkillBundle[]> =>
+    workspace.me() ? ((await api.GET("/api/v1/skills")).data ?? []) : [],
+  );
+  const skillShare = createMemo(async (): Promise<SkillShareStatus | null> =>
+    workspace.me() ? ((await api.GET("/api/v1/skillshare")).data ?? null) : null,
+  );
+  const skillShareSkills = createMemo(async (): Promise<SkillShareSkill[]> =>
+    skillShare()?.enabled ? ((await api.GET("/api/v1/skillshare/skills")).data ?? []) : [],
+  );
+  // A person without a working SkillShare sign-in has no servers to choose.
+  const skillShareMcps = createMemo(async (): Promise<SkillShareMcp[]> =>
+    skillShare()?.grant === "Active" ? ((await api.GET("/api/v1/skillshare/mcps", { params: { query: {} } })).data ?? []) : [],
+  );
+  const skillChoices = (): Choice[] => [
+    ...skillShareSkills().map((skill) => ({
+      value: skillShareKey + skill.id,
+      label: skill.name,
+      hint: [skill.description, skill.latestVersion && `SkillShare ${skill.latestVersion}`].filter(Boolean).join(" · "),
+    })),
+    ...bundles().map((bundle) => ({
+      value: `${bundle.name}@${bundle.version}`,
+      label: `${bundle.name}@${bundle.version}`,
+      hint: bundle.description || "This server's catalog",
+    })),
+  ];
+  const chosenMcps = () => settings().skillShareMcp ?? skillShareMcps().filter((server) => server.on).map((server) => server.id);
 
   const agentAccounts = () =>
     accounts().filter((account) => account.servesAgent);
@@ -616,6 +664,8 @@ function Editor(props: {
         toolGroup: agent && machine() ? current.toolGroup : null,
         draftId: draftId ? Number(draftId) : null,
         shellOutputs: carried().map((output) => Number(output.seq)),
+        skills: skillRefs(current.skills ?? []),
+        skillShareMcpServers: current.skillShareMcp ?? null,
       },
     });
     setBusy(false);
@@ -972,6 +1022,55 @@ function Editor(props: {
                 })),
               ]}
               onChange={(value) => set("profile", value)}
+            />
+          </Show>
+          <Show when={!isAgent() && skillChoices().length > 0}>
+            <MultiPicker
+              heading={
+                settings().harness === "opencode"
+                  ? "Skills: OpenCode does not take them yet"
+                  : "Skills, besides the profile's"
+              }
+              label={
+                (settings().skills ?? []).length === 0
+                  ? "No skills"
+                  : (settings().skills ?? []).length === 1
+                    ? (skillChoices().find((choice) => choice.value === settings().skills[0])?.label ?? "1 skill")
+                    : `${settings().skills.length} skills`
+              }
+              values={settings().skills ?? []}
+              choices={skillChoices()}
+              searchable={skillChoices().length > 6}
+              onChange={(values) => set("skills", values)}
+            />
+          </Show>
+          <Show when={skillShareMcps().length > 0}>
+            <MultiPicker
+              heading={`Your ${skillShare()?.name ?? "SkillShare"} MCP servers`}
+              label={
+                chosenMcps().length === 0
+                  ? `No ${skillShare()?.name ?? "SkillShare"} servers`
+                  : chosenMcps().length === 1
+                    ? (skillShareMcps().find((server) => server.id === chosenMcps()[0])?.title ?? "1 server")
+                    : `${chosenMcps().length} ${skillShare()?.name ?? "SkillShare"} servers`
+              }
+              values={chosenMcps()}
+              choices={skillShareMcps().map((server) => ({
+                value: server.id,
+                label: server.title,
+                hint: server.connected ? (server.accessMode ?? undefined) : "Not connected in SkillShare",
+                disabled: !server.connected,
+              }))}
+              onChange={(values) => set("skillShareMcp", values)}
+              footer={
+                <Show when={skillShare()?.mcpSetupUrl}>
+                  {(url) => (
+                    <a class="block rounded-lg px-2.5 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" href={url()} target="_blank" rel="noreferrer">
+                      Connect more in {skillShare()?.name ?? "SkillShare"}
+                    </a>
+                  )}
+                </Show>
+              }
             />
           </Show>
           <Show when={!isAgent() && harnessAccounts().length > 0}>

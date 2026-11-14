@@ -21,7 +21,10 @@ public sealed record McpToolResult(string Text, bool IsError, PromptImage[]? Ima
 /// The client side of MCP's Streamable HTTP transport, for catalog servers called from the server: JSON-RPC over POST,
 /// answered with one JSON message or a server-sent stream. One instance serves one loop, one call at a time.
 /// </summary>
-public sealed class McpHttpClient(HttpClient http, string server, Uri url, IReadOnlyDictionary<string, string> headers)
+/// <param name="bearer">A bearer asked for at each request, when the server's tokens are short-lived (SkillShare's): true asks for a new one,
+/// after the server refused the last.</param>
+public sealed class McpHttpClient(HttpClient http, string server, Uri url, IReadOnlyDictionary<string, string> headers,
+    Func<bool, CancellationToken, Task<string>>? bearer = null)
 {
     const string SupportedVersion = "2025-11-25";
 
@@ -76,8 +79,7 @@ public sealed class McpHttpClient(HttpClient http, string server, Uri url, IRead
             ["clientInfo"] = new JsonObject { ["name"] = Protocol.Brand.Id, ["version"] = Api.Version }
         }, cancellation);
         _protocolVersion = Str(result?["protocolVersion"]) ?? SupportedVersion;
-        using var message = Post(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/initialized" });
-        using var response = await SendAsync(message, cancellation);
+        using var response = await SendAsync(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/initialized" }, cancellation);
         if (!response.IsSuccessStatusCode) throw new McpException($"{server}: initialization was refused ({(int)response.StatusCode}).");
         _initialized = true;
     }
@@ -87,8 +89,7 @@ public sealed class McpHttpClient(HttpClient http, string server, Uri url, IRead
         var id = ++_nextId;
         var body = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["method"] = method };
         if (parameters != null) body["params"] = parameters.DeepClone();
-        using var message = Post(body);
-        using var response = await SendAsync(message, cancellation);
+        using var response = await SendAsync(body, cancellation);
         if (response.StatusCode == HttpStatusCode.NotFound && _sessionId != null) throw new SessionExpiredException();
         if (!response.IsSuccessStatusCode) throw new McpException($"{server} answered {(int)response.StatusCode} to {method}.");
         if (response.Headers.TryGetValues("Mcp-Session-Id", out var sessions)) _sessionId = sessions.FirstOrDefault();
@@ -116,12 +117,38 @@ public sealed class McpHttpClient(HttpClient http, string server, Uri url, IRead
         return null;
     }
 
-    HttpRequestMessage Post(JsonObject body)
+    /// <summary>Posts the message; a refused short-lived bearer is asked for again once.</summary>
+    async Task<HttpResponseMessage> SendAsync(JsonObject body, CancellationToken cancellation)
+    {
+        var token = bearer == null ? null : await TokenAsync(false, cancellation);
+        using (var message = Post(body, token))
+        {
+            var response = await SendAsync(message, cancellation);
+            if (bearer == null || response.StatusCode != HttpStatusCode.Unauthorized) return response;
+            response.Dispose();
+        }
+        token = await TokenAsync(true, cancellation);
+        using var again = Post(body, token);
+        return await SendAsync(again, cancellation);
+    }
+
+    async Task<string> TokenAsync(bool fresh, CancellationToken cancellation)
+    {
+        try { return await bearer!(fresh, cancellation); }
+        catch (SkillShare.SkillShareException problem) { throw new McpException($"{server}: {problem.Message}"); }
+    }
+
+    HttpRequestMessage Post(JsonObject body, string? token)
     {
         var message = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
         message.Headers.TryAddWithoutValidation("Accept", "application/json, text/event-stream");
         message.Headers.TryAddWithoutValidation("User-Agent", ProviderHttp.UserAgent);
         foreach (var (name, value) in headers) message.Headers.TryAddWithoutValidation(name, value);
+        if (token != null)
+        {
+            message.Headers.Remove("Authorization");
+            message.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
+        }
         if (_sessionId != null) message.Headers.TryAddWithoutValidation("Mcp-Session-Id", _sessionId);
         if (_protocolVersion != null) message.Headers.TryAddWithoutValidation("MCP-Protocol-Version", _protocolVersion);
         return message;

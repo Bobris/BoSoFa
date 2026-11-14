@@ -1,4 +1,14 @@
-import { api, uploadBlob, type Environment, type McpServer, type Profile, type SkillBundle } from "@bosofa/api";
+import {
+  api,
+  uploadBlob,
+  type Environment,
+  type McpServer,
+  type Profile,
+  type SkillBundle,
+  type SkillShareMcp,
+  type SkillShareSkill,
+  type SkillShareStatus,
+} from "@bosofa/api";
 import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, refresh, Show } from "solid-js";
 import { paths } from "../router";
@@ -46,6 +56,26 @@ export default function Catalog() {
   const skills = createMemo(async (): Promise<SkillBundle[]> => (me() ? ((await api.GET("/api/v1/skills")).data ?? []) : []));
   const profiles = createMemo(async (): Promise<Profile[]> => (me() ? ((await api.GET("/api/v1/profiles")).data ?? []) : []));
   const environments = createMemo(async (): Promise<Environment[]> => (me() ? ((await api.GET("/api/v1/environments")).data ?? []) : []));
+  const skillShare = createMemo(async (): Promise<SkillShareStatus | null> => (me() ? ((await api.GET("/api/v1/skillshare")).data ?? null) : null));
+  const skillShareSkills = createMemo(async (): Promise<SkillShareSkill[]> =>
+    skillShare()?.enabled ? ((await api.GET("/api/v1/skillshare/skills")).data ?? []) : [],
+  );
+  const skillShareMcps = createMemo(async (): Promise<SkillShareMcp[]> =>
+    skillShare()?.grant === "Active" ? ((await api.GET("/api/v1/skillshare/mcps", { params: { query: {} } })).data ?? []) : [],
+  );
+  const skillShareName = () => skillShare()?.name ?? "SkillShare";
+  const [syncing, setSyncing] = createSignal(false);
+  async function sync() {
+    setSyncing(true);
+    const { response } = await api.POST("/api/v1/skillshare/sync");
+    report("Reading the catalog", response);
+    // The sync runs on whichever node the leader picks; its result shows up shortly.
+    setTimeout(() => {
+      setSyncing(false);
+      refresh(skillShare);
+      refresh(skillShareSkills);
+    }, 3000);
+  }
   const isAdmin = () => me()?.role === "Admin";
   const [error, setError] = createSignal<string>();
 
@@ -123,8 +153,9 @@ export default function Catalog() {
         environment: parseValues(profileEnvironment()),
         environmentName: profileEnvironmentName() || null,
         skills: chosenSkills().map((key) => {
-          const [name, version] = key.split("@");
-          return { name, version };
+          if (key.startsWith("skillshare:")) return { name: key.slice("skillshare:".length), version: "latest", source: "skillshare" };
+          const at = key.lastIndexOf("@");
+          return { name: key.slice(0, at), version: key.slice(at + 1), source: null };
         }),
       },
     });
@@ -157,7 +188,14 @@ export default function Catalog() {
                     <span class="rounded bg-hover px-1.5 text-xs text-muted">{profile().environmentName}</span>{" "}
                   </Show>
                   <span class="text-muted">
-                    {[...profile().mcpServers, ...profile().skills.map((skill) => `${skill.name}@${skill.version}`)].join(", ")}
+                    {[
+                      ...profile().mcpServers,
+                      ...profile().skills.map((skill) =>
+                        skill.source === "skillshare"
+                          ? `${skillShareSkills().find((found) => found.id === skill.name)?.name ?? skill.name} (${skillShareName()}, ${skill.version})`
+                          : `${skill.name}@${skill.version}`,
+                      ),
+                    ].join(", ")}
                   </span>
                   <ValueList values={profile().environment ?? {}} />
                 </li>
@@ -224,12 +262,77 @@ export default function Catalog() {
                   </label>
                 )}
               </For>
+              <For each={skillShareMcps()} keyed={(server) => server.id}>
+                {(server) => (
+                  <label class="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={chosenServers().includes(`skillshare:${server().id}`)}
+                      onChange={(e) => setChosenServers(toggle(chosenServers(), `skillshare:${server().id}`, e.currentTarget.checked))}
+                    />
+                    MCP: {server().title} <span class="text-xs text-muted">(each person's own, from {skillShareName()})</span>
+                  </label>
+                )}
+              </For>
+              <For each={skillShareSkills()} keyed={(skill) => skill.id}>
+                {(skill) => (
+                  <label class="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={chosenSkills().includes(`skillshare:${skill().id}`)}
+                      onChange={(e) => setChosenSkills(toggle(chosenSkills(), `skillshare:${skill().id}`, e.currentTarget.checked))}
+                    />
+                    Skill: {skill().name} <span class="text-xs text-muted">({skillShareName()}, latest)</span>
+                  </label>
+                )}
+              </For>
               <button type="submit" class={button} disabled={!profileName().trim()}>
                 Save profile
               </button>
             </form>
           </Show>
         </section>
+
+        <Show when={skillShare()?.enabled}>
+          <section class={section}>
+            <div class="flex items-center gap-3">
+              <h2 class="flex-1 text-sm font-medium">Skills from {skillShareName()}</h2>
+              <Show when={isAdmin()}>
+                <button type="button" class="text-xs text-accent hover:underline disabled:opacity-50" disabled={syncing()} onClick={() => void sync()}>
+                  {syncing() ? "Reading…" : "Sync now"}
+                </button>
+              </Show>
+            </div>
+            <Show when={isAdmin()}>
+              <p class="text-xs text-muted">
+                {skillShare()?.lastSyncAt ? `Catalog read ${new Date(skillShare()!.lastSyncAt!).toLocaleString()}` : "Catalog not read yet"}
+                {" · "}
+                {skillShare()?.activeGrants === 1 ? "1 person" : `${skillShare()?.activeGrants ?? 0} people`} signed in through {skillShareName()}
+              </p>
+              <Show when={skillShare()?.lastSyncError}>{(message) => <p class="text-xs text-red-600">{message()}</p>}</Show>
+            </Show>
+            <ul class="space-y-1 text-sm">
+              <For each={skillShareSkills()} keyed={(skill) => skill.id} fallback={<li class="text-muted">None yet.</li>}>
+                {(skill) => (
+                  <li>
+                    {skill().name}{" "}
+                    <Show when={skill().latestVersion}>
+                      <span class="rounded bg-hover px-1.5 text-xs text-muted">{skill().latestVersion}</span>{" "}
+                    </Show>
+                    <Show when={skill().deprecated}>
+                      <span class="rounded bg-amber-100 px-1.5 text-xs text-amber-700">deprecated</span>{" "}
+                    </Show>
+                    <span class="text-muted">{skill().description}</span>
+                    <Show when={skill().tags.length > 0}>
+                      <span class="block text-xs text-muted">{skill().tags.join(", ")}</span>
+                    </Show>
+                  </li>
+                )}
+              </For>
+            </ul>
+            <p class="text-xs text-muted">Anyone can add them to a new session; a profile can name them too.</p>
+          </section>
+        </Show>
 
         <section class={section}>
           <h2 class="text-sm font-medium">MCP servers</h2>

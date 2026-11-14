@@ -12,6 +12,9 @@ certificate from Let's Encrypt for the host name. The server's port is not publi
 
 1. Point a DNS name at the computer and open ports 80 and 443.
 2. Register the server with your sign-in provider (OIDC), with the redirect URI `https://<host>/signin-oidc`.
+   To sign in through SkillShare, which also brings its skills and each person's MCP servers ([skillshare.md](skillshare.md)), a
+   SkillShare admin registers the server under Connected apps with that redirect URI; the authority is then SkillShare's own origin,
+   and the client id and secret are the ones its page shows once.
 3. Next to `compose.yaml`, write `.env`:
 
    ```bash

@@ -82,6 +82,7 @@ Environment:
 | `BoSoFa__Cluster__Azure__Container` | `bosofa` |
 | `BoSoFa__Cluster__Azure__KeyVaultKey` | `https://<vault>.vault.azure.net/keys/<key>`; unset leaves the Data Protection key ring unwrapped |
 | `BoSoFa__Oidc__Authority`, `__ClientId`, `__DisplayName` | the sign-in provider; `__ClientSecret` from the Secret's `oidc-client-secret` |
+| `BoSoFa__Oidc__MigrateFromIssuer` | only while moving to another sign-in provider, such as SkillShare: the previous issuer, whose users people take over ([skillshare.md](skillshare.md) §2.5) |
 | `BoSoFa__Branding__Name`, `__Tagline` | optional white labeling; an empty tagline shows none |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL` | optional, see [Telemetry](#telemetry) |
 

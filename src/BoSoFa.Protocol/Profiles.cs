@@ -26,7 +26,9 @@ public sealed record SkillBundleDto(string Name, string Version, string Sha256, 
 
 public sealed record PublishSkillBundle(string Name, string Version, string Sha256, string? Description);
 
-public sealed record SkillRef(string Name, string Version);
+/// <param name="Source">Null for a bundle of this server's catalog; <see cref="SkillSources.SkillShare"/> for a skill of SkillShare, whose
+/// <c>Name</c> is then its SkillShare id and <c>Version</c> may be <see cref="SkillSources.Latest"/>.</param>
+public sealed record SkillRef(string Name, string Version, string? Source = null);
 
 /// <summary>What sessions of a profile get (plan §5.5).</summary>
 /// <param name="SystemPrompt">For server agent sessions, with <c>SystemPromptMode</c> saying whether it extends or replaces the built-in one.</param>
@@ -43,8 +45,10 @@ public sealed record ProfileDto(string Name, string? Model, string? PermissionMo
 public sealed record SessionProfileResponse(ResolvedMcpServer[] McpServers, ResolvedSkill[] Skills, Dictionary<string, string>? Environment = null,
     string[]? Mask = null);
 
+/// <param name="SkillShareProvider">Set for a person's SkillShare MCP server: the daemon asks the server for its bearer just in time
+/// (<c>/api/daemon/v1/sessions/{id}/skillshare-tokens/{provider}</c>), since such a token lasts an hour at most.</param>
 public sealed record ResolvedMcpServer(string Name, McpTransport Transport, string? Command, string[] Args, string? Url,
-    Dictionary<string, string> Secrets);
+    Dictionary<string, string> Secrets, string? SkillShareProvider = null);
 
 public sealed record ResolvedSkill(string Name, string Version, string Sha256);
 

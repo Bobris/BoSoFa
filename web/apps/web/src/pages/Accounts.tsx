@@ -3,6 +3,7 @@ import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, refresh, Show } from "solid-js";
 import Command from "../components/Command";
 import Limit from "../components/Limit";
+import SkillShareSection from "../components/SkillShareSection";
 import { paths } from "../router";
 import { fetchMe } from "../session";
 
@@ -219,6 +220,7 @@ export default function Accounts() {
             The secret is encrypted on the server and only handed to your own machines for your own sessions.
           </p>
         </form>
+        <SkillShareSection />
       </div>
       )}
     </Show>

@@ -116,4 +116,12 @@ public sealed class OidcOptions
     public string ClientId { get; set; } = "";
     public string? ClientSecret { get; set; }
     public string DisplayName { get; set; } = "Single sign-on";
+
+    /// <summary>When the provider is SkillShare, a person's role follows its <c>skillshare_admin</c> claim at every sign-in
+    /// (docs/skillshare.md §2.3).</summary>
+    public bool AdminFromSkillShare { get; set; } = true;
+
+    /// <summary>The issuer people signed in through before this provider: someone this one does not know yet takes over that issuer's
+    /// user with the same object id or, failing that, the same email (docs/skillshare.md §2.5). Empty for none.</summary>
+    public string MigrateFromIssuer { get; set; } = "";
 }

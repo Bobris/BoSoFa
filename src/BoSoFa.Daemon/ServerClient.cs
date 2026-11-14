@@ -79,6 +79,18 @@ public sealed class ServerClient(Uri server, HttpMessageHandler? handler = null)
         return (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.SessionProfileResponse, cancellation))!;
     }
 
+    /// <summary>A token of the session's creator for one of its SkillShare MCP servers (docs/skillshare.md §5.3).</summary>
+    public async Task<SkillShareTokenResponse> GetSkillShareTokenAsync(string accessToken, ulong sessionId, string provider, bool fresh,
+        CancellationToken cancellation)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post,
+            $"/api/daemon/v1/sessions/{sessionId}/skillshare-tokens/{Uri.EscapeDataString(provider)}{(fresh ? "?fresh=true" : "")}");
+        request.Headers.Authorization = new("Bearer", accessToken);
+        using var response = await _http.SendAsync(request, cancellation);
+        await EnsureSuccessAsync(response, cancellation);
+        return (await response.Content.ReadFromJsonAsync(ProtocolJsonContext.Default.SkillShareTokenResponse, cancellation))!;
+    }
+
     public async Task<SessionSecretName[]> GetSessionSecretNamesAsync(string accessToken, ulong sessionId, CancellationToken cancellation)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/daemon/v1/sessions/{sessionId}/secrets");

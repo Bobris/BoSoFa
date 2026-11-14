@@ -46,11 +46,15 @@ public sealed class McpEndpoint : IAsyncDisposable
     readonly ConcurrentDictionary<ulong, string> _tokens = new();
     readonly ConcurrentDictionary<string, (ulong SessionId, TaskCompletionSource<(bool Allow, string? Message)> Answer)> _questions = new();
     readonly Task _serving;
-    readonly McpGateway _gateway = new();
+    readonly McpGateway _gateway;
 
-    /// <param name="secretNames">Where the names of a session's secrets and variables come from; null: the tool says so.</param>
-    public McpEndpoint(Func<ulong, SessionState?> sessions, ISessionSink sink, IBlobUploader? uploader, IProfileSource? secretNames = null)
+    /// <param name="secretNames">Where the names of a session's secrets and variables come from, and its SkillShare tokens; null: the tool
+    /// says so.</param>
+    /// <param name="masker">Takes each SkillShare token the gateway gets.</param>
+    public McpEndpoint(Func<ulong, SessionState?> sessions, ISessionSink sink, IBlobUploader? uploader, IProfileSource? secretNames = null,
+        SecretMasker? masker = null)
     {
+        _gateway = new McpGateway(secretNames, masker);
         _sessions = sessions;
         _sink = sink;
         _uploader = uploader;

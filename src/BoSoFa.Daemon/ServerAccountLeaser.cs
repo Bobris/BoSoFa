@@ -22,6 +22,13 @@ public sealed class ServerAccountLeaser(DaemonState state, ECDsa key) : IAccount
         return await client.GetSessionProfileAsync(token.AccessToken, sessionId, cancellation);
     }
 
+    public async Task<SkillShareTokenResponse> GetSkillShareTokenAsync(ulong sessionId, string provider, bool fresh, CancellationToken cancellation)
+    {
+        using var client = new ServerClient(state.Server);
+        var token = await client.GetTokenAsync(state.MachineId, key, cancellation);
+        return await client.GetSkillShareTokenAsync(token.AccessToken, sessionId, provider, fresh, cancellation);
+    }
+
     public async Task<SessionSecretName[]> ListSecretNamesAsync(ulong sessionId, CancellationToken cancellation)
     {
         using var client = new ServerClient(state.Server);

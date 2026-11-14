@@ -105,3 +105,80 @@ export function Picker(props: {
     </div>
   );
 }
+
+/** Like {@link Picker}, but each choice toggles and the list stays open; a search box filters long lists. */
+export function MultiPicker(props: {
+  icon?: JSX.Element;
+  label: string;
+  title?: string;
+  values: string[];
+  choices: Choice[];
+  onChange: (values: string[]) => void;
+  up?: boolean;
+  heading?: string;
+  /** Shows a search box above the choices. */
+  searchable?: boolean;
+  footer?: JSX.Element;
+}) {
+  const [open, setOpen] = createSignal(false);
+  const [query, setQuery] = createSignal("");
+  const shown = () => {
+    const words = query().trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return props.choices.filter((choice) => words.every((word) => `${choice.label} ${choice.hint ?? ""}`.toLowerCase().includes(word)));
+  };
+  const toggle = (value: string) =>
+    props.onChange(props.values.includes(value) ? props.values.filter((item) => item !== value) : [...props.values, value]);
+  return (
+    <div class="relative">
+      <button
+        type="button"
+        title={props.title}
+        class={[
+          "flex h-8 max-w-64 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted transition-colors hover:bg-hover hover:text-ink",
+          { "bg-hover text-ink": open() },
+        ]}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {props.icon}
+        <span class="truncate">{props.label}</span>
+        <ChevronDownIcon class="size-3.5 opacity-60" />
+      </button>
+      <Popover open={open()} onClose={() => setOpen(false)} class={[props.up ? "bottom-full mb-1.5" : "top-full mt-1.5", "left-0 max-h-96 w-80 overflow-y-auto"]}>
+        <Show when={props.heading}>
+          <p class="px-2.5 pb-1 pt-1.5 text-xs font-medium text-muted">{props.heading}</p>
+        </Show>
+        <Show when={props.searchable}>
+          <input
+            class="mx-1 mb-1 w-[calc(100%-0.5rem)] rounded-md border border-line bg-panel px-2 py-1 text-sm outline-none focus:border-accent/40"
+            placeholder="Search"
+            value={query()}
+            onInput={(event) => setQuery(event.currentTarget.value)}
+          />
+        </Show>
+        <For each={shown()} keyed={(choice) => choice.value} fallback={<p class="px-2.5 py-1.5 text-xs text-muted">Nothing found.</p>}>
+          {(choice) => (
+            <button
+              type="button"
+              disabled={choice().disabled}
+              class="flex w-full items-start gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-hover disabled:opacity-50 disabled:hover:bg-transparent"
+              onClick={() => toggle(choice().value)}
+            >
+              <span class="mt-0.5 size-4">
+                <Show when={props.values.includes(choice().value)}>
+                  <CheckIcon class="size-4 text-accent" />
+                </Show>
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate">{choice().label}</span>
+                <Show when={choice().hint}>{(hint) => <span class="block truncate text-xs text-muted">{hint()}</span>}</Show>
+              </span>
+            </button>
+          )}
+        </For>
+        <Show when={props.footer}>
+          <div class="mt-1 border-t border-line pt-1">{props.footer}</div>
+        </Show>
+      </Popover>
+    </div>
+  );
+}

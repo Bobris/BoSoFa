@@ -22,6 +22,9 @@ namespace BoSoFa.Daemon.Sessions;
 /// in the daemon's memory. Requests a server sends to its client (sampling, elicitation, roots) are refused, as for server
 /// agent sessions, and a harness's <c>notifications/cancelled</c> is not passed on, since the relay numbers requests anew.
 /// </remarks>
+/// <param name="tokens">Where the bearers of SkillShare servers come from (<see cref="ResolvedMcpServer.SkillShareProvider"/>): asked for when
+/// first needed, again 5 minutes before they expire, and once more when the server refuses one.</param>
+/// <param name="masker">Takes each such bearer, so a harness that prints one never reports it.</param>
 sealed class McpGateway : IAsyncDisposable
 {
     static readonly TimeSpan CallTimeout = TimeSpan.FromHours(1), RequestTimeout = TimeSpan.FromMinutes(5);
@@ -35,13 +38,24 @@ sealed class McpGateway : IAsyncDisposable
     readonly StdioMcpServers _stdio = new(new ToolImages(null));
     readonly HttpClient _http = new() { Timeout = Timeout.InfiniteTimeSpan };
     readonly CancellationTokenSource _stopping = new();
+    readonly ConcurrentDictionary<(ulong SessionId, string Provider), SkillShareTokenResponse> _bearers = new();
+    readonly IProfileSource? _tokens;
+    readonly SecretMasker? _masker;
     readonly Task _idle;
 
-    public McpGateway() => _idle = StopIdleAsync();
+    public McpGateway(IProfileSource? tokens = null, SecretMasker? masker = null)
+    {
+        _tokens = tokens;
+        _masker = masker;
+        _idle = StopIdleAsync();
+    }
 
     /// <summary>Serves these servers for the session from now on, in place of what it had (its profile may have changed).</summary>
-    public void Register(ulong sessionId, string workingDirectory, IEnumerable<ResolvedMcpServer> servers) =>
+    public void Register(ulong sessionId, string workingDirectory, IEnumerable<ResolvedMcpServer> servers)
+    {
         _sessions[sessionId] = new(workingDirectory, servers.ToDictionary(server => server.Name, StringComparer.Ordinal));
+        foreach (var key in _bearers.Keys.Where(key => key.SessionId == sessionId)) _bearers.TryRemove(key, out _);
+    }
 
     /// <summary>Serves one request of the session's harness to one of its servers. Writes the whole response, errors included.</summary>
     public async Task HandleAsync(HttpListenerContext context, ulong sessionId, string name)
@@ -52,7 +66,7 @@ sealed class McpGateway : IAsyncDisposable
             response.StatusCode = 404;
             return;
         }
-        if (server.Transport == McpTransport.Http) await ProxyAsync(context, server);
+        if (server.Transport == McpTransport.Http) await ProxyAsync(context, sessionId, server);
         else await RelayAsync(context, sessionId, registration.WorkingDirectory, server);
     }
 
@@ -117,31 +131,40 @@ sealed class McpGateway : IAsyncDisposable
     static JsonObject Error(int code, string message) => new() { ["code"] = code, ["message"] = message };
 
     /// <summary>The exchange as it is, the server's own headers in place of the session's bearer, its event streams copied as they come.</summary>
-    async Task ProxyAsync(HttpListenerContext context, ResolvedMcpServer server)
+    async Task ProxyAsync(HttpListenerContext context, ulong sessionId, ResolvedMcpServer server)
     {
         var request = context.Request;
         var response = context.Response;
-        using var message = new HttpRequestMessage(new HttpMethod(request.HttpMethod), server.Url);
+        byte[]? body = null;
         if (request.HasEntityBody)
         {
-            using var body = new MemoryStream();
-            await request.InputStream.CopyToAsync(body);
-            message.Content = new ByteArrayContent(body.ToArray());
-            message.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(request.ContentType ?? "application/json");
-        }
-        foreach (var name in Forwarded)
-            if (request.Headers[name] is { } value) message.Headers.TryAddWithoutValidation(name, value);
-        message.Headers.TryAddWithoutValidation("User-Agent", $"{Brand.Id}/{Cli.Version}");
-        foreach (var (name, value) in server.Secrets)
-        {
-            message.Headers.Remove(name);
-            message.Headers.TryAddWithoutValidation(name, value);
+            using var content = new MemoryStream();
+            await request.InputStream.CopyToAsync(content);
+            body = content.ToArray();
         }
         HttpResponseMessage upstream;
-        try { upstream = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, _stopping.Token); }
+        try
+        {
+            upstream = await SendAsync(request, sessionId, server, body, fresh: false);
+            if (upstream.StatusCode == HttpStatusCode.Unauthorized && server.SkillShareProvider != null)
+            {
+                upstream.Dispose();
+                upstream = await SendAsync(request, sessionId, server, body, fresh: true);
+            }
+        }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException)
         {
             response.StatusCode = 502;
+            return;
+        }
+        catch (Exception exception) when (exception is NotSupportedException or IOException or InvalidOperationException)
+        {
+            // No SkillShare token to be had (the person's sign-in was revoked, say): the server is unavailable, never an OAuth challenge.
+            response.StatusCode = 502;
+            var bytes = Encoding.UTF8.GetBytes($"The MCP server {server.Name} is not available: {exception.Message}");
+            response.ContentType = "text/plain; charset=utf-8";
+            response.ContentLength64 = bytes.Length;
+            await response.OutputStream.WriteAsync(bytes);
             return;
         }
         using (upstream)
@@ -166,6 +189,43 @@ sealed class McpGateway : IAsyncDisposable
             // The harness went away, the server ended its stream, or the daemon stops: the exchange is over either way.
             catch (Exception exception) when (exception is IOException or HttpListenerException or HttpRequestException or OperationCanceledException or ObjectDisposedException) { }
         }
+    }
+
+    async Task<HttpResponseMessage> SendAsync(HttpListenerRequest request, ulong sessionId, ResolvedMcpServer server, byte[]? body, bool fresh)
+    {
+        using var message = new HttpRequestMessage(new HttpMethod(request.HttpMethod), server.Url);
+        if (body != null)
+        {
+            message.Content = new ByteArrayContent(body);
+            message.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(request.ContentType ?? "application/json");
+        }
+        foreach (var name in Forwarded)
+            if (request.Headers[name] is { } value) message.Headers.TryAddWithoutValidation(name, value);
+        message.Headers.TryAddWithoutValidation("User-Agent", $"{Brand.Id}/{Cli.Version}");
+        foreach (var (name, value) in server.Secrets)
+        {
+            message.Headers.Remove(name);
+            message.Headers.TryAddWithoutValidation(name, value);
+        }
+        if (server.SkillShareProvider is { } provider)
+        {
+            message.Headers.Remove("Authorization");
+            message.Headers.TryAddWithoutValidation("Authorization", "Bearer " + await BearerAsync(sessionId, provider, fresh));
+        }
+        return await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, _stopping.Token);
+    }
+
+    async Task<string> BearerAsync(ulong sessionId, string provider, bool fresh)
+    {
+        if (!fresh && _bearers.TryGetValue((sessionId, provider), out var known) && known.ExpiresAt - TimeSpan.FromMinutes(5) > DateTime.UtcNow)
+            return known.AccessToken;
+        if (_tokens == null) throw new NotSupportedException("This daemon cannot get SkillShare tokens.");
+        SkillShareTokenResponse issued;
+        try { issued = await _tokens.GetSkillShareTokenAsync(sessionId, provider, fresh, _stopping.Token); }
+        catch (HttpRequestException refused) when (refused.StatusCode != null) { throw new InvalidOperationException(refused.Message); }
+        _masker?.Retain(issued.AccessToken);
+        _bearers[(sessionId, provider)] = issued;
+        return issued.AccessToken;
     }
 
     async Task StopIdleAsync()

@@ -217,8 +217,16 @@ public sealed class ProfileSavedHandler : IEventHandler<ProfileSaved, SessionCom
         // Everything a profile names must exist, so a session never fails on a dangling reference at start.
         var servers = Ambient.Relation<IMcpServerTable>();
         var skills = Ambient.Relation<ISkillBundleTable>();
-        if (JsonSerializer.Deserialize(ev.McpServers, ProtocolJsonContext.Default.StringArray)!.Any(name => servers.FindByIdOrDefault(name) == null) ||
-            JsonSerializer.Deserialize(ev.Skills, ProtocolJsonContext.Default.SkillRefArray)!.Any(skill => skills.FindByIdOrDefault(skill.Name, skill.Version) == null) ||
+        // A SkillShare server is each person's own, so only its name is known here; a SkillShare skill must be in the mirror.
+        var mirrored = Ambient.Relation<ISkillShareSkillTable>();
+        if (JsonSerializer.Deserialize(ev.McpServers, ProtocolJsonContext.Default.StringArray)!
+                .Any(name => SkillShareCatalog.IsSkillShareMcp(name) ? name.Length == SkillSources.McpPrefix.Length : servers.FindByIdOrDefault(name) == null) ||
+            JsonSerializer.Deserialize(ev.Skills, ProtocolJsonContext.Default.SkillRefArray)!.Any(skill => skill.Source switch
+            {
+                null => skills.FindByIdOrDefault(skill.Name, skill.Version) == null,
+                SkillSources.SkillShare => mirrored.FindByIdOrDefault(skill.Name) is not { Deleted: false } found || SkillShareCatalog.VersionOf(found, skill.Version) == null,
+                _ => true
+            }) ||
             (ev.EnvironmentName != null && SecretEnvironments.Find(ev.EnvironmentName) == null))
             return new() { Outcome = CommandOutcome.NotFound };
         Ambient.Relation<IProfileTable>().Upsert(new()

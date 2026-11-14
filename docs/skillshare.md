@@ -1,7 +1,9 @@
 # SkillShare: sign-in, skills and MCP servers
 
-Status: planned (2026-11-14), milestone M10 in [plan.md](plan.md). Nothing is built yet. The SkillShare side is planned
-in its own repository, `docs/bosofa-connection-plan.md` there, cited here as "SkillShare: <section>".
+Status: milestone M10 in [plan.md](plan.md). BoSoFa's side, steps 1–5 of §8, is built (2026-11-14) and tested against
+`FakeSkillShare`, which plays the contract of §11; SkillShare's side, planned in its own repository
+(`docs/bosofa-connection-plan.md` there, cited here as "SkillShare: <section>"), is being built separately, so nothing has run
+against a real SkillShare yet. Where the build differs from the plan, the text below says so.
 
 ## 1. What and why
 
@@ -137,19 +139,27 @@ New relations go in `src/BoSoFa.Server.Domain/SkillShare.cs`. The whole feature 
 | Relation | Fields |
 | --- | --- |
 | `SkillShareGrant` | `UserId`, `ProtectedRefreshToken`, `Scopes`, `GrantedAt`, `Status` (`Active`, `Expired`) |
-| `SkillShareSkill` | `SkillShareId`, `Name`, `Description`, `Tags`, `LatestVersion`, `Versions` (version, published at, content SHA-256), `Deprecated`, `Deleted`, `Owner` (name) |
+| `SkillShareSkill` | `Id` (SkillShare's), `Name`, `BundleName` (its folder on machines), `Description`, `Tags`, `Versions` (version, published at, latest, content SHA-256), `Deprecated`, `Deleted`, `Owner` (name) |
+| `SkillShareSync` | one row: `Cursor` (SkillShare's time of the last read), `LastSyncAt`, `LastError` |
 | `SkillShareMcpChoice` | `UserId`, `Off` (providers the person turned off; everything else they connected is on) |
 
 Changes to what exists:
 
 - `User` gains `ObjectId` and `TenantId`.
 - `UserSignedIn` gains the grant's ciphertext and `IsAdmin` (from the claim, when configured).
-- `SkillBundle` gains `Source` (`Local` or `SkillShare`), `SourceId` and `SourceVersion`.
-  - A SkillShare bundle is named like its skill, normalized to `^[a-z0-9][a-z0-9_-]{0,63}$`.
-  - When a local bundle has the same name, the local one wins in pickers, and a profile names the SkillShare one as
-    `skillshare:<name>`.
+- `Session` gains `Skills` (its own skills, SkillShare's with "latest" resolved at creation) and `SkillShareMcp` (the
+  creator's SkillShare servers it gets, with their URLs). A session with either fetches a launch profile even without a
+  profile.
+- `SkillRef` gains `Source`: null for a bundle of this server's catalog, `skillshare` for a SkillShare skill, whose `Name` is
+  then its SkillShare id and whose `Version` may be `latest`. A profile names a SkillShare server as `skillshare:<provider>`.
+- *Built differently:* `SkillBundle` is unchanged. A SkillShare version is not a bundle row: its archive's SHA-256 is the
+  catalog's, so it is a blob of that name, and `SkillShareSkill` resolves it. Its folder is the skill's name made a catalog
+  name (`Grafana fetch` → `grafana-fetch`); when two skills of a launch share a folder name, the first wins: the profile's
+  own bundles, then the session's.
 - New events: `SkillShareGrantExpired`, `SkillShareCatalogSynced` (only the skills that changed),
-  `SkillShareMcpChoiceSaved`, `UserMigrated`.
+  `SkillShareMcpChoiceSaved`. Migration and the role are part of `UserSignedIn` (fields `MigrateFromIssuer`,
+  `ProviderSaysRole`, `ProviderSaysAdmin`, `ObjectId`, `TenantId`, and the grant's `GrantId`, `ProtectedGrant`), audited as
+  `user.migrated` and `user.role`.
 
 Access tokens from SkillShare are **never** written to events, relations, logs or blobs. They live only in a memory
 cache on each node (§5.2).
@@ -159,21 +169,23 @@ cache on each node (§5.2).
 ### 4.1 Mirroring the catalog
 
 - The BTDB backend action `skillshare-catalog-sync`, hosted by `BackendActionsService` as AGENTS.md requires, runs
-  every 10 minutes and on "Sync now".
+  every 10 minutes (`[RepeatedlyScheduled(10)]`), on "Sync now", and once at the first sign-in through SkillShare.
 - It gets an app token through `client_credentials` with scope `skills.read`, then calls
   `GET /api/connect/v1/skills?changedSince=`.
 - It publishes `SkillShareCatalogSynced` with only what changed, so an unchanged catalog writes nothing to the event
   log, which is kept forever.
 - Deleted skills are marked as gone, not removed. Profiles that name them then say so instead of failing silently.
+- An unchanged catalog moves the cursor at most hourly, and a failure is recorded once, not at every attempt.
 
 ### 4.2 From a SkillShare version to a bundle
 
-- **Import.** A version becomes a bundle the first time something needs it: a profile save, a session start, or
-  "Import".
-  - The backend action `skillshare-skill-import` fetches
-    `GET /api/connect/v1/skills/{id}/versions/{v}/archive`: a zip with `SKILL.md` at its root (SkillShare: API).
-  - It checks the zip's SHA-256 against the catalog's, stores it in the blob store, and publishes
-    `SkillBundlePublished` with `Source = SkillShare`.
+- **Import.** A version's archive reaches the blob store the first time a session starts with it.
+  - The session's endpoint fetches `GET /api/connect/v1/skills/{id}/versions/{v}/archive`: a zip with `SKILL.md` at its
+    root (SkillShare: API).
+  - It checks the zip's SHA-256 against the catalog's and stores it as the blob of that hash. No event: the blob's name is
+    the catalog's hash already.
+  - *Built differently:* no backend action and no "Import" button. Fetching one zip is short, request-driven work, and it
+    happens at most once per version, guarded per hash on each node.
 - **From there nothing changes.** `SessionProfiles` downloads the bundle, checks it and snapshots it. Claude Code gets
   it through `--plugin-dir`, Codex through `$CODEX_HOME/skills`.
 - **A version not imported yet.** A session start that needs it waits for the import, at most 30 s. After that the
@@ -213,7 +225,7 @@ cache on each node (§5.2).
   - Each session can untick or tick servers in the composer.
   - Servers not yet connected link to SkillShare's `/mcps`.
 - **Profiles** may name `skillshare:<provider>` too. If the creator has not connected that server, the session starts
-  without it, and the transcript says so.
+  without it. *Not built yet:* a transcript item saying so.
 
 ### 5.2 Token broker
 
@@ -242,6 +254,8 @@ cache on each node (§5.2).
 - **The server's checks.** It checks what the account lease checks (the session runs on this machine and is not
   stopped). It also checks that the provider is in the session's resolved set. Then it asks the broker for the
   **session creator's** token.
+- **When there is none** (the grant was revoked, say), the gateway answers the harness 502 with the reason, never a 401 that
+  could start an OAuth sign-in.
 - **What the harness sees.** Only the loopback gateway with the session bearer. No SkillShare token reaches a model, a
   shell or a config file (secrets.md §6). The daemon adds each token to the masker anyway.
 - **The server agent** resolves the same reference in-process for `McpHttpClient`, with the same refresh after a 401.
@@ -251,16 +265,16 @@ cache on each node (§5.2).
 ## 6. API and UI
 
 - **API:**
-  - `GET /api/v1/skillshare/status` (admins): discovery, client credentials, last sync and its error, and how many
-    people have an active grant.
-  - `POST /api/v1/skillshare/sync`.
-  - `GET /api/v1/skillshare/skills?query=&tag=` (members) and
-    `POST /api/v1/skillshare/skills/{id}/versions/{v}/import`.
+  - `GET /api/v1/skillshare` (everyone): whether the server signs in through SkillShare, and the person's grant; for
+    admins also the last sync, its error, and how many people have an active grant.
+  - `POST /api/v1/skillshare/sync` (admins).
+  - `GET /api/v1/skillshare/skills` (members; the UI filters).
   - `GET /api/v1/skillshare/mcps` and `PUT /api/v1/skillshare/mcp-choice` (the person's own).
-  - Daemon: `POST /api/daemon/v1/sessions/{id}/skillshare-tokens/{provider}`.
+  - `CreateSessionRequest.Skills` and `.SkillShareMcpServers` (null: the person's defaults).
+  - Daemon: `POST /api/daemon/v1/sessions/{id}/skillshare-tokens/{provider}?fresh=`.
 - **UI:**
-  - The admin page `/skillshare` under Administration shows the status above.
-  - The catalog page lists SkillShare skills with Import.
+  - The catalog page lists SkillShare skills; admins see the status above there with "Sync now" (*built differently:* no
+    page of its own), and the profile form offers SkillShare skills and servers.
   - The composer gets the Skills picker and the SkillShare servers.
   - The Accounts page gets a SkillShare section: who the person is signed in as, the grant's state ("sign in again"),
     and their servers with on/off switches.
@@ -270,50 +284,56 @@ cache on each node (§5.2).
 
 ## 7. Testing
 
-- **`FakeSkillShare`** in the test project is an in-process OIDC provider:
+- **`FakeSkillShare`** (`tests/BoSoFa.Server.Tests/FakeSkillShare.cs`) is an OIDC provider on a loopback port:
   - discovery, JWKS, and ID tokens signed with ES256;
   - authorize (trusted, so no screen), and a token endpoint with `authorization_code`, `refresh_token` + `resource`,
     and `client_credentials`;
   - the connect API (skills, archives, `me/mcps`);
   - an HTTP MCP server that requires its tokens.
 
-  It plays SkillShare's contract from its plan, so a change there shows up as a failing test here.
-- **`SkillShareTest`** covers:
-  - sign-in storing a grant, and the admin role following the claim;
-  - migration by `oid` and by email, where each old user is taken over once;
-  - a sync that writes only changes, and an import with a bad hash;
-  - a session that gets a picked skill;
-  - a Claude Code replay session whose MCP call goes through the gateway with a refreshed token;
-  - `invalid_grant` during a session;
-  - that no refresh or access token appears in the server's files in plain text, as `AccountTest` checks for accounts.
-- **The cluster test** asks for a user token on a node other than the one the person signed in on.
+  It plays the contract of §11, so a change there shows up as a failing test here. Its authorize endpoint signs in a
+  chosen person at once; a browser gets the form post a real provider answers with, so it can also run by hand for the UI.
+- **`SkillShareTest`** covers (built):
+  - sign-in storing a grant, the role following the claim, and no refresh token in the server's files in plain text;
+  - migration from the previous issuer by email, where the old user is taken over once;
+  - the catalog sync, a profile naming SkillShare skills and servers (and one naming a skill that is not there);
+  - a replay session that gets the latest version of a picked skill, counts the download for its person, and reaches its
+    person's YouTrack through the gateway; an expired token replaced by a fresh one; a revoked grant ending it (502, the
+    grant marked expired); another machine refused the session's token;
+  - the server agent's MCP client asking for a fresh token after a 401.
+- *Not built yet:* the cluster test asking for a user token on another node, and a migration by `oid`.
 - **One manual run** against preprod SkillShare (`https://skillshare.quadientcloudpreprod.eu`) once its side is
-  deployed.
+  deployed. The UI was tried by hand against `FakeSkillShare` (2026-11-14): sign-in, the Accounts section and its switches,
+  the catalog's SkillShare skills, and a session started from the composer with a picked skill and the person's server.
 
 ## 8. Steps
 
-Each step needs the named SkillShare phase deployed first, except when run against `FakeSkillShare`.
+Each step needs the named SkillShare phase deployed first, except when run against `FakeSkillShare`. Steps 1–5 are built
+against `FakeSkillShare` (2026-11-14); none has run against a real SkillShare yet.
 
 1. **Record `oid` and `tid`** at sign-in from the current provider, in a release made before the switch, so that
-   migration can match by `oid`.
+   migration can match by `oid`. *Built.*
 2. **Sign-in through SkillShare** (SkillShare phase 1):
    - the grant captured at sign-in, the admin claim, and migration;
    - `FakeSkillShare`;
    - [deploy-single-node.md](deploy-single-node.md) and [deploy-aks.md](deploy-aks.md) explaining the registration.
 
    *Done when* staging signs in through preprod SkillShare and existing users keep their machines and sessions.
-3. **Token broker** (SkillShare phase 2): app and user tokens, the cache, `invalid_grant`, and audit.
+   *Built*; waits for SkillShare phase 1.
+3. **Token broker** (SkillShare phase 2): app and user tokens, the cache, `invalid_grant`, and audit. *Built.*
 4. **Skills** (SkillShare phase 3):
    - the sync and import backend actions, and the bundle source;
    - the catalog page, profile references, and the composer's Skills picker.
 
    *Done when* a member picks a SkillShare skill in the composer and a Claude Code session on a machine uses it.
+   *Built* (without the backend action for imports, §4.2); waits for SkillShare phase 3.
 5. **MCP servers** (SkillShare phase 2):
    - listing and choices, and the Accounts section;
    - the composer, the gateway's token endpoint, and the server agent.
 
    *Done when* a member's Claude Code session searches their YouTrack through SkillShare with their own access mode,
-   and the server agent does the same with no machine.
+   and the server agent does the same with no machine. *Built*; waits for SkillShare phase 2. The server agent's side is
+   covered by its MCP client's test, not by an agent session.
 6. **Polish:**
    - errors explained in the UI;
    - usage on the admin page;
@@ -348,3 +368,54 @@ Taken 2026-11-14:
 | Migration links the wrong person | `oid` first. Email only within the old issuer, once per user, audited. |
 | A large catalog or many sessions load SkillShare | Only changes are synced. Each archive is fetched once per version. Tokens are cached until near expiry. |
 | SkillShare's contract changes | A versioned `/api/connect/v1`, and `FakeSkillShare` plays the contract in CI. |
+
+## 11. Wire contract
+
+What BoSoFa sends and reads, so that SkillShare's side can be built to it. `FakeSkillShare` plays exactly this. BoSoFa reads
+JSON tolerantly: unknown fields are ignored, and the alternatives named below are accepted too.
+
+**Discovery**, `GET <authority>/.well-known/openid-configuration` (OIDC Discovery), plus:
+
+| Field | Meaning |
+| --- | --- |
+| `skillshare_connect_api` | The connect API's base URL, `https://<host>/api/connect/v1`. Its presence is what makes BoSoFa treat the provider as SkillShare. |
+| `skillshare_mcp_resources` | The MCP servers' URLs (informational). |
+| `skillshare_name` | Optional: the name the UI shows; `SkillShare` without it. |
+| `skillshare_mcp_setup_url` | Optional: where a person connects their tools; `<authority>/mcps` without it. |
+
+`issuer` must be the authority exactly as configured in BoSoFa (no trailing slash), and `jwks_uri` must serve the ES256 key.
+
+**Sign-in** (authorization code with PKCE S256, `response_mode=form_post`, client authentication `client_secret_basic` on the
+token endpoint). BoSoFa asks for `openid profile email offline_access skills.read mcps.read mcp.use`. The ID token carries
+`sub`, `email`, `name`, `nonce`, and optionally `oid`, `tid` and `skillshare_admin` (a JSON boolean). The token response's
+`refresh_token` is stored; `scope` is recorded when present.
+
+**Tokens**, `POST <token_endpoint>`, form-encoded, always with `client_secret_basic`:
+
+| Request | Answer |
+| --- | --- |
+| `grant_type=client_credentials&scope=skills.read` | an app token for the skills endpoints |
+| `grant_type=refresh_token&refresh_token=…&scope=mcps.read skills.read` (no `resource`) | a person's token for the connect API |
+| `grant_type=refresh_token&refresh_token=…&scope=mcp.use&resource=<MCP URL>` | a person's token for that MCP server |
+
+The answer is `{ "access_token", "token_type": "Bearer", "expires_in" }`; the refresh token does not rotate, so no new one is
+expected. Errors are `{ "error", "error_description" }`: `invalid_grant` marks the person's grant expired in BoSoFa;
+`invalid_client` and `unauthorized_client` mean the app itself is refused; `invalid_target` and `invalid_scope` refuse the
+request only.
+
+**Connect API**, bearer tokens as above:
+
+- `GET skills` and `GET skills?changedSince=<ISO 8601>` (app token) → `{ "skills": [ … ], "now": "<ISO 8601>" }`; a bare array
+  is accepted too. Each skill: `id` (string or number), `name`, `description`, `tags` (strings, or objects with `slug` or
+  `name`), `owner` (a string, or an object with `name`; `ownerName` also works), `deprecated`, `deleted`, and `versions`:
+  `[{ "version", "publishedAt", "latest", "contentSha256" }]` with every version of a skill that changed, not only the new
+  one. `now` is SkillShare's clock, the next `changedSince`; without it BoSoFa uses its own minus two minutes.
+- `GET skills/{id}/versions/{version}/archive` (app token) → the zip whose SHA-256 (lowercase hex) is `contentSha256`, with
+  `SKILL.md` at its root; at most 64 MiB.
+- `POST skills/{id}/versions/{version}/downloads` (a person's token, body `{}`) → any 2xx; counts a use for that person.
+- `GET me/mcps` (a person's token) → `{ "mcps": [ … ] }` (a bare array, or `providers`, are accepted too). Each server: `id`
+  (BoSoFa takes only lowercase letters, digits, `-` and `_`), `title`, `url` (the exact resource for its tokens),
+  `connected`, `accessMode`, `setupUrl`.
+
+**MCP servers** take the person's token as `Authorization: Bearer` and answer 401 when it is no longer valid; BoSoFa then asks
+once for a fresh one.

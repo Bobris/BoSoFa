@@ -112,6 +112,8 @@ public static class ServerApp
         builder.Services.AddSingleton<BoSoFa.Server.Agents.AgentSideQuestionHandler>();
         builder.Services.AddSingleton<BoSoFa.Server.Sessions.ShellCommandHandler>();
         builder.Services.AddSingleton<BoSoFa.Server.Sessions.DraftShellCommandHandler>();
+        builder.Services.AddSingleton<BoSoFa.Server.SkillShare.SkillShareClient>();
+        builder.Services.AddSingleton<BoSoFa.Server.SkillShare.SkillShareCatalogSyncHandler>();
         builder.Services.AddSingleton(sp => new BTDB.BackendActions.BackendActions().RegisterGenerated(type => sp.GetRequiredService(type)));
         builder.Services.AddHostedService<BackendActionsService>(); // after the node: stops first, while the publisher still runs
         builder.Services.AddHostedService<McpValueMigration>();
@@ -144,6 +146,7 @@ public static class ServerApp
         BoSoFa.Server.Desktop.DesktopEndpoints.MapDesktopEndpoints(app);
         app.MapAuditEndpoints();
         app.MapCatalogEndpoints();
+        BoSoFa.Server.SkillShare.SkillShareEndpoints.MapSkillShareEndpoints(app);
         app.MapBlobEndpoints();
         if (cluster != null)
         {

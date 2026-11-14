@@ -131,9 +131,11 @@ public sealed partial class AgentToolbox
     /// <param name="toolGroup">Which of the machine's tools the session has.</param>
     /// <param name="webFetch">Fetches a page for the model.</param>
     /// <param name="listSecrets">Names the secrets and variables the session can refer to; null: not available.</param>
+    /// <param name="skillShareToken">The bearer of a SkillShare server (<see cref="ResolvedMcpServer.SkillShareProvider"/>): the provider,
+    /// and true after the server refused the last one.</param>
     public static async Task<(AgentToolbox Toolbox, List<string> Problems)> LoadAsync(HttpClient http, IEnumerable<ResolvedMcpServer> servers, AgentMachine? machine,
         bool offersPatch, string toolGroup, Func<string, int, CancellationToken, Task<McpToolResult>> webFetch, CancellationToken cancellation,
-        Func<CancellationToken, Task<McpToolResult>>? listSecrets = null)
+        Func<CancellationToken, Task<McpToolResult>>? listSecrets = null, Func<string, bool, CancellationToken, Task<string>>? skillShareToken = null)
     {
         var toolbox = new AgentToolbox { _machine = machine, _offersPatch = offersPatch, _toolGroup = toolGroup, _webFetch = webFetch };
         if (listSecrets != null) toolbox._listSecrets = listSecrets;
@@ -142,7 +144,10 @@ public sealed partial class AgentToolbox
         {
             var isHttp = server.Transport == McpTransport.Http;
             if (!isHttp && machine == null) continue;
-            var client = isHttp ? new McpHttpClient(http, server.Name, new Uri(server.Url!), server.Secrets) : null;
+            var client = isHttp
+                ? new McpHttpClient(http, server.Name, new Uri(server.Url!), server.Secrets,
+                    server.SkillShareProvider is { } provider && skillShareToken != null ? (fresh, stop) => skillShareToken(provider, fresh, stop) : null)
+                : null;
             try
             {
                 foreach (var tool in client != null ? await client.ListToolsAsync(cancellation) : await machine!.ListMcpToolsAsync(server, cancellation))

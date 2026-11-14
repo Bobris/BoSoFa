@@ -56,6 +56,13 @@ public class Session
 
     /// <summary>When the provider's prompt cache lapses, if much is cached.</summary>
     public DateTime? CacheExpiresAt { get; set; }
+
+    /// <summary>Skills the session got besides its profile's, as JSON <see cref="SkillRef"/>[] with concrete versions: SkillShare's
+    /// "latest" was resolved when it started (docs/skillshare.md §4.3). Empty for none.</summary>
+    public string Skills { get; set; } = "";
+
+    /// <summary>The creator's SkillShare MCP servers the session gets, as JSON <see cref="SkillShareMcpRef"/>[]; empty for none.</summary>
+    public string SkillShareMcp { get; set; } = "";
 }
 
 public interface ISessionTable : IRelation<Session>
@@ -213,6 +220,12 @@ public class SessionCreated : EventWithResult<SessionCommandResult>
     public string RunnerNodeId { get; set; } = "";
 
     public string RunnerPeerUrl { get; set; } = "";
+
+    /// <summary>See <see cref="Session.Skills"/>; resolved by the endpoint, empty for none.</summary>
+    public string Skills { get; set; } = "";
+
+    /// <summary>See <see cref="Session.SkillShareMcp"/>; resolved by the endpoint, empty for none.</summary>
+    public string SkillShareMcp { get; set; } = "";
 }
 
 public class SessionMessageSent : EventWithResult<SessionCommandResult>
@@ -421,7 +434,7 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
             if (profile == null) return new() { Outcome = CommandOutcome.NotFound };
             var servers = Ambient.Relation<IMcpServerTable>();
             if (ev.MachineId == 0 && JsonSerializer.Deserialize(profile.McpServers, ProtocolJsonContext.Default.StringArray)!
-                .Any(name => servers.FindByIdOrDefault(name) is not { Transport: McpTransport.Http }))
+                .Any(name => !SkillShareCatalog.IsSkillShareMcp(name) && servers.FindByIdOrDefault(name) is not { Transport: McpTransport.Http }))
                 return new() { Outcome = CommandOutcome.Invalid };
             if (SecretEnvironments.Refuses(profile, ev.MachineId)) return new() { Outcome = CommandOutcome.Invalid };
         }
@@ -431,7 +444,8 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
             CreatedById = ev.UserId, Harness = ev.Harness, Title = Sessions.TitleOf(ev.Prompt),
             PermissionMode = ev.PermissionMode, Model = ev.Model!.Trim(), Status = SessionStatus.Running, CreatedAt = ev.When,
             UpdatedAt = ev.When, AccountId = ev.AccountId, ProfileName = ev.ProfileName, SystemPrompt = string.IsNullOrWhiteSpace(ev.SystemPrompt) ? null : ev.SystemPrompt,
-            ReasoningEffort = ev.ReasoningEffort, ToolGroup = AgentToolGroups.Narrower(ev.ToolGroup, profile?.MaxToolGroup)
+            ReasoningEffort = ev.ReasoningEffort, ToolGroup = AgentToolGroups.Narrower(ev.ToolGroup, profile?.MaxToolGroup),
+            Skills = ev.Skills, SkillShareMcp = ev.SkillShareMcp
         };
         Ambient.Relation<ISessionTable>().Insert(session);
         var (outputs, carried) = DraftShellCommands.MoveTo(session, ev.DraftId, ev.ShellOutputSeqs);
@@ -484,14 +498,14 @@ public sealed class SessionCreatedHandler(IDomainSignals signals, BTDB.BackendAc
             WorkingDirectory = ev.WorkingDirectory.Trim(), Title = Sessions.TitleOf(ev.Prompt),
             PermissionMode = ev.PermissionMode, Model = string.IsNullOrWhiteSpace(ev.Model) ? null : ev.Model.Trim(),
             Status = SessionStatus.Starting, CreatedAt = ev.When, UpdatedAt = ev.When, AccountId = ev.AccountId,
-            ProfileName = ev.ProfileName, ReasoningEffort = ev.ReasoningEffort
+            ProfileName = ev.ProfileName, ReasoningEffort = ev.ReasoningEffort, Skills = ev.Skills, SkillShareMcp = ev.SkillShareMcp
         };
         Ambient.Relation<ISessionTable>().Insert(session);
         var (outputs, carried) = DraftShellCommands.MoveTo(session, ev.DraftId, ev.ShellOutputSeqs);
         Sessions.AppendItem(session, SessionItemKind.User, ev.When, ev.Prompt, data: Sessions.ImagesData(ev.ImagesJson), itemRef: Sessions.CarriedRefOrNull(carried));
         var start = JsonSerializer.Serialize<MachineCommand>(new StartSessionCommand(session.Id, session.Harness,
             session.WorkingDirectory, BoSoFa.Protocol.ShellCommands.Prepend(ev.Prompt, outputs, Sessions.MaximumPromptLength), session.PermissionMode, session.Model,
-            session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree, ev.ProfileName != null, Sessions.Images(ev.ImagesJson),
+            session.AccountId == 0 ? null : session.AccountId, ev.UseWorktree, SkillShareCatalog.HasLaunchProfile(session), Sessions.Images(ev.ImagesJson),
             session.ReasoningEffort), ProtocolJsonContext.Default.MachineCommand);
         if (!SecretEnvironments.Hold(session, profile, start, ev.When)) Sessions.IssueCommand(signals, machine.Id, start, ev.When);
         Sessions.Changed(signals, session, ev.When);

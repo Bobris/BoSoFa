@@ -13,6 +13,11 @@ public interface IProfileSource : IBlobDownloader
 
     /// <summary>The names of the secrets and variables the session's creator can refer to, never their values.</summary>
     Task<SessionSecretName[]> ListSecretNamesAsync(ulong sessionId, CancellationToken cancellation);
+
+    /// <summary>A token of the session's creator for one of its SkillShare MCP servers; <paramref name="fresh"/> after the server refused
+    /// the last one.</summary>
+    Task<SkillShareTokenResponse> GetSkillShareTokenAsync(ulong sessionId, string provider, bool fresh, CancellationToken cancellation) =>
+        throw new NotSupportedException("This daemon cannot get SkillShare tokens.");
 }
 
 /// <summary>A profile made ready for a harness: its MCP servers, and a folder holding <c>skills/&lt;name&gt;/</c>.</summary>

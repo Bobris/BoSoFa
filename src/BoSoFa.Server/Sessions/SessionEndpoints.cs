@@ -139,7 +139,7 @@ public static class SessionEndpoints
     }
 
     static async Task<Results<Ok<SessionDto>, NotFound, ForbidHttpResult, BadRequest<string>>> CreateSessionAsync(
-        CreateSessionRequest request, BtdbNode node, IBlobStore blobs, HttpContext http)
+        CreateSessionRequest request, BtdbNode node, IBlobStore blobs, SkillShare.SkillShareClient skillShare, ILoggerFactory loggers, HttpContext http)
     {
         var (imagesJson, problem) = await ImagesJsonAsync(request.Images, blobs, http.RequestAborted);
         if (problem != null) return TypedResults.BadRequest(problem);
@@ -162,7 +162,7 @@ public static class SessionEndpoints
             model ??= profile?.Model;
             permissionMode ??= profile?.PermissionMode;
             if (isAgent && request.MachineId == 0 && profile != null && JsonSerializer.Deserialize(profile.McpServers, ProtocolJsonContext.Default.StringArray)!
-                    .Any(server => Ambient.Relation<IMcpServerTable>().FindByIdOrDefault(server)?.Transport != McpTransport.Http))
+                    .Any(server => !SkillShareCatalog.IsSkillShareMcp(server) && Ambient.Relation<IMcpServerTable>().FindByIdOrDefault(server)?.Transport != McpTransport.Http))
                 return TypedResults.BadRequest("This profile has MCP servers that run on a machine, and this session has none.");
             if (SecretEnvironments.Refuses(profile, request.MachineId))
                 return TypedResults.BadRequest($"This profile uses the {profile!.EnvironmentName} environment, which is not for this machine.");
@@ -175,8 +175,13 @@ public static class SessionEndpoints
             using var query = publisher.StartQuery();
             if (ImagesRefused(request.AccountId!.Value, model) is { } refused) return TypedResults.BadRequest(refused);
         }
+        // The skills and SkillShare MCP servers it gets, with SkillShare's "latest" resolved now: the session keeps them.
+        var (skills, skillShareMcp, skillShareProblem) = await SkillShare.SkillShareEndpoints.ForSessionAsync(skillShare, node, http.User.UserId() ?? 0,
+            request.ProfileName, request.Skills, request.SkillShareMcpServers, loggers.CreateLogger("BoSoFa.Server.SkillShare"), http.RequestAborted);
+        if (skillShareProblem != null) return TypedResults.BadRequest(skillShareProblem);
         return await RunAsync(node, http, new SessionCreated
         {
+            Skills = skills, SkillShareMcp = skillShareMcp,
             MachineId = request.MachineId, UserId = http.User.UserId() ?? 0, Harness = request.Harness,
             WorkingDirectory = request.WorkingDirectory, Prompt = request.Prompt,
             PermissionMode = permissionMode ?? "default", Model = model, AccountId = request.AccountId ?? 0,

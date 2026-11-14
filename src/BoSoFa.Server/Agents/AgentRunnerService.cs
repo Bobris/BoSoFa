@@ -3,6 +3,7 @@ using BoSoFa.Protocol;
 using BoSoFa.Server.Accounts;
 using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Secrets;
+using BoSoFa.Server.SkillShare;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Live;
 using BoSoFa.Server.Machines;
@@ -44,7 +45,7 @@ sealed class AgentLoopContext(EventPublisher publisher, string nodeId, ulong act
 /// </summary>
 public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, MachinePresenceService presence, ReplicationLeadership leadership,
     LiveHub hub, LiveRelay relay, MachineRpcClient rpc, IDataProtectionProvider protection, IBlobStore blobs, TimeProvider time, ILogger<AgentRunnerService> logger,
-    ServerSecretMasker masker)
+    ServerSecretMasker masker, SkillShareClient skillShare)
     : BackgroundService
 {
     /// <summary>Anthropic's default cache lifetime; OpenAI and OpenCode do not promise one, so nothing is counted down for them.</summary>
@@ -178,6 +179,7 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
             if (problem != null) throw new AgentSetupException(problem);
             resolver = new SecretResolver(session.CreatedById, protection, session.MachineId, secretEnvironment);
             (servers, environment) = profile != null ? CatalogEndpoints.Resolve(profile, resolver, protection) : ([], []);
+            servers = [..servers, ..SkillShareEndpoints.ServersOf(session, servers)];
             try { resolver.ThrowIfMissing(); }
             catch (MissingSecretsException missing) { throw new AgentSetupException(missing.Message); }
             mask = resolver.Secrets;
@@ -210,6 +212,12 @@ public sealed class AgentRunnerService(BtdbNode node, ServerOptions options, Mac
                 // Read again at each call: the person may have set one since the run began.
                 var names = await ListSecretNamesAsync(session.Id, stop);
                 return new McpToolResult(names == null ? "This session does not exist any more." : SecretNames.Describe(names), names == null);
+            },
+            async (provider, fresh, stop) =>
+            {
+                var server = SkillShareEndpoints.McpOf(session).FirstOrDefault(candidate => candidate.Id == provider)
+                    ?? throw new SkillShareException(SkillShareProblem.NotFound, $"This session has no SkillShare server {provider}.");
+                return (await SkillShareEndpoints.UserTokenAsync(skillShare, publisher, session, server, fresh, logger, stop)).AccessToken;
             });
         var model = ModelCatalog.Find(kind, session.Model!);
         // The Messages API needs a limit, and an older model's is lower than the usual one; the Responses API has no need of one.

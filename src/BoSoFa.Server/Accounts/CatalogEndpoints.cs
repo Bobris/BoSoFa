@@ -4,6 +4,7 @@ using BoSoFa.Server.Btdb;
 using BoSoFa.Server.Domain;
 using BoSoFa.Server.Machines;
 using BoSoFa.Server.Secrets;
+using BoSoFa.Server.SkillShare;
 using BoSoFa.Server.Tokens;
 using BTDB.Replication.EventSourcing;
 using Microsoft.AspNetCore.DataProtection;
@@ -209,17 +210,17 @@ public static partial class CatalogEndpoints
             if (Ambient.Relation<ISessionTable>().FindByIdOrDefault(id) is not { } found) return TypedResults.NotFound();
             session = found;
             if (session.MachineId != http.User.MachineId() || session.Status == SessionStatus.Stopped) return TypedResults.Forbid();
-            if (session.ProfileName is not { } name || Ambient.Relation<IProfileTable>().FindByIdOrDefault(name) is not { } profile)
-                return TypedResults.NotFound();
-            var (secretEnvironment, problem) = SecretEnvironments.Admit(session, profile);
+            var profile = session.ProfileName is { } name ? Ambient.Relation<IProfileTable>().FindByIdOrDefault(name) : null;
+            // A session without a profile may still have its own skills and SkillShare servers (docs/skillshare.md §4.3, §5.3).
+            if (profile == null && (session.ProfileName != null || !SkillShareCatalog.HasLaunchProfile(session))) return TypedResults.NotFound();
+            var (secretEnvironment, problem) = profile != null ? SecretEnvironments.Admit(session, profile) : (null, null);
             if (problem != null) return TypedResults.Conflict(problem);
             resolver = new SecretResolver(session.CreatedById, protection, session.MachineId, secretEnvironment);
-            var (servers, environment) = Resolve(profile, resolver, protection);
+            var (servers, environment) = profile != null ? Resolve(profile, resolver, protection) : ([], new Dictionary<string, string>());
             try { resolver.ThrowIfMissing(); }
             catch (MissingSecretsException missing) { return TypedResults.Conflict(missing.Message); }
-            var skills = Skills(profile.Skills).Select(skill => Ambient.Relation<ISkillBundleTable>().FindByIdOrDefault(skill.Name, skill.Version))
-                .Where(skill => skill != null).Select(skill => new ResolvedSkill(skill!.Name, skill.Version, skill.Sha256)).ToArray();
-            response = new SessionProfileResponse(servers, skills, environment, resolver.Secrets);
+            response = new SessionProfileResponse([..servers, ..SkillShareEndpoints.ServersOf(session, servers)], SkillShareEndpoints.SkillsOf(session, profile),
+                environment, resolver.Secrets);
         }
         await resolver.RecordAsync(publisher, session, loggers.CreateLogger("BoSoFa.Server.Secrets"));
         return TypedResults.Ok(response);

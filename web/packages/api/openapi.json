@@ -402,6 +402,68 @@
         }
       }
     },
+    "/api/daemon/v1/sessions/{id}/skillshare-tokens/{provider}": {
+      "post": {
+        "tags": [
+          "SkillShareEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "uint64"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fresh",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillShareTokenResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/providers": {
       "get": {
         "tags": [
@@ -3522,6 +3584,135 @@
         }
       }
     },
+    "/api/v1/skillshare": {
+      "get": {
+        "tags": [
+          "SkillShareEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillShareStatusDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/skillshare/sync": {
+      "post": {
+        "tags": [
+          "SkillShareEndpoints"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/skillshare/skills": {
+      "get": {
+        "tags": [
+          "SkillShareEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SkillShareSkillDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/skillshare/mcps": {
+      "get": {
+        "tags": [
+          "SkillShareEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "fresh",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SkillShareMcpDto"
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/skillshare/mcp-choice": {
+      "put": {
+        "tags": [
+          "SkillShareEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillShareMcpChoiceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/blobs": {
       "post": {
         "tags": [
@@ -4195,6 +4386,24 @@
                 "string"
               ],
               "format": "int64"
+            }
+          },
+          "skills": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SkillRef"
+            }
+          },
+          "skillShareMcpServers": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
             }
           }
         }
@@ -6454,6 +6663,12 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "skillShareProvider": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -7340,6 +7555,232 @@
           },
           "version": {
             "type": "string"
+          },
+          "source": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SkillShareGrantStatus": {
+        "enum": [
+          "None",
+          "Active",
+          "Expired"
+        ]
+      },
+      "SkillShareMcpChoiceRequest": {
+        "required": [
+          "off"
+        ],
+        "type": "object",
+        "properties": {
+          "off": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SkillShareMcpDto": {
+        "required": [
+          "id",
+          "title",
+          "url",
+          "connected",
+          "accessMode",
+          "setupUrl",
+          "on"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "accessMode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "setupUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "on": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SkillShareSkillDto": {
+        "required": [
+          "id",
+          "name",
+          "bundleName",
+          "description",
+          "tags",
+          "owner",
+          "latestVersion",
+          "versions",
+          "deprecated"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "bundleName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "owner": {
+            "type": "string"
+          },
+          "latestVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillShareSkillVersionDto"
+            }
+          },
+          "deprecated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SkillShareSkillVersionDto": {
+        "required": [
+          "version",
+          "publishedAt",
+          "latest",
+          "sha256"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "latest": {
+            "type": "boolean"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "SkillShareStatusDto": {
+        "required": [
+          "enabled",
+          "name",
+          "url",
+          "grant"
+        ],
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "url": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "grant": {
+            "$ref": "#/components/schemas/SkillShareGrantStatus"
+          },
+          "mcpSetupUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "skills": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
+          },
+          "lastSyncAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastSyncError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "activeGrants": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "SkillShareTokenResponse": {
+        "required": [
+          "accessToken",
+          "expiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -7557,6 +7998,9 @@
     },
     {
       "name": "CatalogEndpoints"
+    },
+    {
+      "name": "SkillShareEndpoints"
     },
     {
       "name": "MachineEndpoints"

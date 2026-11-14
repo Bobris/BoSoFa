@@ -479,6 +479,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/daemon/v1/sessions/{id}/skillshare-tokens/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: {
+                    fresh?: boolean;
+                };
+                header?: never;
+                path: {
+                    id: number | string;
+                    provider: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillShareTokenResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/providers": {
         parameters: {
             query?: never;
@@ -4054,6 +4110,208 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/skillshare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillShareStatusDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skillshare/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skillshare/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillShareSkillDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skillshare/mcps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    fresh?: boolean;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillShareMcpDto"][];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skillshare/mcp-choice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SkillShareMcpChoiceRequest"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/blobs": {
         parameters: {
             query?: never;
@@ -4352,6 +4610,8 @@ export interface components {
             /** Format: uint64 */
             draftId?: null | number | string;
             shellOutputs?: null | (number | string)[];
+            skills?: null | components["schemas"]["SkillRef"][];
+            skillShareMcpServers?: null | string[];
         };
         DaemonTokenRequest: {
             /** Format: uint64 */
@@ -4881,6 +5141,7 @@ export interface components {
             secrets: {
                 [key: string]: string;
             };
+            skillShareProvider?: null | string;
         };
         ResolvedSkill: {
             name: string;
@@ -5080,6 +5341,61 @@ export interface components {
         SkillRef: {
             name: string;
             version: string;
+            source?: null | string;
+        };
+        /** @enum {unknown} */
+        SkillShareGrantStatus: "None" | "Active" | "Expired";
+        SkillShareMcpChoiceRequest: {
+            off: string[];
+        };
+        SkillShareMcpDto: {
+            id: string;
+            title: string;
+            url: string;
+            connected: boolean;
+            accessMode: null | string;
+            setupUrl: null | string;
+            on: boolean;
+        };
+        SkillShareSkillDto: {
+            id: string;
+            name: string;
+            bundleName: string;
+            description: string;
+            tags: string[];
+            owner: string;
+            latestVersion: null | string;
+            versions: components["schemas"]["SkillShareSkillVersionDto"][];
+            deprecated: boolean;
+        };
+        SkillShareSkillVersionDto: {
+            version: string;
+            /** Format: date-time */
+            publishedAt: string;
+            latest: boolean;
+            sha256: string;
+        };
+        SkillShareStatusDto: {
+            enabled: boolean;
+            name: null | string;
+            url: null | string;
+            grant: components["schemas"]["SkillShareGrantStatus"];
+            mcpSetupUrl?: null | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            skills: number | string;
+            /** Format: date-time */
+            lastSyncAt?: null | string;
+            lastSyncError?: null | string;
+            /** Format: int32 */
+            activeGrants?: null | number | string;
+        };
+        SkillShareTokenResponse: {
+            accessToken: string;
+            /** Format: date-time */
+            expiresAt: string;
         };
         TerminalDto: {
             id: string;
