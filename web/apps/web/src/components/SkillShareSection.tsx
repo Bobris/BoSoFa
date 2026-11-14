@@ -35,7 +35,7 @@ export default function SkillShareSection() {
               {status()?.grant === "Expired"
                 ? `${name()} no longer accepts your sign-in here, so your sessions get none of its MCP servers. `
                 : `Sign in through ${name()} once to use its MCP servers in your sessions. `}
-              <a class="text-accent hover:underline" href={`/auth/login?returnUrl=${encodeURIComponent("/accounts")}`}>
+              <a class="text-accent hover:underline" rel="external" href={`/auth/login?returnUrl=${encodeURIComponent("/accounts")}`}>
                 Sign in again
               </a>
             </p>

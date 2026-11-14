@@ -725,7 +725,12 @@ function Editor(props: {
   ];
   const pill =
     "flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted transition-colors hover:bg-hover hover:text-ink";
-  const firstName = () => workspace.me()?.name.split(/\s+/)[0] ?? "";
+  // Directories such as Entra write "Last, First": the given name is after the comma.
+  const firstName = () => {
+    const name = workspace.me()?.name ?? "";
+    const comma = name.indexOf(",");
+    return (comma >= 0 ? name.slice(comma + 1) : name).trim().split(/\s+/)[0] ?? "";
+  };
 
   return (
     <div class="mx-auto flex min-h-[calc(100vh-7rem)] max-w-3xl flex-col justify-center pb-[10vh]">

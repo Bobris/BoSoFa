@@ -85,6 +85,7 @@ function WebLogin() {
           <a
             class="block w-full text-center rounded-md bg-accent text-white py-2 font-medium"
             href={`/auth/login?returnUrl=${encodeURIComponent(returnUrl())}`}
+            rel="external" // the server's sign-in, not a route of this app: the router must let the browser go there
           >
             Continue with {name()}
           </a>
